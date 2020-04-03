@@ -1,5 +1,5 @@
 <?php
-defined('BASEPATH') OR exit('No direct script access allowed');
+defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 /*
 | -------------------------------------------------------------------
 | LAVALust - a lightweight PHP MVC Framework is free software:
@@ -28,12 +28,11 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 */
 
 define('LANG', [
-	'Summary of COVID-19 cases in the Philippines' => 'Kabuuan ang kaso ng COVID-19 sa Pilipinas',
-	'Confirmed cases of Filipino nationals outside the Philippines' => 'Kompirmadong kaso ng mga Pilipino sa COVID-19 sa labas ng Pilipinas',
-	'Number of Suspected Cases' => 'Bilang ng pinaghihinalaan pang kaso sa Pilipinas',
-	'Cases Under Observation' => 'Mga kaso ng COVID-19 nasa ilalim pa ng imbestigasyon',
-	'Checkpoints / Metro Manila' => 'Mga tala ng checkpoints sa Kamaynilaan',
-	'Sources' => 'Mga Pinagkunan',
+    'Welcome' => 'Welcome',
+    'Hello' => 'Hello',
+    'Subscribe' => 'Subscribe',
+		'Active Users' => 'Aktibong Miyembro',
+		'SMS Servers' => 'SMS Servers',
 ]);
 
 ?>

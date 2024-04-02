@@ -983,14 +983,15 @@ class Database {
     /**
      * Pagination
      *
-     * @param int $perPage
+     * @param int $records_per_page
      * @param int $page
      * @return void
      */
-    public function pagination($perPage, $page)
+    public function pagination($records_per_page, $page)
     {
-        $this->limit = $perPage;
-        $this->offset = (($page > 0 ? $page : 1) - 1) * $perPage;
+        $offset = ($page - 1) * $records_per_page;
+
+        $this->limit = ' LIMIT '.$offset.', '.$records_per_page;
 
         return $this;
     }

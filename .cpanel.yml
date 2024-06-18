@@ -1,6 +1,6 @@
 ---
 deployment:
     tasks:
-        - export DEPLOYPATH=${HOME}/public_html/repositories
+        - export DEPLOYPATH=/home/mindoros/public_html/repositories
         - /bin/cp -R * $DEPLOYPATH
         - echo "Deployed successfully!"

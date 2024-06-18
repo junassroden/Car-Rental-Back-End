@@ -1,6 +1,6 @@
 ---
 deployment:
     tasks:
-        - echo "Updating repository in $(pwd)"
-        - git pull origin main  # Replace 'main' with your default branch name
-        - echo "Repository updated successfully!"
+        - export DEPLOYPATH=${HOME}/public_html/repositories
+        - /bin/cp -R * $DEPLOYPATH
+        - echo "Deployed successfully!"

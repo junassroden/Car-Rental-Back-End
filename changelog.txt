@@ -1,3 +1,11 @@
+LavaLust 4.0
+
+#Changelog
+
+1. Database raw function was updated. It was now return executed sql statement.
+
+2. Routing is somehow different in version 4.
+
 LavaLust 3.1.5
 
 # Changelog

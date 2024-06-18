@@ -239,23 +239,16 @@ class Database {
      * @param  array  $args  arguments
      * @return mixed
      */
-    public function raw($query, $args = array(), $mode = PDO::FETCH_ASSOC)
+    public function raw($query, $args = array())
     {
         $this->resetQuery();
         $query = trim($query);
         $this->getSQL = $query;
         $this->bindValues = $args;
 
-        if (strpos( strtoupper($query), "SELECT" ) === 0 ) {
-            $stmt = $this->db->prepare($query);
-            $stmt->execute($this->bindValues);
-            $this->rowCount = $stmt->rowCount();
-            return $stmt->fetchAll($mode);
-        }else{
-            $stmt = $this->db->prepare($query);
-            $stmt->execute($this->bindValues);
-            return $stmt->rowCount();
-        }
+        $stmt = $this->db->prepare($query);
+        $stmt->execute($this->bindValues);
+        return $stmt;
     }
 
     /**

@@ -58,7 +58,7 @@ if ( ! function_exists('force_download'))
         {
             $mime_type = mime_content_type($file);
         };
-        @ob_end_clean();
+        if (ob_get_contents()) ob_end_clean();
         if(ini_get('zlib.output_compression'))
         ini_set('zlib.output_compression', 'Off');
         header('Content-Type: ' . $mime_type);

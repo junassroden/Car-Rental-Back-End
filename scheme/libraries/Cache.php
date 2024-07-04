@@ -41,14 +41,67 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  */
 class Cache
 {
+	/**
+	 * Lavalust Object
+	 *
+	 * @var string
+	 */
 	private $_lava;
+
+	/**
+	 * Config
+	 *
+	 * @var string
+	 */
 	private $_config;
+
+	/**
+	 * Path
+	 *
+	 * @var string
+	 */
 	private $_path;
+
+	/**
+	 * Contents
+	 *
+	 * @var string
+	 */
 	private $_contents;
+
+	/**
+	 * Filename
+	 *
+	 * @var string
+	 */
 	private $_filename;
+
+	/**
+	 * Expires
+	 *
+	 * @var int
+	 */
 	private $_expires;
+
+	/**
+	 * Default expires
+	 *
+	 * @var int
+	 */
 	private $_default_expires;
+
+	/**
+	 * Created
+	 *
+	 * @var int
+	 */
 	private $_created;
+
+	/**
+	 * Dependencies
+	 *
+	 * @var string
+	 */
 	private $_dependencies;
 
 	/**
@@ -58,9 +111,7 @@ class Cache
 	{
 		$this->_lava =& lava_instance();
 		$this->_reset();
-
 		$this->_config =& get_config();
-
 		$this->_path = $this->_config['cache_dir'];
 		$this->_default_expires = $this->_config['cache_default_expires'];
 		if ( ! is_dir($this->_path))

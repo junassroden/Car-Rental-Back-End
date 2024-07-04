@@ -107,7 +107,10 @@ function _handlers()
 	register_shutdown_function('_shutdown_handler');
 }
 
-
+/**
+ * Instantiate the logger class
+ */
+$logger =& load_class('logger', 'kernel');
 
 /**
  * Instantiate the security class for xss and csrf support

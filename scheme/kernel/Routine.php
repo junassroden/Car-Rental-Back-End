@@ -160,6 +160,10 @@ if ( ! function_exists('_exception_handler'))
 	 */
 	function _exception_handler($e)
 	{
+		if(config_item('log_threshold') == 1 || config_item('log_threshold') == 3) {
+			$logger =& load_class('logger', 'kernel');
+			$logger->log('error', get_class($e), $e->getMessage(), $e->getFile(), $e->getLine());
+		}
 		$exception =& load_class('Errors', 'kernel');
 		$exception->show_exception($e);
 	}

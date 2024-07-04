@@ -92,6 +92,23 @@ $config['base_url'] 				= '';
 */
 $config['index_page'] = 'index.php';
 
+
+/*
+|--------------------------------------------------------------------------
+| Error Logging Threshold
+|--------------------------------------------------------------------------
+|
+| You can enable error logging by setting a threshold over zero.
+|
+|	0 = Disables logging
+|	1 = Exception and Error Messages
+|   2 = Debug
+|   3 = All
+|
+*/
+$config['log_threshold'] = 0;
+$config['log_dir'] = 'runtime/logs/';
+
 /*
 |--------------------------------------------------------------------------
 | Composer auto-loading

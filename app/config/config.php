@@ -90,7 +90,7 @@ $config['base_url'] 				= '';
 | variable to blank.
 |
 */
-$config['index_page'] = 'index.php';
+$config['index_page']               = 'index.php';
 
 
 /*
@@ -106,8 +106,8 @@ $config['index_page'] = 'index.php';
 |   3 = All
 |
 */
-$config['log_threshold'] = 0;
-$config['log_dir'] = 'runtime/logs/';
+$config['log_threshold']            = 0;
+$config['log_dir']                  = 'runtime/logs/';
 
 /*
 |--------------------------------------------------------------------------

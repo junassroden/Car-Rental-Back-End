@@ -84,9 +84,10 @@ switch (strtolower(config_item('ENVIRONMENT')))
 	break;
 
 	case 'testing':
-	case 'production':
+	case 'production':		
 		ini_set('display_errors', 0);
 		error_reporting(0);
+		_handlers();
 	break;
 
 	default :
@@ -106,6 +107,11 @@ function _handlers()
 	set_exception_handler('_exception_handler');
 	register_shutdown_function('_shutdown_handler');
 }
+
+/**
+ * Instantiate the config class
+ */
+$config =& load_class('config', 'kernel');
 
 /**
  * Instantiate the logger class

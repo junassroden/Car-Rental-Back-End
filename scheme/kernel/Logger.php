@@ -53,6 +53,12 @@ class Logger {
     public function log($type = '', $header = '', $message = '', $filename = '', $linenum = '')
     {
         $logfile = config_item('log_dir').'log.txt';
+        if (! file_exists($logfile)) { 
+            mkdir(config_item('log_dir'), 0777, true);
+            $fh = fopen($logfile, 'w');
+            fclose($fh);
+        } 
+
         $date = date("d/m/Y G:i:s");
 
         if($type == 'debug' && (config_item('log_threshold') == 2 || config_item('log_threshold') == 3)) {

@@ -160,12 +160,17 @@ if ( ! function_exists('_exception_handler'))
 	 */
 	function _exception_handler($e)
 	{
-		if(config_item('log_threshold') == 1 || config_item('log_threshold') == 3) {
+		if(config_item('log_threshold') == 1 || config_item('log_threshold') == 3)
+		{
 			$logger =& load_class('logger', 'kernel');
 			$logger->log('error', get_class($e), $e->getMessage(), $e->getFile(), $e->getLine());
 		}
-		$exception =& load_class('Errors', 'kernel');
-		$exception->show_exception($e);
+		if(strtolower(config_item('ENVIRONMENT') == 'development'))
+		{
+			$exception =& load_class('Errors', 'kernel');
+			$exception->show_exception($e);
+		}
+		
 	}
 }
 
@@ -181,8 +186,15 @@ if ( ! function_exists('_error_handler'))
 	 */
 	function _error_handler($errno, $errstr, $errfile, $errline)
 	{
-		$error =& load_class('Errors', 'kernel');
-		$error->show_php_error($errno, $errstr, $errfile, $errline);
+		if(config_item('log_threshold') == 1 || config_item('log_threshold') == 3) {
+			$logger =& load_class('logger', 'kernel');
+			$logger->log('error', $errno, $errstr, $errfile, $errline);
+		}
+		if(strtolower(config_item('ENVIRONMENT') == 'development'))
+		{
+			$error =& load_class('Errors', 'kernel');
+			$error->show_php_error($errno, $errstr, $errfile, $errline);
+		}
 	}
 }
 

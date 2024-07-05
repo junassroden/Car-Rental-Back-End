@@ -283,6 +283,7 @@ class Controller extends Loader
 	 */
 	public function __construct()
 	{
+		$this->before_action();
         $this->call = $this;
 
 		self::$instance = $this;
@@ -312,6 +313,13 @@ class Controller extends Loader
             $this->call->helper($autoload['helpers']);
         }
 	}
+
+	/**
+     * Called before the controller action.
+     * Used to perform logic that needs to happen before each controller action.
+     *
+     */
+    public function before_action(){}
 
 	/**
 	 * Instance of controller

@@ -49,7 +49,8 @@ Class Encryption {
      * @param string $method
      * @return void
      */
-    public function encrypt($input, $key, $method = 'AES-256-CBC'){
+    public function encrypt($input, $key, $method = 'AES-256-CBC')
+    {
         $encrypt_iv = $this->_gen_encrypt_iv($key, openssl_cipher_iv_length($method));
 
         return base64_encode(openssl_encrypt($input, $method, $key, 0, $encrypt_iv));
@@ -63,7 +64,8 @@ Class Encryption {
      * @param string $method
      * @return void
      */
-    public function decrypt(string $input, string $key, string $method = 'AES-256-CBC'){
+    public function decrypt(string $input, string $key, string $method = 'AES-256-CBC')
+    {
         $encrypt_iv = $this->_gen_encrypt_iv($key, openssl_cipher_iv_length($method));
 
         return openssl_decrypt(base64_decode($input), $method, $key, 0, $encrypt_iv);
@@ -76,7 +78,8 @@ Class Encryption {
      * @param string $size
      * @return void
      */
-    public function _gen_encrypt_iv($key, $size){
+    public function _gen_encrypt_iv($key, $size)
+    {
         $hash = base64_encode(sha1($key));
         while(strlen($hash) < $size){
             $hash = $hash.$hash;

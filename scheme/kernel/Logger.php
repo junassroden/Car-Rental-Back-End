@@ -61,11 +61,13 @@ class Logger {
 
         $date = date("d/m/Y G:i:s");
 
-        if($type == 'debug' && (config_item('log_threshold') == 2 || config_item('log_threshold') == 3)) {
+        if($type == 'debug' && (config_item('log_threshold') == 2 || config_item('log_threshold') == 3))
+        {
             $err = "Date: ".$date."\n"."Debug Message: ".$header;
             $err .= "\n------------------------------------------------------------------\n\n";
             error_log($err, 3, $logfile);
-        } else if($type == 'error' && (config_item('log_threshold') == 1 || config_item('log_threshold') == 3)) {
+        } else if($type == 'error' && (config_item('log_threshold') == 1 || config_item('log_threshold') == 3))
+        {
             $message = is_array($message)? implode("\n", $message): $message;
             $err = "Date: ".$date."\n"."Exception Class: ".$header."\n"."Error Message: ".$message."\n"."Filename: ".$filename."\n"."Line Number: ".$linenum;
             $err .= "\n------------------------------------------------------------------\n\n";

@@ -118,11 +118,13 @@ class Config {
      */
     private function _set($conf_key, $value, $source)
     {
-        if (empty($this->config)) {
+        if (empty($this->config))
+        {
             $this->_get($conf_key, $source);
         }
 
-        if($conf_key && $source){
+        if($conf_key && $source)
+        {
             $this->config[$conf_key] = $value;
         }
     }

@@ -68,8 +68,8 @@ class Config {
      * @param string $source
      * @return void
      */
-    public function set($key, $value, $source){
-        $this->_set($key, $value, $source = 'config');
+    public function set($key, $value, $source = 'config'){
+        $this->_set($key, $value, $source);
     }
 
     /**

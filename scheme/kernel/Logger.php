@@ -44,6 +44,7 @@ class Logger {
     /**
      * log error etc
      *
+     * @param string $type | debug, error
      * @param string $header
      * @param string $message
      * @param string $filename

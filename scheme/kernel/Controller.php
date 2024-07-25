@@ -312,6 +312,10 @@ class Controller extends Loader
         {
             $this->call->helper($autoload['helpers']);
         }
+		if(count($autoload['config']) > 0)
+        {
+            $this->config->load($autoload['config']);
+        }
 	}
 
 	/**

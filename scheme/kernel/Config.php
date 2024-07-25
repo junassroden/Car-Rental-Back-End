@@ -48,84 +48,120 @@ class Config {
      */
     private $config = [];
 
-
     /**
-     * Get configuration value
+	 * List of all loaded config files
+	 *
+	 * @var	array
+	 */
+	public $is_loaded =	array();
+    
+
+    public function __construct()
+	{
+		$this->config =& get_config();
+
+		// Set the base_url automatically if none was provided
+		if (empty($this->config['base_url']))
+		{
+			if (isset($_SERVER['SERVER_ADDR']))
+			{
+				if (strpos($_SERVER['SERVER_ADDR'], ':') !== FALSE)
+				{
+					$server_addr = '['.$_SERVER['SERVER_ADDR'].']';
+				}
+				else
+				{
+					$server_addr = $_SERVER['SERVER_ADDR'];
+				}
+
+				$base_url = (is_https() ? 'https' : 'http').'://'.$server_addr
+					.substr($_SERVER['SCRIPT_NAME'], 0, strpos($_SERVER['SCRIPT_NAME'], basename($_SERVER['SCRIPT_FILENAME'])));
+			}
+			else
+			{
+				$base_url = 'http://localhost/';
+			}
+			$this->set('base_url', $base_url);
+		}
+
+	}
+    /**
+     * Load Config file
      *
-     * @param string $key
-     * @param string $source
+     * @param mixed $file
+     * @param boolean $use_sections
      * @return void
      */
-    public function get($key, $source = 'config'){
-        return $this->_get($key, $source);
-    }
-
-    /**
-     * Set Configuration value
-     *
-     * @param string $key
-     * @param mixed $value
-     * @param string $source
-     * @return void
-     */
-    public function set($key, $value, $source = 'config'){
-        $this->_set($key, $value, $source);
-    }
-
-    /**
-     * Get configuration value
-     *
-     * @param string $conf_key
-     * @param string $source
-     * @return void
-     */
-    private function _get($conf_key, $source)
+    public function load($file, $use_sections = FALSE)
     {
-        static $config;
+        $file = ($file === '') ? 'config' : str_replace('.php', '', $file);
+        $loaded = FALSE;
+        $file = is_array($file) ? $file : array($file);
 
-        if (empty($this->config)) {
+        foreach($file as $location)
+        {
+            $file_path = APP_DIR . 'config/'.$location.'.php';
 
-            $config_file = APP_DIR . 'config/' . $source . '.php';       
-
-            if (!file_exists($config_file)) {
-                throw new Exception("Configuration file " . $source . " doesn't exist");
+            if(! file_exists($file_path))
+            {
+                continue;
             }
 
-            require $config_file;           
-            
-            $this->config = $config;
+            if (in_array($file_path, $this->is_loaded, TRUE))
+            {
+                return TRUE;
+            }
 
-            if ( isset($config) OR is_array($config) )
-			{
-				foreach( $config as $key => $val )
-				{
-					$config[$key] = $val;
-				}
-				return $config[$conf_key];
-			}   
+            include($file_path);
+
+            if ($use_sections === TRUE)
+            {
+                $this->config[$file] = isset($this->config[$file])
+                    ? array_merge($this->config[$file], $config)
+                    : $config;
+            }
+            else
+            {
+                $this->config = array_merge($this->config, $config);
+            }
+
+            $this->is_loaded[] = $file_path;
+            $config = NULL;
+            $loaded = TRUE;
         }
-
-        return $this->config[$conf_key];
+        if ($loaded === TRUE)
+		{
+			return TRUE;
+		}
+        show_404('', 'The configuration file '.$file.'.php does not exist.');
     }
 
     /**
-     * Set default or new config value
-     *
-     * @param string $key
-     * @param string $value
-     * @param string $source
-     * @return void
-     */
-    private function _set($conf_key, $value, $source)
-    {
-        if (empty($this->config))
-        {
-            $this->_get($conf_key, $source);
-        }
+	 * Fetch a config file item
+	 *
+	 * @param	string	$item	Config item name
+	 * @param	string	$index	Index name
+	 * @return	string|null	The configuration item or NULL if the item doesn't exist
+	 */
+    public function get($item, $index = '')
+	{
+		if ($index == '')
+		{
+			return isset($this->config[$item]) ? $this->config[$item] : NULL;
+		}
 
-        if($conf_key && $source)
-        {
-            $this->config[$conf_key] = $value;
-        }
-    }
+		return isset($this->config[$index], $this->config[$index][$item]) ? $this->config[$index][$item] : NULL;
+	}
+
+    /**
+	 * Set a config file item
+	 *
+	 * @param	string	$item	Config item key
+	 * @param	string	$value	Config item value
+	 * @return	void
+	 */
+    public function set($item, $value)
+	{
+		$this->config[$item] = $value;
+	}
 }

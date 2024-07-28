@@ -40,7 +40,29 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 * ------------------------------------------------------
  */
 Class Encryption {
+    
+    /**
+     * Encryption Key
+     *
+     * @var string
+     */
+    private $encryption_key;
 
+    /**
+     * Cipher type
+     *
+     * @var string
+     */
+    private $method;
+    
+    public function __construct($method = '') {
+        if(empty(config_item('encryption_key')))
+        {
+            throw new RuntimeException('Encryption key is empty. Please provide the key in your config.php file.');
+        }
+        $this->encryption_key = config_item('encryption_key');
+        $this->method = empty($method) ? 'AES-256-CBC' : $method;
+    }
     /**
      * Encypt input value
      *
@@ -49,11 +71,11 @@ Class Encryption {
      * @param string $method
      * @return void
      */
-    public function encrypt($input, $key, $method = 'AES-256-CBC')
+    public function encrypt($input)
     {
-        $encrypt_iv = $this->_gen_encrypt_iv($key, openssl_cipher_iv_length($method));
+        $encrypt_iv = $this->_gen_encrypt_iv($this->encryption_key, openssl_cipher_iv_length($this->method));
 
-        return base64_encode(openssl_encrypt($input, $method, $key, 0, $encrypt_iv));
+        return base64_encode(openssl_encrypt($input, $this->method, $this->encryption_key, 0, $encrypt_iv));
     }
     
     /**
@@ -64,11 +86,11 @@ Class Encryption {
      * @param string $method
      * @return void
      */
-    public function decrypt(string $input, string $key, string $method = 'AES-256-CBC')
+    public function decrypt($input)
     {
-        $encrypt_iv = $this->_gen_encrypt_iv($key, openssl_cipher_iv_length($method));
+        $encrypt_iv = $this->_gen_encrypt_iv($this->encryption_key, openssl_cipher_iv_length($this->method));
 
-        return openssl_decrypt(base64_decode($input), $method, $key, 0, $encrypt_iv);
+        return openssl_decrypt(base64_decode($input), $this->method, $this->encryption_key, 0, $encrypt_iv);
     }
 
     /**

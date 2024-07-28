@@ -254,6 +254,17 @@ $config['cache_default_expires']   = 0;
 
 /*
 |--------------------------------------------------------------------------
+| Encryption Key
+|--------------------------------------------------------------------------
+|
+| If you use the Encryption class, you must set an encryption key.
+|
+|
+*/
+$config['encryption_key'] = '';
+
+/*
+|--------------------------------------------------------------------------
 | Cross Site Request Forgery
 |--------------------------------------------------------------------------
 | Enables a CSRF cookie token to be set. When set to TRUE, token will be

@@ -134,11 +134,6 @@ $io =& load_class('io', 'kernel');
 $lang =& load_class('lang', 'kernel');
 
 /**
- * Instantiate the encryption class
- */
-$config =& load_class('encryption', 'kernel');
-
-/**
  * Load BaseController
  */
 require_once SYSTEM_DIR . 'kernel/Controller.php';

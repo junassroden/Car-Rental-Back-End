@@ -72,7 +72,7 @@ class Errors
 		$template_path = config_item('error_view_path');
 		if (empty($template_path))
 		{
-			$template_path = APP_DIR . 'views' . DIRECTORY_SEPARATOR . 'errors' . DIRECTORY_SEPARATOR;
+			$template_path = APP_DIR . 'views/errors/';
 		}
 
 		http_response_code($code);
@@ -91,7 +91,7 @@ class Errors
 		$template_path = config_item('error_view_path');
 		if (empty($template_path))
 		{
-			$template_path = APP_DIR.'views/errors'.DIRECTORY_SEPARATOR;
+			$template_path = APP_DIR.'views/errors/';
 		}
 
 		$message = $exception->getMessage();
@@ -118,7 +118,7 @@ class Errors
 		$template_path = config_item('error_view_path');
 		if (empty($template_path))
 		{
-			$template_path = APP_DIR.'views/errors'.DIRECTORY_SEPARATOR;
+			$template_path = APP_DIR.'views/errors/';
 		}
 		require_once($template_path.'error_php.php');
 		die();

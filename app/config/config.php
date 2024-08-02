@@ -170,7 +170,7 @@ $config['charset']					= 'UTF-8';
 | app/views/errors/ directory.  Use a full server path with trailing slash.
 |
 */
-$config['error_view_path']         	= APP_DIR . 'views' . DIRECTORY_SEPARATOR . 'errors' . DIRECTORY_SEPARATOR;
+$config['error_view_path']         	= '';
 
 /*
 |--------------------------------------------------------------------------

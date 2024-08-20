@@ -6,6 +6,8 @@ LavaLust 4.0
 
 2. Routing is somehow different in version 4.
 
+3. Config and Logger classes were added in kernel directory and Encryption class in libraries directory.
+
 LavaLust 3.1.5
 
 # Changelog

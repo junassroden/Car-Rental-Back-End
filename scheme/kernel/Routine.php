@@ -366,3 +366,54 @@ if ( ! function_exists('html_escape'))
 		return htmlspecialchars($var, ENT_QUOTES, config_item('charset'), $double_encode);
 	}
 }
+
+if ( ! function_exists('is_php'))
+{
+	/**
+	 * Determines if the current version of PHP is equal to or greater than the supplied value
+	 *
+	 * @param	string
+	 * @return	bool	TRUE if the current version is $version or higher
+	 */
+	function is_php($version)
+	{
+		static $_is_php;
+		$version = (string) $version;
+
+		if ( ! isset($_is_php[$version]))
+		{
+			$_is_php[$version] = version_compare(PHP_VERSION, $version, '>=');
+		}
+
+		return $_is_php[$version];
+	}
+}
+
+if ( ! function_exists('is_https'))
+{
+	/**
+	 * Is HTTPS?
+	 *
+	 * Determines if the application is accessed via an encrypted
+	 * (HTTPS) connection.
+	 *
+	 * @return	bool
+	 */
+	function is_https()
+	{
+		if ( ! empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+		{
+			return TRUE;
+		}
+		elseif (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+		{
+			return TRUE;
+		}
+		elseif ( ! empty($_SERVER['HTTP_FRONT_END_HTTPS']) && strtolower($_SERVER['HTTP_FRONT_END_HTTPS']) !== 'off')
+		{
+			return TRUE;
+		}
+
+		return FALSE;
+	}
+}

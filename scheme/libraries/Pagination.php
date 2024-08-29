@@ -265,7 +265,7 @@ class Pagination
             {
 
                 if($pages == $this->page_array['current'])
-                    $active = 'active';
+                    $active = $this->classes['active'];
                 else
                     $active = '';
 

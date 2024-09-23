@@ -397,7 +397,7 @@ Class Io {
 	 * @return void
 	 */
     public function send_json($data) {
-        $this->set_header('Content-Type', 'application/json');
+        $this->add_header('Content-Type', 'application/json');
         $this->set_content(json_encode($data));
         $this->send();
     }

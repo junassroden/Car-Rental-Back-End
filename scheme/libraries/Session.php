@@ -397,7 +397,7 @@ class Session {
 	/**
 	 * Get Flash Keys
 	 *
-	 * @return void
+	 * @return mixed
 	 */
 	public function get_flash_keys()
 	{

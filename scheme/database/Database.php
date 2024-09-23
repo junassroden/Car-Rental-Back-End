@@ -50,7 +50,7 @@ class Database {
     /**
      * Database Instance
      *
-     * @var string
+     * @var object
      */
     private $db = NULL;
 

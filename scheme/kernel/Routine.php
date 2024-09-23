@@ -155,7 +155,7 @@ if ( ! function_exists('_exception_handler'))
 {
 	/**
 	 * For Debgging
-	 * @param  string $e
+	 * @param  object $e
 	 * @return string
 	 */
 	function _exception_handler($e)

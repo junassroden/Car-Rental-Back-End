@@ -98,7 +98,7 @@ Class Encryption {
      *
      * @param string $key
      * @param string $size
-     * @return void
+     * @return string
      */
     public function _gen_encrypt_iv($key, $size)
     {

@@ -44,7 +44,7 @@ class Cache
 	/**
 	 * Lavalust Object
 	 *
-	 * @var string
+	 * @var object
 	 */
 	private $_lava;
 
@@ -65,7 +65,7 @@ class Cache
 	/**
 	 * Contents
 	 *
-	 * @var string
+	 * @var object
 	 */
 	private $_contents;
 

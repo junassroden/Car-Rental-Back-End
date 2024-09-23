@@ -55,12 +55,6 @@ class Router
      */
     private $group_prefix = '';
 
-    /**
-     * Route Constraints
-     *
-     * @var array
-     */
-    private $route_constraints = [];
 
     /**
      * Sanitize URL
@@ -243,7 +237,7 @@ class Router
      * Regex Pattern
      *
      * @param string $url
-     * @return void
+     * @return string
      */
     private function convert_to_regex_pattern($url, $constraints)
     {

@@ -51,7 +51,7 @@ class Pagination
     /**
      * Page number
      *
-     * @var array
+     * @var int
      */
     protected $page_num;
 

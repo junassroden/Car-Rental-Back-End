@@ -293,11 +293,6 @@ class Controller extends Loader
 			$this->properties[$var] =& load_class($class);
 		}
 
-		/**
-		 * Autoloaded
-		 *
-		 * @return void
-		 */
 		$autoload =& autoload_config();
 
 		if(count($autoload['libraries']) > 0)

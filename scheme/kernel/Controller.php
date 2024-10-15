@@ -82,7 +82,7 @@ class Loader {
 			require_once(SYSTEM_DIR.'kernel/Model.php');
 		}
 
-		$LAVA = Controller::instance();
+		$LAVA =& Controller::instance();
 
 		if(is_array($class))
 		{
@@ -193,7 +193,7 @@ class Loader {
 	 */
 	public function library($classes, $params = NULL)
 	{
-		$LAVA = Controller::instance();
+		$LAVA =& Controller::instance();
 		if(is_array($classes))
 		{
 			foreach($classes as $class)

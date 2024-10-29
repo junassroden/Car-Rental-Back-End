@@ -116,7 +116,7 @@ class Cache
 		$this->_default_expires = $this->_config['cache_default_expires'];
 		if ( ! is_dir($this->_path))
 		{
-			show_error();
+			mkdir($this->_path, 0777, true);
 		}
 	}
 

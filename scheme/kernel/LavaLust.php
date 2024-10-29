@@ -70,7 +70,7 @@ if ($composer_autoload = config_item('composer_autoload'))
  * Instantiate the Benchmark class
  */
 $performance =& load_class('performance', 'kernel');
-$performance->tag('lavalust');
+$performance->start('lavalust');
 
 /**
  * Deployment Environment
@@ -153,7 +153,7 @@ function &lava_instance()
 {
   	return Controller::instance();
 }
-$performance->tag('lavalust');
+$performance->stop('lavalust');
 
 // Handle the request
 $url = $router->sanitize_url(str_replace($_SERVER['SCRIPT_NAME'], '', $_SERVER['PHP_SELF']));

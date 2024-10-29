@@ -51,15 +51,24 @@ class Performance {
 	public $tags = array();
 
 	/**
-	 * Start marking Points
+	 * Start Marking Points
 	 *
 	 * @param  string $point marker
 	 * @return void
 	 */
-	public function tag($point)
+	public function start($point)
 	{
-		$key = ! array_key_exists($point, $this->tags) ? 'start' : 'stop';
-		$this->tags[$point][$key] = microtime(true);
+		$this->tags[$point]['start'] = microtime(true);
+	}
+
+	/**
+	 * End Marking Point
+	 *
+	 * @param string $point
+	 * @return void
+	 */
+	public function stop($point) {
+		$this->tags[$point]['stop'] = microtime(true);
 	}
 
 	/**

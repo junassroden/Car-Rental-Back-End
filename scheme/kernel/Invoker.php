@@ -266,6 +266,17 @@ class Invoker {
 		}
 	}
 
+	/**
+	 * DBForge
+	 *
+	 * @return void
+	 */
+	public function dbforge()
+	{
+		$LAVA =& lava_instance();
+		$LAVA->properties['dbforge'] =& load_class('dbforge','database');
+	}
+
     public function initialize()
     {
         $autoload =& autoload_config();

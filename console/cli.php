@@ -46,11 +46,11 @@ if ($file_type === 'Model') {
     $class_name .= '_model';
     $content = "<?php
     defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-    
-    protected \$table = '';
-    protected \$primary_key = 'id';
 
     class {class} extends {extends} {
+        
+        protected \$table = '';
+        protected \$primary_key = 'id';
         
         public function __construct()
         {

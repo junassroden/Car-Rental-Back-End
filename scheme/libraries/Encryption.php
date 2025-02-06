@@ -39,8 +39,8 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 *  Encryption Config
 * ------------------------------------------------------
  */
-Class Encryption {
-    
+class Encryption {
+
     /**
      * Encryption Key
      *
@@ -54,58 +54,68 @@ Class Encryption {
      * @var string
      */
     private $method;
-    
-    public function __construct($method = '') {
-        if(empty(config_item('encryption_key')))
-        {
+
+    public function __construct($method = 'aes-128-cbc') {
+        if (empty(config_item('encryption_key'))) {
             throw new RuntimeException('Encryption key is empty. Please provide the key in your config.php file.');
         }
         $this->encryption_key = config_item('encryption_key');
-        $this->method = empty($method) ? 'AES-256-CBC' : $method;
+
+        // Validate the provided encryption method
+        if (!in_array(strtolower($method), openssl_get_cipher_methods())) {
+            throw new RuntimeException("Invalid encryption method: $method");
+        }
+
+        $this->method = $method;
     }
+
     /**
-     * Encypt input value
+     * Encrypt input value
      *
      * @param string $input
-     * @param string $key
-     * @param string $method
-     * @return void
+     * @return string
      */
     public function encrypt($input)
     {
-        $encrypt_iv = $this->_gen_encrypt_iv($this->encryption_key, openssl_cipher_iv_length($this->method));
+        $iv_size = openssl_cipher_iv_length($this->method);
+        $iv = openssl_random_pseudo_bytes($iv_size); // Generate a random IV
 
-        return base64_encode(openssl_encrypt($input, $this->method, $this->encryption_key, 0, $encrypt_iv));
+        if (stripos($this->method, 'gcm') !== false) {
+            // GCM mode requires an authentication tag
+            $tag = '';
+            $encrypted = openssl_encrypt($input, $this->method, $this->encryption_key, OPENSSL_RAW_DATA, $iv, $tag);
+
+            return base64_encode($iv . $tag . $encrypted); // Store IV + Tag + Encrypted Data
+        }
+
+        // Default CBC mode encryption
+        $encrypted = openssl_encrypt($input, $this->method, $this->encryption_key, OPENSSL_RAW_DATA, $iv);
+        return base64_encode($iv . $encrypted);
     }
-    
+
     /**
      * Decrypt input value
      *
      * @param string $input
-     * @param string $key
-     * @param string $method
-     * @return void
+     * @return string|false
      */
     public function decrypt($input)
     {
-        $encrypt_iv = $this->_gen_encrypt_iv($this->encryption_key, openssl_cipher_iv_length($this->method));
+        $data = base64_decode($input);
+        $iv_size = openssl_cipher_iv_length($this->method);
+        $iv = substr($data, 0, $iv_size);
+        $encrypted_data = substr($data, $iv_size);
 
-        return openssl_decrypt(base64_decode($input), $this->method, $this->encryption_key, 0, $encrypt_iv);
-    }
+        if (stripos($this->method, 'gcm') !== false) {
+            // GCM mode requires extracting the authentication tag
+            $tag_size = 16; // Usually 16 bytes
+            $tag = substr($encrypted_data, 0, $tag_size);
+            $encrypted_data = substr($encrypted_data, $tag_size);
 
-    /**
-     * Generate Encrypt IV
-     *
-     * @param string $key
-     * @param string $size
-     * @return string
-     */
-    public function _gen_encrypt_iv($key, $size)
-    {
-        $hash = base64_encode(sha1($key));
-        while(strlen($hash) < $size){
-            $hash = $hash.$hash;
+            return openssl_decrypt($encrypted_data, $this->method, $this->encryption_key, OPENSSL_RAW_DATA, $iv, $tag);
         }
-        return substr($hash, 0, $size);
+
+        return openssl_decrypt($encrypted_data, $this->method, $this->encryption_key, OPENSSL_RAW_DATA, $iv);
     }
 }
+

@@ -164,6 +164,10 @@ class DBForge {
         $sql = "CREATE TABLE " . ($if_not_exists ? "IF NOT EXISTS " : "") . "$table_name (" . implode(", ", $columns) . ")";
         $this->execute($sql);
         echo "Table '$table_name' created successfully.\n";
+        //Reset
+        $this->fields = [];
+        $this->primary_key = [];
+        $this->foreign_keys = [];
     }
 
     /**

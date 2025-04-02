@@ -298,6 +298,95 @@ class Database {
     }
 
     /**
+     * Count rows in the table
+     *
+     * @return integer
+     */
+    public function count()
+    {
+        return $this->raw("SELECT COUNT(*) AS count FROM {$this->table}" . $this->where)->fetch()['count'];
+    }
+
+    /**
+     * Bulk insert multiple records into the database
+     *
+     * @param array $records
+     * @return integer
+     */
+    public function bulk_insert($records)
+    {
+        if (empty($records)) {
+            return false;
+        }
+        
+        $columns = array_keys($records[0]);
+        $placeholders = rtrim(str_repeat('(' . rtrim(str_repeat('?, ', count($columns)), ', ') . '), ', count($records)), ', ');
+        $this->bindValues = [];
+        
+        foreach ($records as $record) {
+            $this->bindValues = array_merge($this->bindValues, array_values($record));
+        }
+        
+        $this->sql = "INSERT INTO {$this->table} (" . implode(',', $columns) . ") VALUES $placeholders";
+        return $this->exec();
+    }
+
+    /**
+     * Bulk update multiple records
+     *
+     * @param array $records (each record should include primary key value)
+     * @param string $primaryKey
+     * @return integer
+     */
+    public function bulk_update($records, $primaryKey = 'id') 
+    {
+        if (empty($records)) {
+            return false;
+        }
+    
+        // Reset query components
+        $this->sql = '';
+        $this->bindValues = [];
+        $ids = [];
+        $updates = [];
+    
+        // Get all columns that should be updated (excluding primary key)
+        $columns = array_keys($records[0]);
+        $columns = array_diff($columns, [$primaryKey]);
+    
+        // Build the update statements for each column
+        foreach ($columns as $column) {
+            $cases = [];
+            $params = [];
+            
+            foreach ($records as $record) {
+                $id = $record[$primaryKey];
+                $value = $record[$column] ?? null;
+                
+                $cases[] = "WHEN ? THEN ?";
+                $params[] = $id;
+                $params[] = $value;
+                
+                if (!in_array($id, $ids)) {
+                    $ids[] = $id;
+                }
+            }
+            
+            $caseStatement = "$column = CASE $primaryKey " . implode(' ', $cases) . " ELSE $column END";
+            $updates[] = $caseStatement;
+            $this->bindValues = array_merge($this->bindValues, $params);
+        }
+    
+        // Build the complete SQL query
+        $this->sql = "UPDATE {$this->table} SET " . implode(', ', $updates) . 
+                    " WHERE $primaryKey IN (" . implode(',', array_fill(0, count($ids), '?')) . ")";
+        $this->bindValues = array_merge($this->bindValues, $ids);
+    
+        // Execute and return the result
+        return $this->exec();
+    }
+
+    /**
      * Delete Records
      *
      * @return integer

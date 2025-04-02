@@ -184,16 +184,38 @@ if ( ! function_exists('_error_handler'))
 	 * @param  string $errline
 	 * @return string
 	 */
-	function _error_handler($errno, $errstr, $errfile, $errline)
+	function _error_handler($severity, $errstr, $errfile, $errline)
 	{
-		if(config_item('log_threshold') == 1 || config_item('log_threshold') == 3) {
+		// Map of PHP error levels
+		$error_levels = [
+			E_ERROR => "E_ERROR",
+			E_WARNING => "E_WARNING",
+			E_PARSE => "E_PARSE",
+			E_NOTICE => "E_NOTICE",
+			E_CORE_ERROR => "E_CORE_ERROR",
+			E_CORE_WARNING => "E_CORE_WARNING",
+			E_COMPILE_ERROR => "E_COMPILE_ERROR",
+			E_COMPILE_WARNING => "E_COMPILE_WARNING",
+			E_USER_ERROR => "E_USER_ERROR",
+			E_USER_WARNING => "E_USER_WARNING",
+			E_USER_NOTICE => "E_USER_NOTICE",
+			E_STRICT => "E_STRICT",
+			E_RECOVERABLE_ERROR => "E_RECOVERABLE_ERROR",
+			E_DEPRECATED => "E_DEPRECATED",
+			E_USER_DEPRECATED => "E_USER_DEPRECATED",
+		];
+
+		// Convert severity number to string name
+		$severity_name = $error_levels[$severity] ?? "UNKNOWN_ERROR";
+
+		if (config_item('log_threshold') == 1 || config_item('log_threshold') == 3) {
 			$logger =& load_class('logger', 'kernel');
-			$logger->log('error', $errno, $errstr, $errfile, $errline);
+			$logger->log('error', $severity_name, $errstr, $errfile, $errline);
 		}
-		if(strtolower(config_item('ENVIRONMENT') == 'development'))
-		{
+
+		if (strtolower(config_item('ENVIRONMENT')) == 'development') { 
 			$error =& load_class('Errors', 'kernel');
-			$error->show_php_error($errno, $errstr, $errfile, $errline);
+			$error->show_php_error($severity_name, $errstr, $errfile, $errline);
 		}
 	}
 }

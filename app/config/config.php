@@ -261,7 +261,22 @@ $config['cache_default_expires']   = 0;
 |
 |
 */
-$config['encryption_key'] = '';
+$config['encryption_key']           = '';
+
+/*
+|--------------------------------------------------------------------------
+| Soft Delete
+|--------------------------------------------------------------------------
+|
+| If you use the Encryption class, you must set an encryption key.
+|
+| Default:
+|   $config['soft_delete']  = FALSE;
+|   $config['soft_delete_column'] = 'deleted_at;
+|
+*/
+$config['soft_delete']              = FALSE;
+$config['soft_delete_column']       = 'deleted_at';
 
 /*
 |--------------------------------------------------------------------------

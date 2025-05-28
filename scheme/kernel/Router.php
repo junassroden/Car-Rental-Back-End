@@ -136,6 +136,19 @@ class Router
     }
 
     /**
+     * Options Method
+     *
+     * @param string $url
+     * @param mixed $callback
+     * @return void
+     */
+    public function options($url, $callback)
+    {
+        $this->add_route($url, $callback, 'OPTIONS');
+        return $this;
+    }
+
+    /**
      * Match any method
      *
      * @param string $url

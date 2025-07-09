@@ -14,7 +14,14 @@ class Api
      *
      * @var string
      */
-    protected $api_helper_table = '';
+    protected $refresh_token_table = '';
+
+    /**
+     * Allow Origin
+     *
+     * @var string
+     */
+    protected $allow_origin = '*';
 
     /**
      * Secret Code
@@ -28,7 +35,7 @@ class Api
      *
      * @var string
      */
-    private $refresh_token_key = ''; // Replace with env var
+    private $refresh_token_key = '';
 
     public function __construct()
     {
@@ -40,7 +47,12 @@ class Api
             show_error('Api Helper is disabled or set up incorrectly.');
         }
 
-        $this->api_helper_table = config_item('api_helper_table');
+        $this->refresh_token_table = config_item('refresh_token_table');
+
+        $this->allow_origin = config_item('allow_origin');
+
+        //Handle CORS
+        $this->handle_cors();
 
         if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
             http_response_code(200);
@@ -58,18 +70,18 @@ class Api
      */
     public function handle_cors()
     {
-        header("Access-Control-Allow-Origin: *");
+        header("Access-Control-Allow-Origin: {$this->allow_origin}");
         header("Access-Control-Allow-Headers: Authorization, Content-Type");
         header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
         header("Content-Type: application/json; charset=UTF-8");
     }
 
     /**
-     * get_json_input
+     * API body
      *
      * @return void
      */
-    public function get_json_input()
+    public function body()
     {
         $contentType = $_SERVER["CONTENT_TYPE"] ?? '';
 

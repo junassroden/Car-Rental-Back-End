@@ -35,10 +35,21 @@ $config['refresh_token_key'] = 'BDswlrEaYWAgeJ4VurGe';
 
 /*
 |--------------------------------------------------------------------------
+| Access-Control-Allow-Origin
+|--------------------------------------------------------------------------
+|
+| Access-Control-Allow-Origin - change this to your domain if
+| already deployed.
+|
+*/
+$config['allow_origin'] = '*';
+
+/*
+|--------------------------------------------------------------------------
 | Refresh Token Table
 |--------------------------------------------------------------------------
 |
 | This is the name of the table that will store the Refresh Token.
 |
 */
-$config['api_helper_table'] = 'refresh_tokens';
+$config['refresh_token_table'] = 'refresh_tokens';

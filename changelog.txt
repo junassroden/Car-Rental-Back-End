@@ -10,7 +10,7 @@ LavaLust 4.1
 
 1. Added ORM Model for faster development.
 
-2. Added Migration Class.
+2. Added Migration Class..
 
 3. Added Restful API class.
 

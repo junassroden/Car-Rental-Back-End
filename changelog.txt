@@ -1,10 +1,28 @@
+LavaLust 4.2
+
+#Changelog
+
+1. Fixed bugs and improve stability.
+
+LavaLust 4.1
+
+#Changelog
+
+1. Added ORM Model for faster development.
+
+2. Added Migration Class.
+
+3. Added Restful API class.
+
+4. Added Encryption Class.
+
 LavaLust 4.0
 
 #Changelog
 
 1. Database raw function was updated. It was now return executed sql statement.
 
-2. Routing is somehow different in version 4.
+2. Routing is somehow different in version 3.
 
 3. Config and Logger classes were added in kernel directory and Encryption class in libraries directory.
 

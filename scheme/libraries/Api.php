@@ -14,28 +14,48 @@ class Api
      *
      * @var string
      */
-    protected $refresh_token_table = '';
+    protected $refresh_token_table;
+
+    /**
+     * Api Payload Token Expiration
+     *
+     * This is used for Payload Token Expiration.
+     * Default is 900 seconds (15 minutes).
+     *
+     * @var integer
+     */
+    protected $payload_token_expiration;
+
+    /**
+     * Api Refresh Token Expiration
+     *
+     * This is used for Refresh Token Expiration.
+     * Default is 604800 seconds (7 days).
+     *
+     * @var integer
+     */
+    protected $refresh_token_expiration;
 
     /**
      * Allow Origin
      *
      * @var string
      */
-    protected $allow_origin = '*';
+    protected $allow_origin;
 
     /**
      * Secret Code
      *
      * @var string
      */
-    private $jwt_secret = '';
+    private $jwt_secret;
 
     /**
      * Refresh Token
      *
      * @var string
      */
-    private $refresh_token_key = '';
+    private $refresh_token_key;
 
     public function __construct()
     {
@@ -48,7 +68,10 @@ class Api
         }
 
         $this->refresh_token_table = config_item('refresh_token_table');
-
+        $this->payload_token_expiration = config_item('payload_token_expiration');
+        $this->refresh_token_expiration = config_item('refresh_token_expiration');
+        $this->jwt_secret = config_item('jwt_secret');
+        $this->refresh_token_key = config_item('refresh_token_key');
         $this->allow_origin = config_item('allow_origin');
 
         //Handle CORS

@@ -61,12 +61,18 @@ if ( ! function_exists('site_url'))
 		$index_page = trim(config_item('index_page'), '/');
 		$url = ltrim($url, '/');
 
+		if (!empty($index_page) && strpos($url, $index_page) === 0) {
+			$url = substr($url, strlen($index_page));
+			$url = ltrim($url, '/');
+		}
+
 		if (!empty($index_page)) {
 			return "{$base_url}/{$index_page}/{$url}";
 		}
 
 		return "{$base_url}/{$url}";
 	}
+
 }
 
 if ( ! function_exists('redirect'))

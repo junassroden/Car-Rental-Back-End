@@ -35,67 +35,170 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  * @license https://opensource.org/licenses/MIT MIT License
  */
 ?>
+<?php
+function get_code_excerpt($file, $line, $padding = 5) {
+    if (!is_readable($file)) return [[], 0];
+    $lines = file($file);
+    $start = max($line - $padding - 1, 0);
+    $end = min($line + $padding - 1, count($lines) - 1);
+    $excerpt = array_slice($lines, $start, $end - $start + 1, true);
+    return [$excerpt, $start + 1];
+}
+
+list($codeExcerpt, $excerptStart) = get_code_excerpt($filepath, $line);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="utf-8">
-	<title>PHP Error Occured</title>
-	<style type="text/css">
-		html {
-		    height: 100%;
-		}
+    <meta charset="UTF-8">
+    <title>Whoops! Something went wrong.</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 2rem;
+            background-color: #f0f0f0;
+            font-family: Consolas, Menlo, monospace;
+            color: #333;
+        }
 
-		body{
-		    color: #888;
-		    margin: 10px;
-		    box-shadow: rgba(0, 0, 0, 0.16) 0px 10px 36px 0px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px;
-		}
+        .container {
+            max-width: 960px;
+            margin: auto;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 2rem;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
 
-		.border{
-			border: 1px solid #990000;
-			padding: 10px;
-		}
+        .title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #a94442;
+            margin-bottom: 1.5rem;
+        }
 
-		.header {
-			font-size: 20px;
-			background-color: #AB5C4B;
-			color: #ffffff;
-			padding: 5px;
-			
-		}
+        .label {
+            font-weight: bold;
+            margin-top: 1rem;
+            display: block;
+        }
 
-		.stack_trace {
-			color: #000000;
-			background-color: #fff1f1;
-			padding: 5px;
-		}
+        .code-preview {
+            background: #2e2e2e;
+            color: #eaeaea;
+            padding: 1rem;
+            font-size: 14px;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
 
-		.err_body {
-			color: #000000;
-			background-color: #ffffff;
-			padding: 5px;
-		}
-	</style>
+        .line {
+            display: flex;
+        }
+
+        .line-number {
+            width: 3em;
+            color: #888;
+            text-align: right;
+            margin-right: 1em;
+            user-select: none;
+        }
+
+        .code-line {
+            white-space: pre;
+            flex-grow: 1;
+        }
+
+        .highlight {
+            background: #444;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .stack-trace, .env {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-size: 14px;
+            border-radius: 6px;
+            white-space: pre-wrap;
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 13px;
+            margin-top: 2rem;
+            color: #888;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.5rem;
+        }
+
+        table td {
+            padding: 0.4rem 0.6rem;
+            border-bottom: 1px solid #e0e0e0;
+            vertical-align: top;
+            font-family: monospace;
+        }
+
+        table td:first-child {
+            font-weight: bold;
+            color: #666;
+            width: 25%;
+        }
+    </style>
 </head>
 <body>
-	<div class="header"><h4>A PHP Error was encountered</h4></div>
-		<div class="err_body">
-			<p>Severity: <?php echo $severity; ?></p>
-			<p>Message:  <?php echo $message; ?></p>
-			<p>Filename: <?php echo $filepath; ?></p>
-			<p>Line Number: <?php echo $line; ?></p>
-		</div>
-		<div class="stack_trace">
-			<p style="font-weight: bold">Stack trace:</p>
-			<?php foreach (debug_backtrace() as $error): ?>
-				<?php if (isset($error['file']) && strpos($error['file'], realpath(SYSTEM_DIR)) !== 0): ?>
-					<p style="margin-left:10px">
-					File: <?php echo $error['file']; ?><br />
-					Line: <?php echo $error['line']; ?><br />
-					Function: <?php echo $error['function']; ?>
-					</p>
-				<?php endif ?>
-			<?php endforeach ?>
-		</div>
+<div class="container">
+    <div class="title">🔥 PHP Error: <?php echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?></div>
+
+    <div><strong>Severity:</strong> <?php echo $severity; ?></div>
+    <div><strong>File:</strong> <?php echo $filepath; ?></div>
+    <div><strong>Line:</strong> <?php echo $line; ?></div>
+
+    <?php if (!empty($codeExcerpt)): ?>
+        <div class="label">Code Preview</div>
+        <div class="code-preview">
+            <?php foreach ($codeExcerpt as $i => $codeLine): ?>
+                <div class="line<?php echo ($excerptStart + $i) == $line ? ' highlight' : ''; ?>">
+                    <div class="line-number"><?php echo str_pad($excerptStart + $i, 3, ' ', STR_PAD_LEFT); ?></div>
+                    <div class="code-line"><?php echo htmlspecialchars(rtrim($codeLine)); ?></div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <div class="label">Stack Trace</div>
+    <div class="stack-trace">
+        <?php foreach (debug_backtrace() as $trace): ?>
+            <?php if (isset($trace['file']) && strpos($trace['file'], realpath(SYSTEM_DIR)) !== 0): ?>
+                • <?php echo $trace['file']; ?>:<?php echo $trace['line'] ?? '?'; ?> → 
+                <?php echo (isset($trace['class']) ? $trace['class'] . $trace['type'] : '') . $trace['function']; ?>()<br>
+            <?php endif; ?>
+        <?php endforeach; ?>
+    </div>
+
+    <div class="label">Environment</div>
+    <div class="env">
+        <table>
+            <tr><td>Method</td><td><?php echo $_SERVER['REQUEST_METHOD'] ?? 'N/A'; ?></td></tr>
+            <tr><td>URI</td><td><?php echo $_SERVER['REQUEST_URI'] ?? 'N/A'; ?></td></tr>
+            <tr><td>Query String</td><td><?php echo $_SERVER['QUERY_STRING'] ?? 'N/A'; ?></td></tr>
+            <tr><td>GET</td><td><pre><?php print_r($_GET); ?></pre></td></tr>
+            <tr><td>POST</td><td><pre><?php print_r($_POST); ?></pre></td></tr>
+            <tr><td>COOKIE</td><td><pre><?php print_r($_COOKIE); ?></pre></td></tr>
+            <tr><td>SESSION</td><td><pre><?php echo isset($_SESSION) ? print_r($_SESSION, true) : 'No session'; ?></pre></td></tr>
+        </table>
+    </div>
+
+    <div class="footer">
+        LavaLust <?php echo config_item('VERSION'); ?> — PHP <?php echo PHP_VERSION; ?>  
+    </div>
+</div>
 </body>
 </html>

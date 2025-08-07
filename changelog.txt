@@ -1,4 +1,10 @@
-LavaLust 4.2
+LavaLust 4.2.1
+
+#Changelog
+
+1. Added support to other database drivers (postgre, sqlite, sqlsrv, etc)
+
+LavaLust 4.2.0
 
 #Changelog
 

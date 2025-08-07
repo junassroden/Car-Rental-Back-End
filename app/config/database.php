@@ -66,6 +66,8 @@ $database['main'] = array(
     'database'	=> '',
     'charset'	=> '',
     'dbprefix'	=> '',
+    // Optional for SQLite
+    'path'      => ''
 );
 
 ?>

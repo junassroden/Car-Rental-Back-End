@@ -167,7 +167,11 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
             </code></pre>
 
             <h2>🧪 Quick Example</h2>
-            <p>A simple controller method in <code>app/controllers/Welcome.php</code>:</p>
+                <p>Route in <code>app/config/routes.php</code></p>
+<pre><code>
+$router->get('/', 'Welcome::index');
+</code></pre>
+            <p>Controller method in <code>app/controllers/Welcome.php</code>:</p>
             <pre><code>
 class Welcome extends Controller {
     public function index() {

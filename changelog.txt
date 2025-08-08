@@ -1,3 +1,9 @@
+LavaLust 4.2.2
+
+#Changelog
+
+1. Updated the CLI. Added command to create view file, library, language file and helper.
+
 LavaLust 4.2.1
 
 #Changelog

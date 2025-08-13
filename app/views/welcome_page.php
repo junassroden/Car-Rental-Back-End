@@ -185,7 +185,7 @@ class Welcome extends Controller {
             <h2>📚 Learn More</h2>
             <ul>
                 <li><a href="https://github.com/ronmarasigan/LavaLust">GitHub Repository</a></li>
-                <li><a href="https://lavalust4.netlify.app/">Official Documentation</a></li>
+                <li><a href="https://lavalust.netlify.app/">Official Documentation</a></li>
             </ul>
         </div>
 

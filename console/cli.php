@@ -61,8 +61,15 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  * Automatically generated via CLI.
  */
 class {$class_name} extends {$extends} {
+";
 
-    public function __construct()
+    // Add model-specific properties
+    if ($type === 'model') {
+        $content .= "    protected \$table = '';\n";
+        $content .= "    protected \$primary_key = 'id';\n\n";
+    }
+
+    $content .= "    public function __construct()
     {
         parent::__construct();
     }

@@ -10,6 +10,8 @@ LavaLust 4.2.1
 
 1. Added support to other database drivers (postgre, sqlite, sqlsrv, etc)
 
+2. Re-design welcome_page(landing page) and error pages. It is easier now to see other debug info.
+
 LavaLust 4.2.0
 
 #Changelog

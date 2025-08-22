@@ -1,4 +1,4 @@
-## LavaLust 4 (Latest 4.2.2)
+## LavaLust 4 (Latest 4.2.3)
 <p align="center">
     <img width="200" height="300" src="https://raw.githubusercontent.com/ronmarasigan/LavaLust-Docs/master/assets/images/logo1.png">
 </p>

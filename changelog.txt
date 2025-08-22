@@ -1,3 +1,9 @@
+LavaLust 4.2.3
+
+#Changelog
+
+1. Updated the error_404.php from app/views/errors. Modern design.
+
 LavaLust 4.2.2
 
 #Changelog

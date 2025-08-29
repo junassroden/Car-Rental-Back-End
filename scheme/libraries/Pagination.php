@@ -155,8 +155,8 @@ class Pagination
                     'nav'    => 'flex justify-center mt-4',
                     'ul'     => 'inline-flex -space-x-px',
                     'li'     => 'px-1',
-                    'a'      => 'py-2 px-3 leading-tight text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 hover:text-gray-700',
-                    'active' => 'bg-blue-500 text-white border-blue-500'
+                    'a'      => 'inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 first:rounded-l-md last:rounded-r-md focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                    'active' => 'z-10 bg-indigo-50 border-indigo-500 text-indigo-600 hover:bg-indigo-50'
                 ];
                 break;
             case 'custom':
@@ -287,6 +287,8 @@ class Pagination
     protected function build_link($page, $label, $active_class = '')
     {
         $url = site_url($this->page_array['url'].$this->page_delimiter.$page);
-        return '<li class="'.$this->classes['li'].' '.$active_class.'"><a class="'.$this->classes['a'].'" href="'.$url.'">'.$label.'</a></li>';
+        return '<li class="'.$this->classes['li'].'">
+                    <a class="'.$this->classes['a'].' '.$active_class.'" href="'.$url.'">'.$label.'</a>
+                </li>';
     }
 }

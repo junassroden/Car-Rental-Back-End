@@ -36,6 +36,9 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  */
 ?>
 <?php
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
 function get_code_excerpt($file, $errorLine, $padding = 5) {
     if (!is_readable($file)) return [[], 0];
     $lines = file($file);

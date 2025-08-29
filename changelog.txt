@@ -1,3 +1,11 @@
+LavaLust 4.2.4
+
+#Changelog
+
+1. Updated the error_php.php from app/views/errors. Add content.
+2. Secure .htaccess for some points.
+3. Fixed Pagination bugs in tailwind theme.
+
 LavaLust 4.2.3
 
 #Changelog

@@ -142,7 +142,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
                 </div>
                 <div class="card">
                     <h3>🔗 REST API Support</h3>
-                    <p>Build robust RESTful APIs easily using built-in tools and conventions.</p>
+                    <p>Build RESTful APIs easily using built-in tools and conventions.</p>
                 </div>
                 <div class="card">
                     <h3>📘 ORM-like Models</h3>

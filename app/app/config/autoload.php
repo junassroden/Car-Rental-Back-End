@@ -82,7 +82,7 @@ $autoload['libraries'] = array();
 |
 |	$autoload['helpers'] = array('url', 'file');
 */
-$autoload['helpers'] = array('url');
+$autoload['helpers'] = array();
 
 /*
 | -------------------------------------------------------------------

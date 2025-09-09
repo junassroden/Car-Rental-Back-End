@@ -1,3 +1,9 @@
+LavaLust 4.2.5
+
+#Changelog
+
+1. Fixed bug in API class that strips authorization in render.com
+
 LavaLust 4.2.4
 
 #Changelog

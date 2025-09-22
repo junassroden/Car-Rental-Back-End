@@ -1,6 +1,6 @@
 ## LavaLust 4 (Latest 4.3.0)
 <p align="center">
-    <img width="200" height="300" src="https://raw.githubusercontent.com/ronmarasigan/LavaLust-Docs/master/_images/logo.png">
+    <img width="200" height="300" src="https://lavalust.netlify.app/_images/logo.png">
 </p>
     LavaLust is a lightweight Web Framework - (using MVC pattern) - for people who are developing web sites using PHP. It helps you write code easily using Object-Oriented Approach. It also provides set of libraries for commonly needed tasks, as well as a helper functions to minimize the amount of time coding.
 

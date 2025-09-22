@@ -92,7 +92,7 @@ if( ! function_exists('csrf_field'))
 	 */
 	function csrf_field() {
 
-		$LAVA =& lava_instance();
+		$LAVA = lava_instance();
 
 		if (FALSE !== ($noise = random_bytes(1)))
             {

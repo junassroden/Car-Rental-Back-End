@@ -72,7 +72,7 @@ class DBForge {
      */
     public function __construct()
     {
-        $this->_lava =& lava_instance();
+        $this->_lava = lava_instance();
         $this->_lava->call->database();
     }
 

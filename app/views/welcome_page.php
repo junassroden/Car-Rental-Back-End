@@ -30,7 +30,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
         }
 
         .header {
-            background: #3B82F6; /* lighter blue */
+            background: #dd4814; /* switched from blue to orange */
             color: #ffffff;
             padding: 2rem;
             text-align: center;
@@ -46,7 +46,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
         }
 
         h2 {
-            color: #1e40af;
+            color: #dd4814; /* updated heading color */
             margin-top: 2rem;
         }
 
@@ -59,7 +59,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
             display: block;
             background: #f1f5f9;
             padding: 1rem;
-            border-left: 4px solid #3b82f6;
+            border-left: 4px solid #dd4814; /* orange accent border */
             margin-bottom: 1rem;
             font-size: 0.9rem;
             color: #1e293b;
@@ -76,7 +76,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
         }
 
         a {
-            color: #2563eb;
+            color: #dd4814; /* link color */
             text-decoration: none;
         }
 
@@ -115,18 +115,18 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
     <div class="container">
         <div class="header">
             <h1>🔥 LavaLust Framework</h1>
-            <p>Lightweight • Fast • MVC for PHP Developers</p>
+            <p>Lightweight • Fast • HMVC for PHP Developers</p>
         </div>
 
         <div class="main">
             <h2>What is LavaLust?</h2>
-            <p><strong>LavaLust</strong> is a lightweight PHP framework that follows the MVC (Model–View–Controller) pattern. It's designed for developers who want a structured yet minimalistic PHP development experience.</p>
+            <p><strong>LavaLust</strong> is a lightweight PHP framework that follows the <strong>HMVC (Hierarchical Model–View–Controller)</strong> pattern. It's designed for developers who want a structured yet modular PHP development experience.</p>
 
             <h2>🚀 Key Features</h2>
             <div class="grid">
                 <div class="card">
-                    <h3>🧠 MVC Architecture</h3>
-                    <p>Clear separation of concerns with Models, Views, and Controllers.</p>
+                    <h3>🧠 HMVC Architecture</h3>
+                    <p>Each module has its own Models, Views, and Controllers for better modularity.</p>
                 </div>
                 <div class="card">
                     <h3>⚙️ Built-in Routing</h3>
@@ -137,8 +137,8 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
                     <p>Includes utilities for sessions, forms, database, validation, and more.</p>
                 </div>
                 <div class="card">
-                    <h3>📁 Organized Structure</h3>
-                    <p>Modular folder structure for scalable app development.</p>
+                    <h3>📁 Modular Structure</h3>
+                    <p>Supports HMVC-based modules for scalable app development.</p>
                 </div>
                 <div class="card">
                     <h3>🔗 REST API Support</h3>
@@ -159,6 +159,11 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
   /language
   /libraries
   /models
+  /modules
+    /welcome
+      /controllers
+      /models
+      /views
   /views
 /console
 /public
@@ -180,7 +185,7 @@ class Welcome extends Controller {
 }
             </code></pre>
 
-            <p>View file at: <code>app/Views/welcome_page.php</code></p>
+            <p>View file at: <code>app/views/welcome_page.php</code></p>
 
             <h2>📚 Learn More</h2>
             <ul>

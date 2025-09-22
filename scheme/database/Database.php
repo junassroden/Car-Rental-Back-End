@@ -194,10 +194,10 @@ class Database {
     public function __construct($dbname = NULL)
     {
         if(is_null($dbname)) {
-        $database_config =& database_config()['main'];
+        $database_config = database_config()['main'];
         } else {
             if(isset(database_config()[$dbname])) {
-                $database_config =& database_config()[$dbname];
+                $database_config = database_config()[$dbname];
             } else {
                 throw new PDOException('No active configuration for this database.');
             }

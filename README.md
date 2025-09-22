@@ -1,6 +1,6 @@
-## LavaLust 4 (Latest 4.2.5)
+## LavaLust 4 (Latest 4.3.0)
 <p align="center">
-    <img width="200" height="300" src="https://raw.githubusercontent.com/ronmarasigan/LavaLust-Docs/master/assets/images/logo1.png">
+    <img width="200" height="300" src="https://raw.githubusercontent.com/ronmarasigan/LavaLust-Docs/master/_images/logo.png">
 </p>
     LavaLust is a lightweight Web Framework - (using MVC pattern) - for people who are developing web sites using PHP. It helps you write code easily using Object-Oriented Approach. It also provides set of libraries for commonly needed tasks, as well as a helper functions to minimize the amount of time coding.
 
@@ -20,7 +20,7 @@
 <p>
     MIT License
 
-    Copyright (c) 2020 Ron Marasigan
+    Copyright (c) 2020 Ronald M. Marasigan
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal

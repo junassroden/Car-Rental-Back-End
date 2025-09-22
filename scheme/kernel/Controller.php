@@ -96,10 +96,10 @@ class Controller
 
 		foreach (loaded_class() as $var => $class)
 		{
-			$this->properties[$var] =& load_class($class);
+			$this->properties[$var] = load_class($class);
 		}
 
-		$this->call =& load_class('invoker', 'kernel');
+		$this->call = load_class('invoker', 'kernel');
 		$this->call->initialize();
 	}
 
@@ -115,7 +115,7 @@ class Controller
 	 *
 	 * @return object
 	 */
-	public static function &instance()
+	public static function instance()
 	{
 		return self::$instance;
 	}

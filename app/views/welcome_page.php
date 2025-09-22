@@ -160,10 +160,6 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
   /libraries
   /models
   /modules
-    /welcome
-      /controllers
-      /models
-      /views
   /views
 /console
 /public

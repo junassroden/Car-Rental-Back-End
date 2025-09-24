@@ -115,18 +115,18 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
     <div class="container">
         <div class="header">
             <h1>🔥 LavaLust Framework</h1>
-            <p>Lightweight • Fast • HMVC for PHP Developers</p>
+            <p>Lightweight • Fast • MVC for PHP Developers</p>
         </div>
 
         <div class="main">
             <h2>What is LavaLust?</h2>
-            <p><strong>LavaLust</strong> is a lightweight PHP framework that follows the <strong>HMVC (Hierarchical Model–View–Controller)</strong> pattern. It's designed for developers who want a structured yet modular PHP development experience.</p>
+            <p><strong>LavaLust</strong> is a lightweight PHP framework that follows the <strong>MVC (Model–View–Controller)</strong> pattern. It's designed for developers who want a structured yet modular PHP development experience.</p>
 
             <h2>🚀 Key Features</h2>
             <div class="grid">
                 <div class="card">
-                    <h3>🧠 HMVC Architecture</h3>
-                    <p>Each module has its own Models, Views, and Controllers for better modularity.</p>
+                    <h3>🧠 HVC Architecture</h3>
+                    <p>Clear separation of concerns with Models, Views, and Controllers.</p>
                 </div>
                 <div class="card">
                     <h3>⚙️ Built-in Routing</h3>

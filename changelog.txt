@@ -1,3 +1,9 @@
+LavaLust 4.3.1
+
+#Changelog
+
+1. Critical bug fixed in Config class with get_config() and config_item() where loaded config is not merging with the default.
+
 LavaLust 4.3.0
 
 #Changelog

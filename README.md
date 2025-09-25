@@ -1,4 +1,4 @@
-## LavaLust 4 (Latest 4.3.0)
+## LavaLust 4 (Latest 4.3.1)
 <p align="center">
     <img width="200" height="300" src="https://lavalust.netlify.app/_images/logo.png">
 </p>

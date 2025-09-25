@@ -239,33 +239,35 @@ if ( ! function_exists('_error_handler'))
 	}
 }
 
-if ( ! function_exists('get_config'))
-{
-	/**
-	 * To access config from config config/config.php
-	 *
-	 * @return void
-	 */
-	function get_config()
-	{
-		static $config;
+if (!function_exists('get_config')) {
+    /**
+     * Returns global config array. Optionally merges new config.
+     *
+     * @param array|null $new_config
+     * @return array
+     */
+    function get_config(?array $new_config = null)
+    {
+        static $config = null;
 
-		if ( file_exists(APP_DIR . 'config/config.php') )
-		{
-			require_once APP_DIR . 'config/config.php';
+        if ($config === null) {
+            // Load main config.php first
+            $main_file = APP_DIR . 'config/config.php';
 
-			if ( isset($config) OR is_array($config) )
-			{
-				foreach( $config as $key => $val )
-				{
-					$config[$key] = $val;
-				}
+            require_once($main_file); // must define $config array
 
-				return $config;
-			}
-		} else
-			show_404('404 Not Found', 'The configuration file does not exist');
-	}
+            if (!isset($config) || !is_array($config)) {
+                throw new RuntimeException('config.php must define $config array');
+            }
+        }
+
+        // Merge new configs if provided
+        if (is_array($new_config)) {
+            $config = array_merge($config, $new_config);
+        }
+
+        return $config;
+    }
 }
 
 if ( ! function_exists('config_item'))
@@ -277,17 +279,10 @@ if ( ! function_exists('config_item'))
 	 * @return mixed
 	 */
 	function config_item($item)
-	{
-		static $_config;
-
-		if (empty($_config))
-		{
-			// references cannot be directly assigned to static variables, so we use an array
-			$_config[0] = get_config();
-		}
-
-		return isset($_config[0][$item]) ? $_config[0][$item] : NULL;
-	}
+    {
+        $config = get_config();
+        return $config[$item] ?? null;
+    }
 }
 
 if ( ! function_exists('autoload_config'))

@@ -92,49 +92,44 @@ class Config {
      * @param boolean $use_sections
      * @return void
      */
-    public function load($file, $use_sections = FALSE)
-    {
-        $file = ($file === '') ? 'config' : str_replace('.php', '', $file);
-        $loaded = FALSE;
-        $file = is_array($file) ? $file : array($file);
+    public function load($file, $use_sections = false)
+	{
+		$file = ($file === '') ? 'config' : str_replace('.php', '', $file);
+		$loaded = false;
+		$file = is_array($file) ? $file : [$file];
 
-        foreach($file as $location)
-        {
-            $file_path = APP_DIR . 'config/'.$location.'.php';
+		foreach ($file as $location) {
+			$file_path = APP_DIR . 'config/' . $location . '.php';
 
-            if(! file_exists($file_path))
-            {
-                continue;
-            }
+			if (!file_exists($file_path)) continue;
 
-            if (in_array($file_path, $this->is_loaded, TRUE))
-            {
-                return TRUE;
-            }
+			if (in_array($file_path, $this->is_loaded, true)) return true;
 
-            include($file_path);
+			include($file_path);
 
-            if ($use_sections === TRUE)
-            {
-                $this->config[$file] = isset($this->config[$file])
-                    ? array_merge($this->config[$file], $config)
-                    : $config;
-            }
-            else
-            {
-                $this->config = array_merge($this->config, $config);
-            }
+			if (!isset($config) || !is_array($config)) {
+				continue;
+			}
 
-            $this->is_loaded[] = $file_path;
-            $config = NULL;
-            $loaded = TRUE;
-        }
-        if ($loaded === TRUE)
-		{
-			return TRUE;
+			if ($use_sections === true) {
+				$this->config[$location] = isset($this->config[$location])
+					? array_merge($this->config[$location], $config)
+					: $config;
+			} else {
+				$this->config = array_merge($this->config, $config);
+			}
+
+			get_config($config);
+
+			$this->is_loaded[] = $file_path;
+			$config = null;
+			$loaded = true;
 		}
-        show_404('', 'The configuration file '.$file.'.php does not exist.');
-    }
+
+		if ($loaded) return true;
+
+		show_404('', 'The configuration file ' . implode(', ', $file) . '.php does not exist.');
+	}
 
     /**
 	 * Fetch a config file item

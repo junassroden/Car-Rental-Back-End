@@ -125,12 +125,12 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
             <h2>🚀 Key Features</h2>
             <div class="grid">
                 <div class="card">
-                    <h3>🧠 HVC Architecture</h3>
+                    <h3>🧠 MVC Architecture</h3>
                     <p>Clear separation of concerns with Models, Views, and Controllers.</p>
                 </div>
                 <div class="card">
                     <h3>⚙️ Built-in Routing</h3>
-                    <p>Clean and flexible routing system similar to Laravel or CodeIgniter.</p>
+                    <p>Clean and flexible routing system.</p>
                 </div>
                 <div class="card">
                     <h3>📦 Libraries & Helpers</h3>

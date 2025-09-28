@@ -42,7 +42,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | Used for Enabling or Disabling Ember Helper
 |
 */
-$config['ember_helper_enabled'] = TRUE;
+$config['ember_helper_enabled'] = FALSE;
 
 /*
 |--------------------------------------------------------------------------

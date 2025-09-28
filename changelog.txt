@@ -1,3 +1,10 @@
+LavaLust 4.4.0
+
+#Changelog
+
+1. Added a simple template engine called Ember Template Engine.
+2. Enhanced Session class by adding security feature like locking if security threats was detected.
+
 LavaLust 4.3.1
 
 #Changelog

@@ -42,6 +42,8 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 class Ember_registrar {
     public function register($engine)
     {
+        $_lava = lava_instance();
+        $_lava->class->helper('url');
         /** ----------------------------------------------------------
          *  GLOBALS
          * ---------------------------------------------------------- */

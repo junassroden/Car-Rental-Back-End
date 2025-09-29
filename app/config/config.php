@@ -206,10 +206,13 @@ $config['language'] 				= 'en-US';
 | Settings for sessions
 | $config['sess_save_path'] will get the session save path form php.ini
 | if empty.
+| sess_driver default: file
+| sess_driver options: file, database
 |
 |--------------------------------------------------------------------------
 */
 $config['sess_driver']             = 'file';
+$config['sess_table']              = 'sessions';
 $config['sess_cookie_name']        = 'LLSession';
 $config['sess_expiration']         = 7200;
 $config['sess_save_path']          = '';
@@ -218,6 +221,13 @@ $config['sess_match_fingerprint']  = TRUE;
 $config['sess_time_to_update']     = 300;
 $config['sess_regenerate_destroy'] = TRUE;
 $config['sess_expire_on_close']    = FALSE;
+$config['max_invalid_attempts']    = 5;
+$config['invalid_window']          = 600;
+$config['lock_duration_invalid']   = 900;
+$config['max_session_creations']   = 10;
+$config['creation_window']         = 60;
+$config['lock_duration_creation']  = 120;
+$config['security_file']           = APP_DIR . 'runtime/session/session_security.json';
 
 /*
 |--------------------------------------------------------------------------

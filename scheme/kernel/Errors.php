@@ -124,4 +124,39 @@ class Errors
 		die();
 	}
 
+	/**
+	 * Show Database Error
+	 *
+	 * @param string $message
+	 * @param string $sql
+	 * @param array $bindings
+	 * @param object $exception
+	 * @param string $template
+	 * @return void
+	 */
+	public function show_database_error($message, $sql = '', $bindings = [], $exception = null, $template = 'error_db')
+	{
+		$template_path = config_item('error_view_path');
+		if (empty($template_path)) {
+			$template_path = APP_DIR . 'views/errors/';
+		}
+
+		$bindings_json = !empty($bindings) ? json_encode($bindings, JSON_PRETTY_PRINT) : 'None';
+		$error_file = $exception ? $exception->getFile() : 'Unknown';
+		$error_line = $exception ? $exception->getLine() : 'Unknown';
+		$error_trace = $exception ? $exception->getTraceAsString() : 'No trace available';
+
+		$exception_message = $message;
+		$query = $sql;
+		$bindings_data = $bindings_json;
+		$file = $error_file;
+		$line = $error_line;
+		$trace = $error_trace;
+
+		http_response_code(500);
+		require_once($template_path . $template . '.php');
+		exit();
+	}
+
+
 }

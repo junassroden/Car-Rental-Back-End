@@ -242,7 +242,13 @@ class Database {
             $this->db = new PDO($dsn, $username, $password, $options);
              $this->driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);
         } catch (Exception $e) {
-            throw new PDOException($e->getMessage());
+            $error = load_class('Errors', 'kernel');
+            $error->show_database_error(
+                $e->getMessage(),
+                $this->getSQL ?? '',
+                $this->bindValues ?? [],
+                $e
+            );
         }
     }
 
@@ -1275,8 +1281,14 @@ class Database {
             $stmt->execute($this->bindValues);
             $this->rowCount = $stmt->rowCount();
             return $stmt->fetch($mode);
-        } catch(Exception $e) {
-            throw new PDOException($e->getMessage().'<div style="background-color:#000;color:#fff;padding:15px">Query: '.$this->getSQL.'</div>');
+        } catch (Exception $e) {
+            $error = load_class('Errors', 'kernel');
+            $error->show_database_error(
+                $e->getMessage(),
+                $this->getSQL ?? '',
+                $this->bindValues ?? [],
+                $e
+            );
         }
     }
 
@@ -1294,8 +1306,14 @@ class Database {
             $stmt->execute($this->bindValues);
             $this->rowCount = $stmt->rowCount();
             return $stmt->fetchAll($mode);
-        } catch(Exception $e) {
-            throw new PDOException($e->getMessage().'<div style="background-color:#000;color:#fff;padding:15px">Query: '.$this->getSQL.'</div>');
+        } catch (Exception $e) {
+            $error = load_class('Errors', 'kernel');
+            $error->show_database_error(
+                $e->getMessage(),
+                $this->getSQL ?? '',
+                $this->bindValues ?? [],
+                $e
+            );
         }
     }
 

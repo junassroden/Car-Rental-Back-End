@@ -138,7 +138,7 @@ class Session {
 		$this->max_session_creations  = $this->config['max_session_creations']   ?? 10;
 		$this->creation_window        = $this->config['creation_window']         ?? 60;
 		$this->lock_duration_creation = $this->config['lock_duration_creation']  ?? 120;
-		$this->security_file          = $this->config['security_file']           ?? (APP_DIR . 'runtime/session/session_security.json');
+		$this->security_file          = $this->config['security_file']           ?? (ROOT_DIR . 'runtime/session/session_security.json');
 
 		// Setup session config values
 		$this->match_ip          = $this->config['sess_match_ip'] ?? FALSE;

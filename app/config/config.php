@@ -227,7 +227,7 @@ $config['lock_duration_invalid']   = 900;
 $config['max_session_creations']   = 10;
 $config['creation_window']         = 60;
 $config['lock_duration_creation']  = 120;
-$config['security_file']           = APP_DIR . 'runtime/session/session_security.json';
+$config['security_file']           = ROOT_DIR . 'runtime/session/session_security.json';
 
 /*
 |--------------------------------------------------------------------------

@@ -43,7 +43,7 @@ class Ember_registrar {
     public function register($engine)
     {
         $_lava = lava_instance();
-        $_lava->class->helper('url');
+        $_lava->call->helper('url');
         /** ----------------------------------------------------------
          *  GLOBALS
          * ---------------------------------------------------------- */

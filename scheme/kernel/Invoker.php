@@ -217,19 +217,24 @@ class Invoker {
 		ob_start();
 
 		$view_file = str_replace('\\', '/', $view_file);
+
 		$parts = explode('/', $view_file);
 		$file = array_pop($parts);
 		$module_or_nested = array_shift($parts);
 		$nested = implode('/', $parts);
 
-		if ($module_or_nested && file_exists(APP_DIR . "modules/{$module_or_nested}/views/" . ($nested ? "{$nested}/" : '') . "{$file}.php")) {
-			$path = APP_DIR . "modules/{$module_or_nested}/views/" . ($nested ? "{$nested}/" : '') . "{$file}.php";
+		$has_extension = pathinfo($file, PATHINFO_EXTENSION) !== '';
+
+		$file_name = $has_extension ? $file : "{$file}.php";
+
+		if ($module_or_nested && file_exists(APP_DIR . "modules/{$module_or_nested}/views/" . ($nested ? "{$nested}/" : '') . $file_name)) {
+			$path = APP_DIR . "modules/{$module_or_nested}/views/" . ($nested ? "{$nested}/" : '') . $file_name;
 			require $path;
 			echo ob_get_clean();
 			return;
 		}
 
-		$path = APP_DIR . "views/" . ($nested ? "{$module_or_nested}/{$nested}/" : '') . "{$file}.php";
+		$path = APP_DIR . "views/" . ($nested ? "{$module_or_nested}/{$nested}/" : '') . $file_name;
 		if (file_exists($path)) {
 			require $path;
 			echo ob_get_clean();
@@ -238,6 +243,7 @@ class Invoker {
 
 		throw new RuntimeException("View {$view_file} not found in module or app/views");
 	}
+
 
 	/**
 	 * Load Helper

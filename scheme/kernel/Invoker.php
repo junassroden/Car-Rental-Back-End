@@ -216,7 +216,7 @@ class Invoker {
 
 		ob_start();
 
-		$view_file = str_replace('\\', '/', $view_file);
+		$view_file = str_replace('\\', '/', trim($view_file, '/'));
 
 		$parts = explode('/', $view_file);
 		$file = array_pop($parts);
@@ -224,19 +224,20 @@ class Invoker {
 		$nested = implode('/', $parts);
 
 		$has_extension = pathinfo($file, PATHINFO_EXTENSION) !== '';
-
 		$file_name = $has_extension ? $file : "{$file}.php";
 
-		if ($module_or_nested && file_exists(APP_DIR . "modules/{$module_or_nested}/views/" . ($nested ? "{$nested}/" : '') . $file_name)) {
-			$path = APP_DIR . "modules/{$module_or_nested}/views/" . ($nested ? "{$nested}/" : '') . $file_name;
-			require $path;
+		$app_dir = rtrim(APP_DIR, '/\\') . '/';
+
+		$module_path = $app_dir . "modules/{$module_or_nested}/views/" . ($nested ? "{$nested}/" : '') . $file_name;
+		if (file_exists($module_path)) {
+			require $module_path;
 			echo ob_get_clean();
 			return;
 		}
 
-		$path = APP_DIR . "views/" . ($nested ? "{$module_or_nested}/{$nested}/" : '') . $file_name;
-		if (file_exists($path)) {
-			require $path;
+		$app_path = $app_dir . "views/" . ($nested ? "{$module_or_nested}/{$nested}/" : "{$module_or_nested}/") . $file_name;
+		if (file_exists($app_path)) {
+			require $app_path;
 			echo ob_get_clean();
 			return;
 		}

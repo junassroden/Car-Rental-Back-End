@@ -116,7 +116,7 @@ class Ember_registrar {
         $engine->add_function('config', fn($key) => config_item($key));
         $engine->add_function('session', function($key = null) {
             $LAVA = lava_instance();
-            $userdata = $LAVA->session->get_userdata();
+            $userdata = $LAVA->session->get_userdata($key);
 
             if ($key === null) {
                 return $userdata;

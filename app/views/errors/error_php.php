@@ -52,7 +52,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filepath, $line);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>⚠️ PHP Error</title>
+    <title>PHP Error</title>
     <style>
         * { box-sizing: border-box; }
 
@@ -152,7 +152,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filepath, $line);
 </head>
 <body>
 <div class="container">
-    <div class="title">⚠️ Whoops! Something went wrong.</div>
+    <div class="title">Whoops! Something went wrong.</div>
 
     <div class="section">
         <span class="label">Severity</span>
@@ -234,7 +234,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filepath, $line);
     <div class="section">
         <h3>Tips</h3>
         <div class="code">
-            This error page is shown because debug mode is enabled.<br>
+                            This error page is shown because debug mode is enabled.<br>
             In production, set <code>$config['ENVIRONMENT'] = 'production'</code> to hide detailed error output.
         </div>
     </div>

@@ -58,7 +58,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filePath, $lineNum);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Database Error - LavaLust Framework</title>
+    <title>Database Error</title>
     <style>
         * { box-sizing: border-box; }
 
@@ -204,7 +204,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filePath, $lineNum);
 </head>
 <body>
 <div class="container">
-    <div class="title">⚠️ Whoops! Something went wrong.</div>
+    <div class="title">Whoops! Something went wrong.</div>
 
     <div class="section">
         <span class="label">Error Message</span>

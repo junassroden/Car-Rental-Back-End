@@ -345,10 +345,16 @@ class Ember
 
 
         // If / elseif / else / endif
-        $source = preg_replace('/@if\s*\((.*?)\)/', '<?php if ($1): ?>', $source);
-        $source = preg_replace('/@elseif\s*\((.*?)\)/', '<?php elseif ($1): ?>', $source);
-        $source = preg_replace('/@else/', '<?php else: ?>', $source);
-        $source = preg_replace('/@endif/', '<?php endif; ?>', $source);
+        $source = preg_replace_callback('/@if\s*\((.*?)\)\s*(?=\n|$)/s', function ($m) {
+            return "<?php if ({$m[1]}): ?>";
+        }, $source);
+
+        $source = preg_replace_callback('/@elseif\s*\((.*?)\)\s*(?=\n|$)/s', function ($m) {
+            return "<?php elseif ({$m[1]}): ?>";
+        }, $source);
+
+        $source = preg_replace('/@else\b/', '<?php else: ?>', $source);
+        $source = preg_replace('/@endif\b/', '<?php endif; ?>', $source);
 
         // @foreach (require explicit $variables)
         $source = preg_replace_callback('/@foreach\s*\(\s*(.*?)\s*\)/', function($m) {

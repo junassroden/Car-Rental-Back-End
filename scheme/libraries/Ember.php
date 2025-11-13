@@ -119,7 +119,7 @@ class Ember
     public function escape($value)
     {
         return $this->auto_escape
-            ? htmlspecialchars($value, ENT_QUOTES, 'UTF-8')
+            ? htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8')
             : $value;
     }
 

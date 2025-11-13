@@ -253,15 +253,32 @@ class Database {
     }
 
     /**
-     * Get Database Instance
+     * DB Instance
      *
-     * @return instance
+     * @param string $dbname
+     * @return void
      */
     public static function instance($dbname)
     {
         self::$instance = new Database($dbname);
         return self::$instance;
     }
+
+    private function validate_identifier($name)
+    {
+        $name = trim($name);
+
+        if (preg_match('/\w+\s*\(.*\)/', $name)) {
+            return true;
+        }
+
+        if (preg_match('/^[a-zA-Z0-9_\.]+(\s+(as\s+)?[a-zA-Z0-9_]+)?$/i', $name)) {
+            return true;
+        }
+
+        throw new Exception("Invalid SQL identifier: {$name}");
+    }
+
 
     /**
      * Raw Query
@@ -353,7 +370,13 @@ class Database {
      */
     public function count()
     {
-        return $this->raw("SELECT COUNT(*) AS count FROM {$this->table}" . $this->where)->fetch()['count'];
+        $sql = "SELECT COUNT(*) AS count FROM {$this->table}" . $this->where;
+        $stmt = $this->raw($sql, $this->bindValues);
+        $result = $stmt->fetch();
+
+        $this->resetQuery();
+
+        return $result['count'] ?? 0;
     }
 
     /**
@@ -369,6 +392,9 @@ class Database {
         }
         
         $columns = array_keys($records[0]);
+        foreach ($columns as $column) {
+            $this->validate_identifier($column);
+        }
         $placeholders = rtrim(str_repeat('(' . rtrim(str_repeat('?, ', count($columns)), ', ') . '), ', count($records)), ', ');
         $this->bindValues = [];
         
@@ -393,18 +419,16 @@ class Database {
             return false;
         }
     
-        // Reset query components
         $this->sql = '';
         $this->bindValues = [];
         $ids = [];
         $updates = [];
     
-        // Get all columns that should be updated (excluding primary key)
         $columns = array_keys($records[0]);
         $columns = array_diff($columns, [$primaryKey]);
     
-        // Build the update statements for each column
         foreach ($columns as $column) {
+            $this->validate_identifier($column);
             $cases = [];
             $params = [];
             
@@ -426,12 +450,10 @@ class Database {
             $this->bindValues = array_merge($this->bindValues, $params);
         }
     
-        // Build the complete SQL query
         $this->sql = "UPDATE {$this->table} SET " . implode(', ', $updates) . 
                     " WHERE $primaryKey IN (" . implode(',', array_fill(0, count($ids), '?')) . ")";
         $this->bindValues = array_merge($this->bindValues, $ids);
     
-        // Execute and return the result
         return $this->exec();
     }
 
@@ -460,6 +482,7 @@ class Database {
         $field_array = [];
 
         foreach ($fields as $column => $field) {
+            $this->validate_identifier($column);
             $values[] = $column . ' = ?';
             $field_array[] = $field;
         }
@@ -485,6 +508,7 @@ class Database {
         $values = '';
         $x = 1;
         foreach ($fields as $field => $value) {
+            $this->validate_identifier($field);
             $values .='?';
             $this->bindValues[] =  $value;
             if ($x < count($fields)) {
@@ -516,6 +540,7 @@ class Database {
      */
     public function table($table_name)
     {
+        $this->validate_identifier(($table_name));
         $this->resetQuery();
         $this->table = $this->dbprefix.$table_name;
         return $this;
@@ -531,6 +556,7 @@ class Database {
     {
         $columns = explode(',', $columns);
         foreach ($columns as $key => $column) {
+            $this->validate_identifier($column);
             $columns[$key] = trim($column);
         }
 
@@ -550,6 +576,8 @@ class Database {
      */
     public function _sql_function($column, $alias = null, $type = 'MAX')
     {
+        $this->validate_identifier($column);
+
         if( ! in_array($type, array('MAX', 'MIN', 'SUM', 'COUNT', 'AVG', 'DISTINCT'))) {
             throw new RuntimeException('Invalid function type: ' . $type);
         }
@@ -761,11 +789,13 @@ class Database {
         if (is_array($where) && ! empty($where)) {
             $_where = [];
             foreach ($where as $column => $data) {
+                $this->validate_identifier($column);
                 $_where[] = $type . $column . ' = ?';
                 $this->bindValues[] = $data;
             }
             $where = implode(' ' . $andOr . ' ', $_where);
         } else {
+            $this->validate_identifier($where);
             if (is_null($where) || empty($where)) {
                 return $this;
             }
@@ -889,6 +919,7 @@ class Database {
      */
     public function like($field, $data, $type = '', $andOr = 'AND')
     {
+        $this->validate_identifier($field);
         $this->bindValues[] = $data;
         $where = $field . ' ' . $type . 'LIKE ?';
 
@@ -950,6 +981,7 @@ class Database {
      */
     public function between($field, $value1, $value2, $type = '', $andOr = 'AND')
     {
+        $this->validate_identifier($field);
         $this->bindValues[] = $value1;
         $this->bindValues[] = $value2;
         $where = '(' . $field . ' ' . $type . 'BETWEEN ?  AND ?)';
@@ -1016,6 +1048,7 @@ class Database {
      */
     public function in($field, array $keys, $type = '', $andOr = 'AND')
     {
+        $this->validate_identifier($field);
         if (!empty($keys)) {
             $placeholders = implode(', ', array_fill(0, count($keys), '?'));
             foreach ($keys as $v) {
@@ -1162,6 +1195,7 @@ class Database {
     public function order_by($field_name, $order = null)
     {
         $field_name = trim($field_name);
+        $this->validate_identifier($field_name);
 
         $this->orderBy = ' ORDER BY ';
         if (! is_null($order)) {
@@ -1181,12 +1215,19 @@ class Database {
      * @param  string $groupBy
      * @return object
      */
-     public function group_by($groupBy)
+    public function group_by($groupBy)
     {
         $this->groupBy = ' GROUP BY ';
-        $this->groupBy .= (is_array($groupBy))
-            ? implode(', ', $groupBy)
-            : $groupBy;
+
+        if (is_array($groupBy)) {
+            foreach ($groupBy as $column) {
+                $this->validate_identifier($column);
+            }
+            $this->groupBy .= implode(', ', $groupBy);
+        } else {
+            $this->validate_identifier($groupBy);
+            $this->groupBy .= $groupBy;
+        }
 
         return $this;
     }
@@ -1201,6 +1242,7 @@ class Database {
      */
     public function having($field, $op = null, $val = null)
     {
+        $this->validate_identifier($field);
         $this->having = ' HAVING ';
         if (is_array($op)) {
             $fields = explode('?', $field);
@@ -1335,6 +1377,38 @@ class Database {
     public function row_count()
     {
         return $this->rowCount;
+    }
+
+    /**
+     * Increment column value
+     *
+     * @param string $column
+     * @param integer $amount
+     * @return void
+     */
+    public function increment($column, $amount = 1)
+    {
+        $this->validate_identifier($column);
+        $this->sql = "UPDATE {$this->table} SET {$column} = {$column} + ?";
+        $this->bindValues = array_merge([$amount], $this->bindValues);
+
+        return $this->exec();
+    }
+
+    /**
+     * Decrement column value
+     *
+     * @param string $column
+     * @param integer $amount
+     * @return void
+     */
+    public function decrement($column, $amount = 1)
+    {
+        $this->validate_identifier($column);
+        $this->sql = "UPDATE {$this->table} SET {$column} = {$column} - ?";
+        $this->bindValues = array_merge([$amount], $this->bindValues);
+
+        return $this->exec();
     }
 
     /**

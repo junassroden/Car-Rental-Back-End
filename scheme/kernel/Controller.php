@@ -90,8 +90,6 @@ class Controller
 	 */
 	public function __construct()
 	{
-		$this->before_action();
-
 		self::$instance = $this;
 
 		foreach (loaded_class() as $var => $class)
@@ -101,6 +99,7 @@ class Controller
 
 		$this->call = load_class('invoker', 'kernel');
 		$this->call->initialize();
+		$this->before_action();
 	}
 
 	/**

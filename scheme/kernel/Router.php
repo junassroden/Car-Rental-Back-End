@@ -36,7 +36,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /**
 * ------------------------------------------------------
-*  Class Performance
+*  Class Router
 * ------------------------------------------------------
  */
 class Router
@@ -47,6 +47,13 @@ class Router
      * @var array
      */
     private $routes = [];
+    
+    /**
+     * Group middleware
+     *
+     * @var array
+     */
+    private $group_middleware = [];
 
     /**
      * Group routes
@@ -189,6 +196,7 @@ class Router
                 'method' => $method,
                 'name' => $name,
                 'constraints' => [],
+                'middleware'  => array_merge($this->group_middleware, []),
             ];
             $this->routes[] = $route;
         }
@@ -202,36 +210,30 @@ class Router
      * @param mixed $callback
      * @return void
      */
-    public function group($prefix, $callback)
+    public function group($options, $callback)
     {
-        if (strpos($prefix, '/') !== 0) {
-			$prefix = '/' . $prefix;
-		}
         $previous_group_prefix = $this->group_prefix;
-        $this->group_prefix .= $prefix;
+        $previous_group_middleware = $this->group_middleware;
 
-        call_user_func($callback);
-
-        $this->group_prefix = $previous_group_prefix;
-    }
-
-    /**
-     * Call the Controller and Method
-     *
-     * @param string $controller
-     * @param string $method
-     * @param mixed $params
-     * @return void
-     */
-    private function call_controller_method($controller, $method, $params)
-    {
-        $controller_instance = new $controller();
-
-        if ($this->is_method_accessible($controller_instance, $method)) {
-            call_user_func_array([$controller_instance, $method], array_values($params));
-        } else {
-            throw new RuntimeException('Method '. $controller.'->'.$method .' is inaccessible or nonexistent.');
+        // prefix
+        if (isset($options['prefix'])) {
+            $prefix = $options['prefix'];
+            if (strpos($prefix, '/') !== 0) $prefix = '/' . $prefix;
+            $this->group_prefix .= $prefix;
         }
+
+        // middleware
+        if (isset($options['middleware'])) {
+            $this->group_middleware = is_array($options['middleware']) 
+                ? $options['middleware'] 
+                : [$options['middleware']];
+        }
+
+        call_user_func($callback, $this);
+
+        // restore
+        $this->group_prefix = $previous_group_prefix;
+        $this->group_middleware = $previous_group_middleware;
     }
 
     /**
@@ -277,6 +279,47 @@ class Router
         return preg_match($pattern, $url);
     }
 
+    private function call_controller_from_callback($callback, $matches)
+    {
+        if (is_string($callback)) {
+            $controller = '';
+            $method = 'index';
+
+            if (strpos($callback, '::') !== false) {
+                [$controller, $method] = explode('::', $callback);
+            } elseif (strpos($callback, '->') !== false) {
+                [$controller, $method] = explode('->', $callback);
+            } elseif (strpos($callback, '@') !== false) {
+                [$controller, $method] = explode('@', $callback);
+            } else {
+                $controller = $callback;
+                $method = 'index';
+            }
+
+            $controller_file = APP_DIR . 'controllers/' . ucfirst($controller) . '.php';
+
+            if (!file_exists($controller_file)) {
+                throw new RuntimeException("Controller {$controller} does not exist.");
+            }
+
+            require_once($controller_file);
+
+            $instance = new $controller();
+
+            if (!method_exists($instance, $method)) {
+                throw new RuntimeException("Method {$controller}->{$method} does not exist.");
+            }
+
+            call_user_func_array([$instance, $method], $matches);
+
+        } elseif (is_callable($callback)) {
+            call_user_func_array($callback, array_values($matches));
+        } else {
+            throw new RuntimeException('Invalid callback.');
+        }
+    }
+
+
     /**
      * Execute Callback
      *
@@ -290,47 +333,22 @@ class Router
         if (preg_match($this->convert_to_regex_pattern($route['url'], $route['constraints']), $url, $matches)) {
             array_shift($matches);
 
-            $callback = $route['callback'];
+            $callback    = $route['callback'];
+            $middlewares = $route['middleware'] ?? [];
 
-            if (is_string($callback)) {
-                $controller = '';
-                $method = 'index';
-
-                if (strpos($callback, '::') !== false) {
-                    [$controller, $method] = explode('::', $callback);
-                } elseif (strpos($callback, '->') !== false) {
-                    [$controller, $method] = explode('->', $callback);
-                } elseif (strpos($callback, '@') !== false) {
-                    [$controller, $method] = explode('@', $callback);
-                } else {
-                    $controller = $callback;
-                    $method = 'index';
-                }
-
-                $controller_file = APP_DIR . 'controllers/' . ucfirst($controller) . '.php';
-
-                if (file_exists($controller_file)) {
-
-                    require_once($controller_file);
-
-                    $instance = new $controller();
-                    if (method_exists($instance, $method)) {
-                        call_user_func_array([$instance, $method], $matches);
-                    } else {
-                        throw new RuntimeException("Method {$controller}->{$method} does not exist.");
-                    }
-                } else {
-                    throw new RuntimeException("Controller {$controller} does not exist.");
-                }
-            } elseif (is_callable($callback)) {
-                call_user_func_array($callback, array_values($matches));
-            } else {
-                throw new RuntimeException('Invalid callback.');
+            if (!empty($middlewares)) {
+                $runner = load_class('Middleware', 'kernel'); // make sure kernel middleware class exists
+                $runner->run($middlewares, function () use ($callback, $matches) {
+                    $this->call_controller_from_callback($callback, $matches);
+                });
+                return;
             }
 
-            return;
+            $this->call_controller_from_callback($callback, $matches);
         }
     }
+
+
 
     /**
      * Initiate Request
@@ -454,6 +472,20 @@ class Router
         $pattern = '(' . implode('|', array_map('preg_quote', $values)) . ')';
         return $this->where($param, $pattern);
     }
+
+    public function middleware($middleware)
+    {
+        $index = count($this->routes) - 1; // always last route
+        if ($index >= 0) {
+            $this->routes[$index]['middleware'] = array_merge(
+                $this->routes[$index]['middleware'],
+                is_array($middleware) ? $middleware : [$middleware]
+            );
+        }
+        return $this;
+    }
+
+
 
     /**
      * Set name of routes

@@ -166,10 +166,10 @@ class Ember
      * @param mixed $value
      * @return mixed
      */
-    public function apply_filter($name, $value)
+    public function apply_filter($name, $value, ...$args)
     {
         if (isset($this->filters[$name])) {
-            return ($this->filters[$name])($value);
+            return ($this->filters[$name])($value, ...$args);
         }
         throw new \RuntimeException("Filter not defined: $name");
     }
@@ -336,7 +336,31 @@ class Ember
                     // raw always disables escaping
                     return "<?php echo $var; ?>";
                 } else {
-                    $var = "\$this->apply_filter('$filter', $var)";
+                    if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/', $filter, $fm)) {
+                        $filterName = $fm[1];
+                        $args = trim($fm[2]);
+
+                        if ($args !== '') {
+                            $args = array_map('trim',
+                                preg_split('/,(?=(?:[^\'"]|\'[^\']*\'|"[^"]*")*$)/', $args)
+                            );
+
+                            foreach ($args as &$a) {
+                                if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $a)) {
+                                    $a = '$' . $a;
+                                }
+                            }
+
+                            $argsStr = ', ' . implode(', ', $args);
+                        } else {
+                            $argsStr = '';
+                        }
+
+                        $var = "\$this->apply_filter('$filterName', $var$argsStr)";
+                    } else {
+                        // no arguments
+                        $var = "\$this->apply_filter('$filter', $var)";
+                    }
                 }
             }
 

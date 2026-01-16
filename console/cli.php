@@ -240,30 +240,30 @@ function help_text()
     return <<<EOT
 
 \033[1;34mLavaLust CLI Code Generator\033[0m
-Usage: \033[1;33mphp cli.php make:{type} Name\033[0m
+Usage: \033[1;33mphp lava make:{type} Name\033[0m
 
 Available types and usage examples:
 
   \033[1;32mcontroller\033[0m   → Creates a controller in app/controllers
-    Example: php cli.php make:controller Dashboard
+    Example: php lava make:controller Dashboard
 
   \033[1;32mmodel\033[0m        → Creates a model in app/models
-    Example: php cli.php make:model Blog/PostModel
+    Example: php lava make:model Blog/PostModel
 
   \033[1;32mhelper\033[0m       → Creates a helper in app/helpers (adds _helper suffix)
-    Example: php cli.php make:helper text
+    Example: php lava make:helper text
 
   \033[1;32mlibrary\033[0m      → Creates a class in app/libraries
-    Example: php cli.php make:library PDF
+    Example: php lava make:library PDF
 
   \033[1;32mview\033[0m         → Creates a .php view in app/views with HTML boilerplate
-    Example: php cli.php make:view homepage
+    Example: php lava make:view homepage
 
   \033[1;32mlanguage\033[0m     → Creates a language file in app/language with default content
-    Example: php cli.php make:language tag-PH
+    Example: php lava make:language tag-PH
 
   \033[1;32mconfig\033[0m       → Creates a config file in app/config
-    Example: php cli.php make:config auth
+    Example: php lava make:config auth
 
 EOT;
 }

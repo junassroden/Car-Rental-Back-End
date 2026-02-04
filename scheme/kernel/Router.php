@@ -237,18 +237,6 @@ class Router
     }
 
     /**
-     * Check if Method is Accessible
-     *
-     * @param object $object
-     * @param string $method
-     * @return boolean
-     */
-    private function is_method_accessible($controller, $method)
-    {
-        return is_object($controller) && method_exists($controller, $method) && is_callable([$controller, $method]);
-    }
-
-    /**
      * Regex Pattern
      *
      * @param string $url
@@ -256,14 +244,29 @@ class Router
      */
     private function convert_to_regex_pattern($url, $constraints)
     {
-        $pattern = preg_replace_callback('/\{([^\/]+)\}/', function ($matches) use ($constraints) {
-            $param = $matches[1];
-            if (isset($constraints[$param])) {
-                return '(' . $constraints[$param] . ')';
+        $segments = array_filter(explode('/', trim($url, '/')));
+
+        if ($segments === []) {
+            return '#^/?$#';
+        }
+
+        $parts = [];
+
+        foreach ($segments as $segment) {
+            if (preg_match('#^\{([a-zA-Z0-9_]+)(\?)?\}$#', $segment, $m)) {
+                $name     = $m[1];
+                $optional = !empty($m[2]);
+                $capture  = $constraints[$name] ?? '[^/]+';
+
+                $parts[] = $optional
+                    ? '(?:/(' . $capture . '))?'
+                    : '/(' . $capture . ')';
+            } else {
+                $parts[] = '/' . preg_quote($segment, '#');
             }
-            return '([^\/]+)';
-        }, $url);
-        return '#^' . $pattern . '$#';
+        }
+
+        return '#^' . implode('', $parts) . '/?$#';
     }
 
     /**

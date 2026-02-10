@@ -1,42 +1,96 @@
-## LavaLust 4 (Latest 4.5.0)
-<p align="center">
-    <img width="200" height="300" src="https://lavalust.netlify.app/_images/logo.png">
-</p>
-    LavaLust is a lightweight Web Framework - (using MVC pattern) - for people who are developing web sites using PHP. It helps you write code easily using Object-Oriented Approach. It also provides set of libraries for commonly needed tasks, as well as a helper functions to minimize the amount of time coding.
+# 🔥 LavaLust Framework  
+**Lightweight • Fast • MVC for PHP Developers**
 
-## Documentation
-[LavaLust Documentation Link](https://lavalust.netlify.app)
+LavaLust is a lightweight PHP framework built for developers who want a
+**structured, modular, and scalable** development experience — without
+unnecessary complexity or performance overhead.
 
-<p>
-    Note: If you are using PLDT, you need to use google dns (8.8.8.8) to open the documentation website. There is
-    an issue with PLDT and Netlify websites.
-</p>
+---
 
-## Installation and Tutorials
+## ❓ What is LavaLust?
 
-[Checkout LavaLust Tutorial's Youtube Channel](https://youtube.com/ronmarasigan)
+**LavaLust** is a PHP framework that follows the  
+**MVC (Model–View–Controller)** architectural pattern.
 
-### Licence
-<p>
-    MIT License
+It is designed for developers who want:
+- Clean project structure
+- Modular and maintainable code
+- Built-in routing and database tools
+- REST API–ready applications
 
-    Copyright (c) 2020 Ronald M. Marasigan
+---
 
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
+## 🚀 Key Features
 
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
+### 🧠 MVC Architecture  
+Clear separation between **Models**, **Views**, and **Controllers**.
 
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
-</p>
+### ⚙️ Built-in Routing  
+Clean and flexible routing system for mapping URLs to controllers.
+
+### 📦 Libraries & Helpers  
+Reusable helpers and libraries for sessions, forms, validation, database access,
+and more.
+
+### 📁 Modular Design  
+Supports scalable development and clean organization of application logic.
+
+### 🔗 REST API Support  
+Easily build RESTful APIs using LavaLust conventions and tools.
+
+### 📘 ORM-like Models  
+Simplified database interaction with structured, readable model methods.
+
+---
+
+## 🧪 Quick Example
+
+### Route Definition  
+**File:** `app/config/routes.php`
+
+```php
+Route::get('/', 'Welcome::index');
+Controller
+File: app/controllers/Welcome.php
+
+class WelcomeController extends Controller
+{
+    public function index()
+    {
+        $this->call->view('welcome');
+    }
+}
+View
+File: app/views/welcome.php
+
+<h1>Welcome to LavaLust Framework</h1>
+<p>Lightweight. Fast. MVC.</p>
+🎯 Philosophy
+Minimal core. Maximum control.
+
+LavaLust avoids heavy abstractions while giving developers the tools they need
+to build clean, scalable applications.
+
+📚 Learn More
+📦 GitHub Repository
+👉 https://github.com/ronmarasigan/lavalust
+
+📖 Official Documentation
+👉 https://lavalust.netlify.app
+
+🤝 Contributing
+Contributions are welcome and appreciated.
+
+Fork the repository
+
+Create a feature branch
+
+Commit your changes
+
+Open a pull request
+
+📜 License
+LavaLust Framework is open-source software licensed under the MIT License.
+
+🔥 LavaLust — Clean structure. Real control.
+

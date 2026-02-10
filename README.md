@@ -49,10 +49,12 @@ Simplified database interaction with structured, readable model methods.
 **File:** `app/config/routes.php`
 
 ```php
-Route::get('/', 'Welcome::index');
-Controller
-File: app/controllers/Welcome.php
+$router->get('/', 'Welcome::index');
+```
+### Controller
+**File:** `app/controllers/Welcome.php`
 
+```php
 class WelcomeController extends Controller
 {
     public function index()
@@ -60,25 +62,29 @@ class WelcomeController extends Controller
         $this->call->view('welcome');
     }
 }
-View
-File: app/views/welcome.php
+```
 
+### View
+**File:** `app/views/welcome.php`
+
+### Output
 <h1>Welcome to LavaLust Framework</h1>
 <p>Lightweight. Fast. MVC.</p>
-🎯 Philosophy
+
+## 🎯 Philosophy
 Minimal core. Maximum control.
 
 LavaLust avoids heavy abstractions while giving developers the tools they need
 to build clean, scalable applications.
 
-📚 Learn More
+## 📚 Learn More
 📦 GitHub Repository
 👉 https://github.com/ronmarasigan/lavalust
 
 📖 Official Documentation
 👉 https://lavalust.netlify.app
 
-🤝 Contributing
+## 🤝 Contributing
 Contributions are welcome and appreciated.
 
 Fork the repository
@@ -89,8 +95,8 @@ Commit your changes
 
 Open a pull request
 
-📜 License
+## 📜 License
 LavaLust Framework is open-source software licensed under the MIT License.
 
-🔥 LavaLust — Clean structure. Real control.
+# 🔥 LavaLust — Clean structure. Real control.
 

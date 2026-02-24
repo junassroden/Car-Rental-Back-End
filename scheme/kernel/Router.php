@@ -170,6 +170,22 @@ class Router
     }
 
     /**
+     * Match any HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+     *
+     * @param string $url
+     * @param mixed $callback
+     * @return $this
+     */
+    public function any($url, $callback)
+    {
+        $methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+        
+        $this->add_route($url, $callback, $methods);
+        
+        return $this;
+    }
+
+    /**
      * Adding Routes
      *
      * @param string $url

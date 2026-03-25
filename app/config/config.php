@@ -56,7 +56,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | LavaLust Version
 | -------------------------------------------------------------------
 */
-$config['VERSION']                 = '4.5.0';
+$config['VERSION']                 = '4.6.0';
 
 /*
 | -------------------------------------------------------------------
@@ -128,7 +128,7 @@ $config['log_dir']                  = 'runtime/logs/';
 | Note: This will NOT disable or override the LavaLust-specific
 |	autoloading (app/config/autoload.php)
 */
-$config['composer_autoload']        = TRUE;
+$config['composer_autoload']        = FALSE;
 
 /*
 |--------------------------------------------------------------------------

@@ -114,7 +114,7 @@ $config['log_dir']                  = 'runtime/logs/';
 |--------------------------------------------------------------------------
 |
 | Enabling this setting will tell LavaLust to look for a Composer
-| package auto-loader script in app/vendor/autoload.php.
+| package auto-loader script in vendor/autoload.php.
 |
 |	$config['composer_autoload'] = TRUE;
 |
@@ -128,7 +128,7 @@ $config['log_dir']                  = 'runtime/logs/';
 | Note: This will NOT disable or override the LavaLust-specific
 |	autoloading (app/config/autoload.php)
 */
-$config['composer_autoload']        = FALSE;
+$config['composer_autoload']        = TRUE;
 
 /*
 |--------------------------------------------------------------------------

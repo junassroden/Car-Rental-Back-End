@@ -290,6 +290,19 @@ $config['soft_delete_column']       = 'deleted_at';
 
 /*
 |--------------------------------------------------------------------------
+| Created At and Updated At Column
+|--------------------------------------------------------------------------
+| If you use the Model class, you can set the default created at and updated at column name here.
+| Default:
+|   $config['created_at_column'] = 'created_at';
+|   $config['updated_at_column'] = 'updated_at';
+|
+*/
+$config['created_at_column']        = 'created_at';
+$config['updated_at_column']        = 'updated_at';
+
+/*
+|--------------------------------------------------------------------------
 | Cross Site Request Forgery
 |--------------------------------------------------------------------------
 | Enables a CSRF cookie token to be set. When set to TRUE, token will be

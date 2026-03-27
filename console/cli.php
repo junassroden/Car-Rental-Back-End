@@ -34,6 +34,9 @@ switch ($make_type) {
     case 'config':
         generate_config($input);
         break;
+    case 'middleware':                  // ← New
+        generate_middleware($input);
+        break;
     default:
         echo danger("Invalid option: \"$make_type\"") . PHP_EOL;
         echo help_text();
@@ -65,7 +68,9 @@ class {$class_name} extends {$extends} {
 
     if ($type === 'model') {
         $content .= "    protected \$table = '';\n";
-        $content .= "    protected \$primary_key = 'id';\n\n";
+        $content .= "    protected \$primary_key = 'id';\n";
+        $content .= "    protected \$fillable = [];\n";
+        $content .= "    protected \$guarded = ['id'];\n\n";
     }
 
     $content .= "    public function __construct()
@@ -136,6 +141,50 @@ class {$class_name} {
 ";
 
     write_file($file_path, $content, 'Library', $class_name);
+}
+
+/**
+ * New: Generate Middleware
+ */
+function generate_middleware($name) {
+    $parts = explode('/', str_replace('\\', '/', $name));
+    $class_name = ucfirst(array_pop($parts));
+    $relative_path = implode(DIRECTORY_SEPARATOR, $parts);
+
+    $folder_path = APP_DIR . 'middlewares' . DIRECTORY_SEPARATOR . $relative_path;
+    $file_path = $folder_path . DIRECTORY_SEPARATOR . $class_name . '.php';
+
+    if (!is_dir($folder_path)) mkdir($folder_path, 0777, true);
+
+    $content = "<?php
+defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
+
+use Closure;
+
+/**
+ * Middleware: {$class_name}
+ * 
+ * Automatically generated via CLI.
+ */
+class {$class_name}
+{
+    /**
+     * Handle the incoming request
+     *
+     * @param Closure \$next
+     * @return mixed
+     */
+    public function handle(Closure \$next)
+    {
+        // Add your middleware logic here
+        // Example: authentication, role check, etc.
+
+        return \$next();
+    }
+}
+";
+
+    write_file($file_path, $content, 'Middleware', $class_name . 'Middleware');
 }
 
 function generate_view($name) {
@@ -244,26 +293,30 @@ Usage: \033[1;33mphp lava make:{type} Name\033[0m
 
 Available types and usage examples:
 
-  \033[1;32mcontroller\033[0m   → Creates a controller in app/controllers
+  \033[1;32mcontroller\033[0m    → Creates a controller in app/controllers
     Example: php lava make:controller Dashboard
 
-  \033[1;32mmodel\033[0m        → Creates a model in app/models
+  \033[1;32mmodel\033[0m         → Creates a model in app/models
     Example: php lava make:model Blog/PostModel
 
-  \033[1;32mhelper\033[0m       → Creates a helper in app/helpers (adds _helper suffix)
+  \033[1;32mhelper\033[0m        → Creates a helper in app/helpers
     Example: php lava make:helper text
 
-  \033[1;32mlibrary\033[0m      → Creates a class in app/libraries
+  \033[1;32mlibrary\033[0m       → Creates a class in app/libraries
     Example: php lava make:library PDF
 
-  \033[1;32mview\033[0m         → Creates a .php view in app/views with HTML boilerplate
+  \033[1;32mview\033[0m          → Creates a .php view in app/views
     Example: php lava make:view homepage
 
-  \033[1;32mlanguage\033[0m     → Creates a language file in app/language with default content
+  \033[1;32mlanguage\033[0m      → Creates a language file in app/language
     Example: php lava make:language tag-PH
 
-  \033[1;32mconfig\033[0m       → Creates a config file in app/config
+  \033[1;32mconfig\033[0m        → Creates a config file in app/config
     Example: php lava make:config auth
+
+  \033[1;32mmiddleware\033[0m   → Creates a middleware in app/middlewares   ← NEW
+    Example: php lava make:middleware Auth
+    Example: php lava make:middleware Admin/Auth
 
 EOT;
 }

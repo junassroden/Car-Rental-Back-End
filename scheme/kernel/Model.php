@@ -55,11 +55,46 @@ class Model {
     protected $primary_key = 'id';
 
     /**
+     * Fillable attributes for Mass Assignment
+     *
+     * @var array
+     */
+    protected $fillable = [];
+
+    /**
+     * Guarded attributes that cannot be mass assigned
+     *
+     * @var array
+     */
+    protected $guarded = ['id'];
+
+    /**
+     * Automatically manage created_at and updated_at timestamps
+     *
+     * @var boolean
+     */
+    protected $timestamps = true;
+
+    /**
+     * Column name for created_at timestamp
+     *
+     * @var string
+     */
+    protected $created_at_column = 'created_at';
+
+    /**
+     * Column name for updated_at timestamp
+     *
+     * @var string
+     */
+    protected $updated_at_column = 'updated_at';
+
+    /**
      * Column name to use for Soft Delete
      *
      * @var string
      */
-    protected $soft_delete_column;
+    protected $soft_delete_column = 'deleted_at';
 
     /**
      * Allow Soft Delete of Rows (It will be added in config/config.php later on)
@@ -81,11 +116,10 @@ class Model {
      */
     public function __construct()
     {
-        //Allow Soft Delete
-        $this->has_soft_delete = config_item('soft_delete');
-        
-        //Soft Delete Column
-        $this->soft_delete_column = config_item('soft_delete_column');
+        $this->has_soft_delete = $this->has_soft_delete ?? config_item('soft_delete');
+        $this->soft_delete_column = $this->soft_delete_column ?? config_item('soft_delete_column');
+        $this->created_at_column = $this->created_at_column ?? config_item('created_at_column');
+        $this->updated_at_column = $this->updated_at_column ?? config_item('updated_at_column');
     }
 
     /**
@@ -95,21 +129,46 @@ class Model {
      * @param array $mergeFillable Additional fillable fields for this operation
      * @return array Filtered data array
      */
-    protected function fillable_attributes(array $data, array $merge_fillable = [])
+    protected function fillable_attributes(array $data, array $merge_fillable = []): array
     {
-        // Determine which fields are fillable
         $fillable = !empty($merge_fillable) 
-            ? array_merge($this->fillable, $merge_fillable)
+            ? array_merge($this->fillable, $merge_fillable) 
             : $this->fillable;
-        
-        // If no fillable fields are defined, return empty array (strict mode)
-        // To allow all fields when empty, change to: return empty($fillable) ? $data : ...
-        if (empty($fillable)) {
-            return [];
+
+        // Case 1: fillable is defined → use whitelist
+        if (!empty($fillable)) {
+            return array_intersect_key($data, array_flip($fillable));
         }
-        
-        // Filter the input data
-        return array_intersect_key($data, array_flip($fillable));
+
+        // Case 2: guarded is defined → use blacklist (remove guarded fields)
+        if (!empty($this->guarded)) {
+            return array_diff_key($data, array_flip($this->guarded));
+        }
+
+        // Case 3: both empty → allow everything (legacy mode)
+        return $data;
+    }
+
+    /**
+     * Add timestamps to data array if enabled
+     *
+     * @param array $data Input data array
+     * @param bool $is_update Whether this is an update operation (true) or create (false)
+     * @return array Data array with timestamps added if enabled
+     */
+    protected function add_timestamps(array $data, bool $is_update = false): array
+    {
+        if (!$this->timestamps) {
+            return $data;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        if (!$is_update) {
+            $data[$this->created_at_column] = $now;
+        }
+        $data[$this->updated_at_column] = $now;
+
+        return $data;
     }
 
     /**
@@ -167,55 +226,65 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function all($with_deleted = false) {
+    public function all($with_deleted = false)
+    {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         $records = $this->db->get_all();
 
-        // Handle eager loading
         if (!empty($this->with) && !empty($records)) {
-            foreach ($records as &$record) {
-                foreach ($this->with as $relation) {
-                    if (method_exists($this, $relation)) {
-                        $rel = $this->{$relation}();
+            $this->load_relations($records);
+        }
 
-                        switch ($rel['type']) {
-                            case 'has_one':
-                                $this->call->model($rel['related']);
-                                $record[$relation] = $this->{$rel['related']}
-                                    ->filter([$rel['foreign_key'] => $record[$this->primary_key]])
-                                    ->get();
-                                break;
+        $this->with = []; // reset after use
+        return $records;
+    }
 
-                            case 'has_many':
-                                $this->call->model($rel['related']);
-                                $record[$relation] = $this->{$rel['related']}
-                                    ->filter([$rel['foreign_key'] => $record[$this->primary_key]])
-                                    ->get_all();
-                                break;
+    /**
+     * Load related records for eager loading
+     *
+     * @param array $records
+     * @return void
+     */
+    protected function load_relations(&$records)
+    {
+        foreach ($records as &$record) {
+            foreach ($this->with as $relationName) {
+                if (method_exists($this, $relationName)) {
+                    $rel = $this->{$relationName}(); // calls e.g. posts() which returns config array
 
-                            case 'many_to_many':
-                                $this->call->model($rel['related']);
-                                $query = "SELECT r.* FROM {$this->{$rel['related']}->table} r
-                                        JOIN {$rel['pivot_table']} p 
-                                        ON r.{$this->{$rel['related']}->primary_key} = p.{$rel['related_key']}
-                                        WHERE p.{$rel['current_key']} = ?";
-                                $record[$relation] = $this->db->raw($query, [$record[$this->primary_key]])
-                                    ->fetchAll(PDO::FETCH_ASSOC);
-                                break;
+                    $this->call->model($rel['related']);
 
-                            case 'belongs_to':
-                                $this->call->model($rel['related']);
-                                $record[$relation] = $this->{$rel['related']}
-                                    ->find($record[$rel['foreign_key']]);
-                                break;
-                        }
+                    switch ($rel['type'] ?? '') {
+                        case 'has_one':
+                            $record[$relationName] = $this->{$rel['related']}
+                                ->filter([$rel['foreign_key'] => $record[$this->primary_key]])
+                                ->get();
+                            break;
+
+                        case 'has_many':
+                            $record[$relationName] = $this->{$rel['related']}
+                                ->filter([$rel['foreign_key'] => $record[$this->primary_key]])
+                                ->get_all();
+                            break;
+
+                        case 'belongs_to':
+                            $record[$relationName] = $this->{$rel['related']}
+                                ->find($record[$rel['foreign_key']] ?? null);
+                            break;
+
+                        case 'many_to_many':
+                            $query = "SELECT r.* FROM {$this->{$rel['related']}->table} r
+                                      JOIN {$rel['pivot_table']} p 
+                                      ON r.{$this->{$rel['related']}->primary_key} = p.{$rel['related_key']}
+                                      WHERE p.{$rel['current_key']} = ?";
+                            $record[$relationName] = $this->db->raw($query, [$record[$this->primary_key]])
+                                                              ->fetchAll(PDO::FETCH_ASSOC);
+                            break;
                     }
                 }
             }
         }
-
-        return $records;
     }
 
     /**
@@ -224,7 +293,8 @@ class Model {
      * @param mixed $relations
      * @return $this
      */
-    public function with($relations) {
+    public function with($relations)
+    {
         $this->with = is_array($relations) ? $relations : [$relations];
         return $this;
     }
@@ -236,11 +306,13 @@ class Model {
      * @param int $id
      * @return void
      */
-    public function restore($id) {
-        if ($this->has_soft_delete) {
-            return $this->update($id, [$this->soft_delete_column => NULL]);
-        }
-        return false;
+    public function restore($id)
+    {
+        if (!$this->has_soft_delete) return false;
+
+        return $this->db->table($this->table)
+                        ->where($this->primary_key, $id)
+                        ->update([$this->soft_delete_column => null]);
     }
 
     /**
@@ -338,11 +410,20 @@ class Model {
      * @param array $data
      * @return void
      */
-    public function bulk_insert($data) {
-        if (!empty($data)) {
-            return $this->db->table($this->table)->bulk_insert($data);
+    public function bulk_insert($data)
+    {
+        if (empty($data)) {
+            return false;
         }
-        return false;
+
+        foreach ($data as &$row) {
+            $row = $this->fillable_attributes($row);
+            if (!empty($row) && $this->timestamps) {
+                $row = $this->add_timestamps($row);
+            }
+        }
+
+        return $this->db->table($this->table)->bulk_insert(array_filter($data));
     }
 
     /**
@@ -352,11 +433,40 @@ class Model {
      * @param int $key
      * @return void
      */
-    public function bulk_update($data, $key = 'id') {
-        if (!empty($data)) {
-            return $this->db->table($this->table)->bulk_update($data, $key);
+    public function bulk_update($data, $key = '', $merge_fillable = [])
+    {
+        if (empty($data)) {
+            return false;
         }
-        return false;
+
+        $key = $key ?: $this->primary_key;
+        $updatedCount = 0;
+
+        foreach ($data as $row) {
+            if (empty($row[$key])) {
+                continue;
+            }
+
+            $id = $row[$key];
+            unset($row[$key]);
+
+            $updateData = $this->fillable_attributes($row, $merge_fillable);
+            if (empty($updateData)) {
+                continue;
+            }
+
+            $updateData = $this->add_timestamps($updateData, true);
+
+            $result = $this->db->table($this->table)
+                               ->where($key, $id)
+                               ->update($updateData);
+
+            if ($result) {
+                $updatedCount++;
+            }
+        }
+
+        return $updatedCount;
     }
 
     /**
@@ -365,7 +475,14 @@ class Model {
      * @param array $data
      * @return void
      */
-    public function insert($data) {
+    public function insert($data)
+    {
+        $data = $this->fillable_attributes($data);
+        if (empty($data)) {
+            return false;
+        }
+
+        $data = $this->add_timestamps($data);
         $this->db->table($this->table)->insert($data);
         return $this->db->last_id();
     }
@@ -377,8 +494,17 @@ class Model {
      * @param array $data
      * @return void
      */
-    public function update($id, $data) {
-        return $this->db->table($this->table)->where($this->primary_key, $id)->update($data);
+    public function update($id, $data)
+    {
+        $data = $this->fillable_attributes($data);
+        if (empty($data)) {
+            return false;
+        }
+
+        $data = $this->add_timestamps($data, true);
+        return $this->db->table($this->table)
+                        ->where($this->primary_key, $id)
+                        ->update($data);
     }
 
     /**
@@ -387,11 +513,15 @@ class Model {
      * @param integer $id
      * @return void
      */
-    public function soft_delete($id) {
-        if ($this->has_soft_delete) {
-            return $this->update($id, [$this->soft_delete_column => date('Y-m-d H:i:s')]);
+    public function soft_delete($id)
+    {
+        if (!$this->has_soft_delete) {
+            return $this->delete($id);
         }
-        return $this->delete($id);
+
+        return $this->db->table($this->table)
+                        ->where($this->primary_key, $id)
+                        ->update([$this->soft_delete_column => date('Y-m-d H:i:s')]);
     }
 
     /**
@@ -400,8 +530,11 @@ class Model {
      * @param integer $id
      * @return void
      */
-    public function delete($id) {
-        return $this->db->table($this->table)->where($this->primary_key, $id)->delete();
+    public function delete($id)
+    {
+        return $this->db->table($this->table)
+                        ->where($this->primary_key, $id)
+                        ->delete();
     }
 
     /**
@@ -461,7 +594,8 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    protected function apply_soft_delete($with_deleted) {
+    protected function apply_soft_delete(bool $with_deleted): void
+    {
         if (!$with_deleted && $this->has_soft_delete) {
             $this->db->where_null($this->soft_delete_column);
         }
@@ -475,14 +609,9 @@ class Model {
      * @param mixed $current_id
      * @return boolean
      */
-    public function has_many($related_model, $foreign_key, $current_id) {
-        $this->call->model($related_model);
-
-        if ($current_id) {
-            return $this->{$related_model}->filter([$foreign_key => $current_id])->get_all();
-        }
-    
-        return false;
+    protected function has_many(string $related, string $foreign_key): array
+    {
+        return ['type' => 'has_many', 'related' => $related, 'foreign_key' => $foreign_key];
     }
 
     /**
@@ -493,14 +622,9 @@ class Model {
      * @param mixed $current_id
      * @return boolean
      */
-    public function has_one($related_model, $foreign_key, $current_id) {
-        $this->call->model($related_model);
-    
-        if ($current_id) {
-            return $this->{$related_model}->filter([$foreign_key => $current_id])->get();
-        }
-    
-        return false;
+    protected function has_one(string $related, string $foreign_key): array
+    {
+        return ['type' => 'has_one', 'related' => $related, 'foreign_key' => $foreign_key];
     }
 
     /**
@@ -513,18 +637,15 @@ class Model {
      * @param mixed $current_id
      * @return void
      */
-    public function many_to_many($related_model, $pivot_table, $current_key, $related_key, $current_id) {
-        if (!$current_id) {
-            return [];
-        }
-        
-        $this->call->model($related_model);
-        $query = "SELECT r.* FROM {$this->{$related_model}->table} r
-                 JOIN {$pivot_table} p ON r.{$this->{$related_model}->primary_key} = p.{$related_key}
-                 WHERE p.{$current_key} = ?";
-        
-        return $this->db->raw($query, [$current_id])
-               ->fetchAll(PDO::FETCH_ASSOC);
+    protected function many_to_many(string $related, string $pivot_table, string $current_key, string $related_key): array
+    {
+        return [
+            'type'         => 'many_to_many',
+            'related'      => $related,
+            'pivot_table'  => $pivot_table,
+            'current_key'  => $current_key,
+            'related_key'  => $related_key
+        ];
     }
 
     /**
@@ -535,13 +656,9 @@ class Model {
      * @param mixed $foreign_key_value
      * @return void
      */
-    public function belongs_to($related_model, $foreign_key, $foreign_key_value) {
-        if (!$foreign_key_value) {
-            return null;
-        }
-        
-        $this->call->model($related_model);
-        return $this->{$related_model}->find($foreign_key_value);
+    protected function belongs_to(string $related, string $foreign_key): array
+    {
+        return ['type' => 'belongs_to', 'related' => $related, 'foreign_key' => $foreign_key];
     }
     
     /**

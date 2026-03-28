@@ -3,44 +3,79 @@
 (PHP_SAPI !== 'cli' || isset($_SERVER['HTTP_USER_AGENT'])) && die('CLI only');
 
 define('APP_DIR', dirname(__DIR__, 1) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR);
+define('PUBLIC_DIR', dirname(__DIR__, 1) . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR);
 
 $command = $argv[1] ?? null;
 $input = $argv[2] ?? null;
 
-if (!$command || !$input) {
+if (!$command) {
     echo help_text();
     exit;
 }
 
 $make_type = strtolower(str_replace('make:', '', $command));
 
-switch ($make_type) {
-    case 'controller':
-    case 'model':
-        generate_class($make_type, $input);
+switch ($command) {
+    case 'run':
+        run_development_server($input);
         break;
-    case 'helper':
+
+    case 'make:controller':
+    case 'make:model':
+        generate_class(str_replace('make:', '', $command), $input);
+        break;
+
+    case 'make:helper':
         generate_helper($input);
         break;
-    case 'library':
+
+    case 'make:library':
         generate_library($input);
         break;
-    case 'view':
+
+    case 'make:view':
         generate_view($input);
         break;
-    case 'language':
+
+    case 'make:language':
         generate_language($input);
         break;
-    case 'config':
+
+    case 'make:config':
         generate_config($input);
         break;
-    case 'middleware':                  // ← New
+
+    case 'make:middleware':
         generate_middleware($input);
         break;
+
     default:
-        echo danger("Invalid option: \"$make_type\"") . PHP_EOL;
+        echo danger("Invalid command: \"$command\"") . PHP_EOL;
         echo help_text();
         exit;
+}
+
+function run_development_server($port = null) {
+    $port = $port ?: 3000; // Default port is 3000
+
+    // Check if public directory exists
+    if (!is_dir(PUBLIC_DIR)) {
+        echo danger("Public directory not found at: " . PUBLIC_DIR);
+        echo "Make sure you have a 'public' folder in your project root.\n";
+        exit(1);
+    }
+
+    $host = '127.0.0.1';
+    $url = "http://{$host}:{$port}";
+
+    echo success("Starting LavaLust development server...") . PHP_EOL;
+    echo "Server running on: \033[1;36m{$url}\033[0m" . PHP_EOL;
+    echo "Press Ctrl+C to stop the server." . PHP_EOL . PHP_EOL;
+
+    // Built-in PHP development server
+    $command = sprintf('php -S %s:%d -t %s', $host, $port, escapeshellarg(PUBLIC_DIR));
+
+    passthru($command);
 }
 
 function generate_class($type, $path) {
@@ -143,16 +178,13 @@ class {$class_name} {
     write_file($file_path, $content, 'Library', $class_name);
 }
 
-/**
- * New: Generate Middleware
- */
 function generate_middleware($name) {
     $parts = explode('/', str_replace('\\', '/', $name));
     $class_name = ucfirst(array_pop($parts));
     $relative_path = implode(DIRECTORY_SEPARATOR, $parts);
 
     $folder_path = APP_DIR . 'middlewares' . DIRECTORY_SEPARATOR . $relative_path;
-    $file_path = $folder_path . DIRECTORY_SEPARATOR . $class_name . '.php';
+    $file_path = $folder_path . DIRECTORY_SEPARATOR . $class_name . 'Middleware.php';
 
     if (!is_dir($folder_path)) mkdir($folder_path, 0777, true);
 
@@ -162,11 +194,11 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 use Closure;
 
 /**
- * Middleware: {$class_name}
+ * Middleware: {$class_name}Middleware
  * 
  * Automatically generated via CLI.
  */
-class {$class_name}
+class {$class_name}Middleware
 {
     /**
      * Handle the incoming request
@@ -176,8 +208,7 @@ class {$class_name}
      */
     public function handle(Closure \$next)
     {
-        // Add your middleware logic here
-        // Example: authentication, role check, etc.
+        // TODO: Add your middleware logic here (authentication, authorization, etc.)
 
         return \$next();
     }
@@ -263,7 +294,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 function write_file($path, $content, $type, $name) {
     if (!file_exists($path)) {
         file_put_contents($path, $content);
-        echo success("$type \"$name\" created at $path");
+        echo success("$type \"$name\" created successfully at $path");
     } else {
         echo danger("$type \"$name\" already exists.");
     }
@@ -281,7 +312,7 @@ function danger($string = '', $padding = true) {
 }
 
 function success($string = '') {
-    return "\e[0;32m" . $string . "\e[0m\n";
+    return "\e[0;32m" . $string . "\e[0m";
 }
 
 function help_text()
@@ -289,34 +320,39 @@ function help_text()
     return <<<EOT
 
 \033[1;34mLavaLust CLI Code Generator\033[0m
-Usage: \033[1;33mphp lava make:{type} Name\033[0m
+Usage: \033[1;33mphp lava <command> [options]\033[0m
 
-Available types and usage examples:
+\033[1;36mAvailable Commands:\033[0m
 
-  \033[1;32mcontroller\033[0m    → Creates a controller in app/controllers
+  \033[1;32mrun\033[0m [port]          → Start PHP built-in development server (default: 3000)
+    Example: php lava run
+    Example: php lava run 4545
+    Example: php lava run 8080
+
+  \033[1;32mmake:controller\033[0m   → Creates a controller
     Example: php lava make:controller Dashboard
 
-  \033[1;32mmodel\033[0m         → Creates a model in app/models
+  \033[1;32mmake:model\033[0m        → Creates a model
     Example: php lava make:model Blog/PostModel
 
-  \033[1;32mhelper\033[0m        → Creates a helper in app/helpers
+  \033[1;32mmake:helper\033[0m       → Creates a helper
     Example: php lava make:helper text
 
-  \033[1;32mlibrary\033[0m       → Creates a class in app/libraries
+  \033[1;32mmake:library\033[0m      → Creates a library
     Example: php lava make:library PDF
 
-  \033[1;32mview\033[0m          → Creates a .php view in app/views
+  \033[1;32mmake:view\033[0m         → Creates a view file
     Example: php lava make:view homepage
 
-  \033[1;32mlanguage\033[0m      → Creates a language file in app/language
+  \033[1;32mmake:language\033[0m     → Creates a language file
     Example: php lava make:language tag-PH
 
-  \033[1;32mconfig\033[0m        → Creates a config file in app/config
+  \033[1;32mmake:config\033[0m       → Creates a config file
     Example: php lava make:config auth
 
-  \033[1;32mmiddleware\033[0m   → Creates a middleware in app/middlewares   ← NEW
+  \033[1;32mmake:middleware\033[0m   → Creates a middleware
     Example: php lava make:middleware Auth
-    Example: php lava make:middleware Admin/Auth
+    Example: php lava make:middleware Admin/Role
 
 EOT;
 }

@@ -216,7 +216,7 @@ $config['sess_table']              = 'sessions';
 $config['sess_cookie_name']        = 'LLSession';
 $config['sess_expiration']         = 7200;
 $config['sess_save_path']          = '';
-$config['sess_match_ip']           = TRUE;
+$config['sess_match_ip']           = FALSE;
 $config['sess_match_fingerprint']  = TRUE;
 $config['sess_time_to_update']     = 300;
 $config['sess_regenerate_destroy'] = TRUE;
@@ -228,6 +228,8 @@ $config['max_session_creations']   = 10;
 $config['creation_window']         = 60;
 $config['lock_duration_creation']  = 120;
 $config['security_file']           = ROOT_DIR . 'runtime/session/session_security.json';
+$config['sess_inactivity_timeout'] = 1800;
+$config['session_hmac_secret']     = 'your-long-random-secret-here';
 
 /*
 |--------------------------------------------------------------------------
@@ -244,7 +246,7 @@ $config['cookie_path']             = '/';
 $config['cookie_secure']           = FALSE;
 $config['cookie_expiration']       = 86400;
 $config['cookie_httponly']         = FALSE;
-$config['cookie_samesite']         = 'Lax';
+$config['cookie_samesite']         = 'Strict';
 
 /*
 |--------------------------------------------------------------------------

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>404 | Not Found</title>
 
-<style>
+<style nonce="<?= defined('CSP_NONCE') ? CSP_NONCE : '' ?>">
 :root {
   --bg: #f6f8fb;
   --card: #ffffff;

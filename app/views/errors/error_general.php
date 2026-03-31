@@ -42,7 +42,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 <head>
 	<meta charset="utf-8">
 	<title>Error Encountered</title>
-	<style type="text/css">
+	<style nonce="<?= defined('CSP_NONCE') ? CSP_NONCE : '' ?>">
 
 	*{
 	    transition: all 0.6s;

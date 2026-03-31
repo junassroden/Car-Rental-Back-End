@@ -37,13 +37,33 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 if ( ! function_exists('base_url'))
 {
 	/**
-	 * Base URL
+	 * Get the base url
 	 *
+	 * @param string|array $uri
+	 * @param string|null $protocol
 	 * @return string
 	 */
-	function base_url()
+	function base_url($uri = '', $protocol = null)
 	{
-		return  filter_var(BASE_URL, FILTER_SANITIZE_URL);
+		$base_url = rtrim(filter_var(BASE_URL ?? '', FILTER_SANITIZE_URL), '/');
+
+		if ($protocol !== null) {
+			$base_url = preg_replace('#^https?://#i', rtrim($protocol, ':/') . '://', $base_url);
+		}
+
+		if (empty($uri)) {
+			return $base_url . '/';
+		}
+
+		if (is_array($uri)) {
+			$uri = implode('/', array_map('trim', $uri));
+		}
+
+		$uri = ltrim(trim((string) $uri), '/');
+
+		$uri = preg_replace('/[^a-zA-Z0-9\/\-\._~]/', '', $uri);
+
+		return $base_url . '/' . $uri;
 	}
 }
 
@@ -52,25 +72,39 @@ if ( ! function_exists('site_url'))
 	/**
 	 * Get the site url
 	 *
-	 * @param string $url
+	 * @param string|array $uri
+	 * @param string|null $protocol
 	 * @return string
 	 */
-	function site_url($url = '')
+	function site_url($uri = '', $protocol = null)
 	{
-		$base_url = rtrim(filter_var(BASE_URL, FILTER_SANITIZE_URL), '/');
-		$index_page = trim(config_item('index_page'), '/');
-		$url = ltrim($url, '/');
+		$base_url   = rtrim(filter_var(BASE_URL ?? '', FILTER_SANITIZE_URL), '/');
+		$index_page = trim(config_item('index_page') ?? '', '/');
 
-		if (!empty($index_page) && strpos($url, $index_page) === 0) {
-			$url = substr($url, strlen($index_page));
-			$url = ltrim($url, '/');
+		if ($protocol !== null) {
+			$base_url = preg_replace('#^https?://#i', rtrim($protocol, ':/') . '://', $base_url);
 		}
 
-		if (!empty($index_page)) {
-			return "{$base_url}/{$index_page}/{$url}";
+		if (empty($uri)) {
+			return $index_page ? $base_url . '/' . $index_page : $base_url . '/';
 		}
 
-		return "{$base_url}/{$url}";
+		if (is_array($uri)) {
+			$uri = implode('/', array_map('trim', $uri));
+		}
+
+		$uri = ltrim(trim((string) $uri), '/');
+
+		if ($index_page && strpos($uri, $index_page) === 0) {
+			$uri = substr($uri, strlen($index_page));
+			$uri = ltrim($uri, '/');
+		}
+
+		if ($index_page) {
+			return $base_url . '/' . $index_page . '/' . $uri;
+		}
+
+		return $base_url . '/' . $uri;
 	}
 
 }

@@ -42,6 +42,13 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 class Ember
 {
     /**
+     * Cache file permissions
+     *
+     * @var int
+     */
+    public const CACHE_PERMISSIONS = 0644;
+
+    /**
      * Templates path
      *
      * @var string
@@ -78,6 +85,18 @@ class Ember
      * @var bool
      */
     public bool $auto_escape;
+
+    /** Enable raw PHP blocks in templates
+     *
+     * @var bool
+     */
+    protected bool $enable_php_blocks = false;
+
+    /** Default escape context (e.g. 'html', 'js', 'attr')
+     *
+     * @var string
+     */
+    protected string $escape_context = 'html';
     
     /**
      * Constructor
@@ -93,17 +112,20 @@ class Ember
         if(! config_item('ember_helper_enabled')) {
             show_error('Ember Helper is disabled or set up incorrectly.');
         }
-       
-        $options = ['auto_escape' => config_item('auto_escape')];
         
-        $this->templates_path = config_item('templates_path');
+        $this->templates_path = rtrim(config_item('templates_path'), '/\\') . DIRECTORY_SEPARATOR;
+        $this->cache_path     = rtrim(config_item('cache_path'), '/\\') . DIRECTORY_SEPARATOR;
 
-        $this->cache_path = config_item('cache_path');
+        $this->auto_escape      = config_item('auto_escape');
+        $this->enable_php_blocks = config_item('enable_php_blocks');
+        $this->escape_context   = config_item('escape_context');
         
-        if (!is_dir($this->cache_path)) mkdir($this->cache_path, 0755, true);
-        
-        if (isset($options['auto_escape'])) $this->auto_escape = (bool)$options['auto_escape'];
-
+        if (!is_dir($this->cache_path)) {
+            if (!mkdir($this->cache_path, 0755, true)) {
+                show_error('Unable to create template cache directory.');
+            }
+        }
+        load_class('Security_headers', 'libraries/Ember');
         // Register built-in filters and functions
         $registrar = load_class('Ember_registrar', 'libraries/Ember');
         $registrar->register($this);
@@ -116,11 +138,31 @@ class Ember
      * @param string $value
      * @return string
      */
-    public function escape($value)
+    public function escape($value, $context = null)
     {
-        return $this->auto_escape
-            ? htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8')
-            : $value;
+        if ($value === null) {
+            return '';
+        }
+
+        $context = $context ?? $this->escape_context;
+
+        if (!$this->auto_escape) {
+            return (string) $value;
+        }
+
+        $value = (string) $value;
+
+        switch ($context) {
+            case 'attr':
+                return htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            case 'js':
+                return json_encode($value, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+            case 'url':
+                return rawurlencode($value);
+            case 'html':
+            default:
+                return htmlspecialchars($value, ENT_QUOTES | ENT_HTML5 | ENT_SUBSTITUTE, 'UTF-8');
+        }
     }
 
     /**
@@ -181,39 +223,48 @@ class Ember
      * @param array $context
      * @return string
      */
-    public function render($template, $context = [])
+    public function render(string $template, array $context = [])
     {
         $compiled = $this->compile($template);
-        $vars = array_merge($this->globals, $context);
-        $funcs = $this->functions;
+        $vars     = array_merge($this->globals, $context);
+        $funcs    = $this->functions;
         $sections = [];
-        $extends = null;
+        $extends  = null;
 
         ob_start();
+
         try {
+            // Sandboxed execution with limited variables
             (function () use ($compiled, $vars, $funcs, &$sections, &$extends) {
                 extract($vars, EXTR_SKIP);
-                $__fn = $funcs;
+
+                $__fn      = $funcs;
                 $__sections = &$sections;
-                $__extends = &$extends;
+                $__extends  = &$extends;
+                $__this     = $this; // allow calling escape() etc. if needed
+
                 include $compiled;
             })();
+
             $output = ob_get_clean();
         } catch (\Throwable $e) {
             ob_end_clean();
             throw $e;
         }
 
+        // Handle @extends
         if ($extends) {
             $parent_compiled = $this->compile($extends);
             ob_start();
+
             try {
                 (function () use ($parent_compiled, $vars, $funcs, &$sections) {
                     extract($vars, EXTR_SKIP);
-                    $__fn = $funcs;
+                    $__fn       = $funcs;
                     $__sections = $sections;
                     include $parent_compiled;
                 })();
+
                 return ob_get_clean();
             } catch (\Throwable $e) {
                 ob_end_clean();
@@ -230,16 +281,20 @@ class Ember
      * @param string $template
      * @return string Path to compiled PHP file
      */
-    public function compile($template)
+    public function compile(string $template)
     {
         $tpl_path = $this->resolve_template_path($template);
-        if (!file_exists($tpl_path)) throw new \RuntimeException("Template not found: $template");
+        if (!file_exists($tpl_path)) {
+            throw new \RuntimeException("Template not found: $template");
+        }
 
-        $cache_file = $this->cache_path . md5($tpl_path) . '.php';
+        $cache_file = $this->cache_path . md5($tpl_path . filemtime($tpl_path)) . '.php';
+
         if (!file_exists($cache_file) || filemtime($cache_file) < filemtime($tpl_path)) {
-            $source = file_get_contents($tpl_path);
+            $source   = file_get_contents($tpl_path);
             $compiled = $this->compile_string($source, $tpl_path);
             file_put_contents($cache_file, $compiled);
+            chmod($cache_file, self::CACHE_PERMISSIONS);
         }
 
         return $cache_file;
@@ -251,25 +306,31 @@ class Ember
      * @param string $template
      * @return string
      */
-    public function resolve_template_path($template)
+    public function resolve_template_path(string $template)
     {
-        $tpl = str_replace('.', DIRECTORY_SEPARATOR, $template);
-        $paths = [
+        $tpl = str_replace(['..', './', '\\'], ['', '', '/'], $template); // basic sanitization
+        $tpl = ltrim($tpl, '/');
+
+        $candidates = [
             $this->templates_path . $tpl,
             $this->templates_path . $tpl . '.ember.php',
             $this->templates_path . $tpl . '.php',
             $this->templates_path . $tpl . '.html',
             $this->templates_path . $tpl . '.tpl',
         ];
-        foreach ($paths as $p) {
-            if (is_file($p)) {
-                $real = realpath($p);
-                if (strpos($real, realpath($this->templates_path)) !== 0) {
-                    throw new \RuntimeException("Template outside allowed path: $template");
+
+        foreach ($candidates as $path) {
+            if (is_file($path)) {
+                $real = realpath($path);
+                $base = realpath($this->templates_path);
+
+                if ($real === false || strpos($real, $base) !== 0) {
+                    throw new \RuntimeException("Template path traversal attempt detected: $template");
                 }
                 return $real;
             }
         }
+
         throw new \RuntimeException("Template not found: $template");
     }
 
@@ -280,85 +341,75 @@ class Ember
      * @param string $tpl_path
      * @return string
      */
-    public function compile_string($source, $tpl_path = '')
+    public function compile_string(string $source, string $tpl_path = ''): string
     {
-        // for extends and sections
+        // Extends, Sections, Yield, Show
         $source = preg_replace('/@extends\([\'"](.+?)[\'"]\)/', '<?php $__extends = \'$1\'; ?>', $source);
 
-        // @section ... @endsection ... @show
         $source = preg_replace('/@section\([\'"](.+?)[\'"]\)/', '<?php $__sectionName = \'$1\'; ob_start(); ?>', $source);
         $source = preg_replace('/@endsection/', '<?php $__sections[$__sectionName] = ob_get_clean(); unset($__sectionName); ?>', $source);
-
-        // @show (end section and display)
-        $source = preg_replace('/@show/', '<?php if(isset($__sectionName)) { $__sections[$__sectionName] = ob_get_clean(); echo $__sections[$__sectionName]; unset($__sectionName); } ?>', $source);
-
-        // @yield('section') - display section content
+        $source = preg_replace('/@show/', '<?php if (isset($__sectionName)) { $__sections[$__sectionName] = ob_get_clean(); echo $__sections[$__sectionName]; unset($__sectionName); } ?>', $source);
         $source = preg_replace('/@yield\([\'"](.+?)[\'"]\)/', '<?php echo $__sections[\'$1\'] ?? ""; ?>', $source);
 
-        // @include - sanitize template name, pass defined vars
-        $source = preg_replace('/@include\([\'"](.+?)[\'"]\)/', '<?php
-            $tplName = preg_replace("/[^a-zA-Z0-9_\.\/\-]/", "", "$1");
-            $vars = array_diff_key(get_defined_vars(), array_flip(["__sections","__fn","__extends","compiled"]));
-            echo $this->render($tplName, $vars); ?>', $source);
+        // Safer @include
+        $source = preg_replace_callback('/@include\([\'"](.+?)[\'"]\)/', function ($m) {
+            $tplName = preg_replace('/[^a-zA-Z0-9_\.\/-]/', '', $m[1]);
+            return '<?php 
+                $tplName = "' . addslashes($tplName) . '";
+                $vars = array_diff_key(get_defined_vars(), array_flip(["__sections","__fn","__extends","__this"]));
+                echo $this->render($tplName, $vars); 
+            ?>';
+        }, $source);
 
         // Raw echo {!! !!}
-        $source = preg_replace('/\{!!\s*(.*?)\s*!!\}/s', '<?php echo ($1); ?>', $source);
+        $source = preg_replace('/\{!!\s*(.*?)\s*!!\}/s', '<?php echo $1; ?>', $source);
 
-        // Escaped echo {{ var|filters }} OR {{ function(args) }}
-        $source = preg_replace_callback('/\{\{\s*(.*?)\s*\}\}/s', function ($m) {
+        // === FIXED ESCAPED ECHO {{ expression | filters }} ===
+        $source = preg_replace_callback('/\{\{\s*(.+?)\s*\}\}/s', function ($m) {
             $expr = trim($m[1]);
 
-            if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/', $expr, $fnMatch)) {
+            // Support function call: {{ upper(name) }}
+            if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $expr, $fnMatch)) {
                 $fnName = $fnMatch[1];
-                $args   = trim($fnMatch[2]);
-                $args = array_map('trim', preg_split('/,(?=(?:[^\'"]|\'[^\']*\'|"[^"]*")*$)/', $args));
-
-                foreach ($args as &$a) {
-                    if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $a)) {
-                        $a = '$' . $a;
-                    }
-                }
-                $argsStr = implode(', ', $args);
-
-                return "<?php echo \$this->escape((\$__fn['$fnName'])($argsStr)); ?>";
+                $args   = $fnMatch[2];
+                return "<?php echo \$this->escape((\$__fn['$fnName'])($args)); ?>";
             }
 
-            // Variable with filters
-            $parts = preg_split('/\|(?=(?:[^\"\']*[\"\'][^\"\']*[\"\'])*[^\"\']*$)/', $expr);
-            $var = '$' . trim(array_shift($parts));
+            // Variable with filters: {{ var|filter1|filter2('arg') }}
+            $parts = preg_split('/\s*\|\s*/', $expr);
+            $var   = array_shift($parts);
+
+            // If it starts with quote, treat as string literal
+            if (preg_match('/^([\'"])(.*)\1$/', trim($var), $strMatch)) {
+                $var = var_export($strMatch[2], true);   // Safe string export
+            } else {
+                $var = '$' . ltrim(trim($var), '$');
+            }
+
             foreach ($parts as $filter) {
                 $filter = trim($filter);
+
                 if ($filter === 'upper') {
                     $var = "strtoupper($var)";
                 } elseif ($filter === 'lower') {
                     $var = "strtolower($var)";
                 } elseif ($filter === 'raw') {
-                    // raw always disables escaping
                     return "<?php echo $var; ?>";
+                } elseif ($filter === 'escape' || $filter === 'e') {
+                    $var = "\$this->escape($var)";
+                } elseif ($filter === 'nl2br') {
+                    $var = "nl2br((string) $var)";
+                } elseif ($filter === 'striptags') {
+                    $var = "strip_tags((string) $var)";
+                } elseif ($filter === 'trim') {
+                    $var = "trim((string) $var)";
                 } else {
-                    if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/', $filter, $fm)) {
-                        $filterName = $fm[1];
-                        $args = trim($fm[2]);
-
-                        if ($args !== '') {
-                            $args = array_map('trim',
-                                preg_split('/,(?=(?:[^\'"]|\'[^\']*\'|"[^"]*")*$)/', $args)
-                            );
-
-                            foreach ($args as &$a) {
-                                if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $a)) {
-                                    $a = '$' . $a;
-                                }
-                            }
-
-                            $argsStr = ', ' . implode(', ', $args);
-                        } else {
-                            $argsStr = '';
-                        }
-
-                        $var = "\$this->apply_filter('$filterName', $var$argsStr)";
+                    // Custom filter with optional arguments
+                    if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\((.*)\))?$/', $filter, $fMatch)) {
+                        $fName = $fMatch[1];
+                        $fArgs = isset($fMatch[2]) ? ', ' . trim($fMatch[2]) : '';
+                        $var = "\$this->apply_filter('$fName', $var$fArgs)";
                     } else {
-                        // no arguments
                         $var = "\$this->apply_filter('$filter', $var)";
                     }
                 }
@@ -367,37 +418,42 @@ class Ember
             return "<?php echo \$this->escape($var); ?>";
         }, $source);
 
-
-        // If / elseif / else / endif
-        $source = preg_replace_callback('/@if\s*\((.*?)\)\s*(?=\n|$)/s', function ($m) {
-            return "<?php if ({$m[1]}): ?>";
-        }, $source);
-
-        $source = preg_replace_callback('/@elseif\s*\((.*?)\)\s*(?=\n|$)/s', function ($m) {
-            return "<?php elseif ({$m[1]}): ?>";
-        }, $source);
-
+        // Control structures (kept simple and safe)
+        $source = preg_replace_callback('/@if\s*\((.+?)\)/s', fn($m) => "<?php if ({$m[1]}): ?>", $source);
+        $source = preg_replace_callback('/@elseif\s*\((.+?)\)/s', fn($m) => "<?php elseif ({$m[1]}): ?>", $source);
         $source = preg_replace('/@else\b/', '<?php else: ?>', $source);
         $source = preg_replace('/@endif\b/', '<?php endif; ?>', $source);
 
-        // @foreach (require explicit $variables)
-        $source = preg_replace_callback('/@foreach\s*\(\s*(.*?)\s*\)/', function($m) {
-            return "<?php foreach ($m[1]): ?>";
-        }, $source);
+        $source = preg_replace_callback('/@foreach\s*\((.+?)\)/s', fn($m) => "<?php foreach ({$m[1]}): ?>", $source);
         $source = preg_replace('/@endforeach/', '<?php endforeach; ?>', $source);
 
-        // @for
-        $source = preg_replace_callback('/@for\s*\((.*?)\)/', fn($m) => "<?php for ($m[1]): ?>", $source);
+        $source = preg_replace_callback('/@for\s*\((.+?)\)/s', fn($m) => "<?php for ({$m[1]}): ?>", $source);
         $source = preg_replace('/@endfor/', '<?php endfor; ?>', $source);
 
-        // @while
-        $source = preg_replace('/@while\s*\((.*?)\)/', '<?php while ($1): ?>', $source);
+        $source = preg_replace_callback('/@while\s*\((.+?)\)/s', fn($m) => "<?php while ({$m[1]}): ?>", $source);
         $source = preg_replace('/@endwhile/', '<?php endwhile; ?>', $source);
 
-        // @php ... @endphp
-        $source = preg_replace('/@php/', '<?php ', $source);
-        $source = preg_replace('/@endphp/', '?>', $source);
+        // @php blocks - disabled by default for security
+        if ($this->enable_php_blocks ?? false) {
+            $source = str_replace(['@php', '@endphp'], ['<?php ', '?>'], $source);
+        } else {
+            $source = preg_replace('/@php[\s\S]*?@endphp/', '<!-- PHP blocks are disabled for security -->', $source);
+        }
 
-        return "<?php // Compiled: {$tpl_path} ?>\n" . $source;
+        $header = "<?php // Compiled Ember template: " . basename($tpl_path) . " | " . date('Y-m-d H:i:s') . " ?>\n";
+        return $header . $source;
+    }
+    
+    /**
+     * Clear the compiled template cache
+     *
+     * @return void
+     */
+    public function clear_cache(): void
+    {
+        $files = glob($this->cache_path . '*.php');
+        foreach ($files as $file) {
+            @unlink($file);
+        }
     }
 }

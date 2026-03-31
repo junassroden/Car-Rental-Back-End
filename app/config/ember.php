@@ -72,3 +72,20 @@ $config['templates_path'] = APP_DIR . 'views/';
 |
 */
 $config['auto_escape'] = TRUE;
+
+/*
+|--------------------------------------------------------------------------
+| Escape Context
+|--------------------------------------------------------------------------
+| Used for Specifying the Default Context for Auto Escaping (e.g., 'html', 'js', 'attr')
+|
+*/
+$config['escape_context']     = 'html';
+
+/*|--------------------------------------------------------------------------
+| Enable PHP in Templates
+|--------------------------------------------------------------------------
+| Used for Allowing or Disallowing Raw PHP Code in Templates (strongly recommended to keep false for security)
+|
+*/
+$config['enable_php_blocks']  = FALSE;

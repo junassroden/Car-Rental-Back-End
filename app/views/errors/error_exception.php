@@ -55,7 +55,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($exception->getFile(), $exc
 <head>
     <meta charset="UTF-8">
     <title>Whoops! Something went wrong.</title>
-    <style>
+    <style nonce="<?= defined('CSP_NONCE') ? CSP_NONCE : '' ?>">
         * { box-sizing: border-box; }
 
         body {

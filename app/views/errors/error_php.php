@@ -53,7 +53,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filepath, $line);
 <head>
     <meta charset="UTF-8">
     <title>PHP Error</title>
-    <style>
+    <style nonce="<?= defined('CSP_NONCE') ? CSP_NONCE : '' ?>">
         * { box-sizing: border-box; }
 
         body {

@@ -59,7 +59,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filePath, $lineNum);
 <head>
     <meta charset="UTF-8">
     <title>Database Error</title>
-    <style>
+    <style nonce="<?= defined('CSP_NONCE') ? CSP_NONCE : '' ?>">
         * { box-sizing: border-box; }
 
         body {

@@ -66,6 +66,9 @@ if ($composer_autoload = config_item('composer_autoload'))
 	}
 }
 
+// Define CLI mode
+define('IS_CLI', php_sapi_name() === 'cli');
+
 /**
  * Instantiate the Benchmark class
  */
@@ -155,8 +158,27 @@ function lava_instance()
 }
 $performance->stop('lavalust');
 
-// Handle the request
-$url = $router->sanitize_url(str_replace($_SERVER['SCRIPT_NAME'], '', $_SERVER['PHP_SELF']));
-$method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper($_SERVER['REQUEST_METHOD']) : '';
+if (php_sapi_name() === 'cli') {
+    $raw_url = $argv[1] ?? '';
+    
+    $raw_url = ltrim($raw_url, '/');
+    
+    $url = $router->sanitize_url($raw_url);
+    
+    if (empty($url)) {
+        $url = '/';
+    } else {
+        $url = '/' . $url;
+    }
+    
+    $method = 'GET';
+    
+} else {
+    $url = $router->sanitize_url(str_replace($_SERVER['SCRIPT_NAME'], '', $_SERVER['PHP_SELF']));
+    $method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper($_SERVER['REQUEST_METHOD']) : 'GET';
+}
+
+if (empty($url)) $url = '/';
+
 $router->initiate($url, $method);
 ?>

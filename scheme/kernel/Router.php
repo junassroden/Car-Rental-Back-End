@@ -378,14 +378,26 @@ class Router
      */
     public function initiate($url, $method)
     {
-        //check for invalid chars
+        if (empty($url)) {
+            $url = '/';
+        }
+        if (strpos($url, '/') !== 0) {
+            $url = '/' . $url;
+        }
+
+        // Security check for permitted characters
         $url_segments = explode('/', $url);
         array_shift($url_segments);
         foreach($url_segments as $uri)
         {
-            if (! preg_match('/^['.config_item('permitted_uri_chars').']+$/i', $uri))
+            if ($uri !== '' && ! preg_match('/^['.config_item('permitted_uri_chars').']+$/i', $uri))
             {
-                show_error('400 Bad Request', 'The URI you submitted has disallowed characters.', 'error_general', 400);
+                if (defined('IS_CLI') && IS_CLI) {
+                    echo "Error 400: Disallowed characters in command.\n";
+                    exit(1);
+                } else {
+                    show_error('400 Bad Request', 'The URI you submitted has disallowed characters.', 'error_general', 400);
+                }
             }
         }
         foreach ($this->routes as $route) {

@@ -296,14 +296,13 @@ class Invoker {
 
 		if (is_array($classes)) {
 			foreach ($classes as $class) {
-				// Skip if already loaded
-				if (isset($LAVA->properties[$class])) {
-					continue;
-				}
-
 				if ($class == 'database') {
 					$database = load_class('database', 'database');
 					$LAVA->db = $database::instance(NULL);
+				}
+
+				if (isset($LAVA->properties[$class])) {
+					continue;
 				}
 
 				$LAVA->properties[$class] = load_class($class, 'libraries');
@@ -335,16 +334,12 @@ class Invoker {
 		$LAVA = lava_instance();
 
 		if (is_null($dbname)) {
-			// Singleton check for main db
-			if (isset($LAVA->db)) {
-				return $LAVA->db;
-			}
+			
 			$database = load_class('database', 'database');
 			$LAVA->db = $database::instance(NULL);
 			return $LAVA->db;
 		}
 
-		// Singleton check for named db
 		if (isset($LAVA->properties[$dbname])) {
 			return $LAVA->properties[$dbname];
 		}

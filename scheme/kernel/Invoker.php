@@ -89,27 +89,30 @@ class Invoker {
 	{
 		$parts = explode('/', $class);
 		$ctrl = ucfirst(array_pop($parts));
-		$module = array_shift($parts);
+		$module = !empty($parts) ? array_shift($parts) : null;
 		$nested = implode('/', $parts);
 
-		$path = APP_DIR . "modules/{$module}/controllers/" . ($nested ? "{$nested}/" : '') . "{$ctrl}.php";
+		// Module path
+		if ($module) {
+			$path = APP_DIR . "modules/{$module}/controllers/" . ($nested ? "{$nested}/" : '') . "{$ctrl}.php";
+			if (file_exists($path)) {
+				require_once $path;
 
-		if (file_exists($path)) {
-			require_once $path;
+				if (!class_exists($ctrl)) {
+					throw new Exception("Controller class {$ctrl} not found in module {$module}");
+				}
 
-			if (!class_exists($ctrl)) {
-				throw new Exception("Controller class {$ctrl} not found in module {$module}");
+				$instance = new $ctrl();
+
+				if (!method_exists($instance, $method)) {
+					throw new Exception("Method {$method} not found in controller {$ctrl}");
+				}
+
+				return call_user_func_array([$instance, $method], $params);
 			}
-
-			$instance = new $ctrl();
-
-			if (!method_exists($instance, $method)) {
-				throw new Exception("Method {$method} not found in controller {$ctrl}");
-			}
-
-			return call_user_func_array([$instance, $method], $params);
 		}
 
+		// App path
 		$path = APP_DIR . "controllers/" . ($nested ? "{$nested}/" : '') . "{$ctrl}.php";
 		if (file_exists($path)) {
 			require_once $path;
@@ -127,7 +130,8 @@ class Invoker {
 			return call_user_func_array([$instance, $method], $params);
 		}
 
-		throw new Exception("Controller {$ctrl} not found in module {$module}" . ($nested ? "/{$nested}" : ''));
+		$location = $module ? "module {$module}" . ($nested ? "/{$nested}" : '') : "app/controllers";
+		throw new Exception("Controller {$ctrl} not found in {$location}");
 	}
 
 	/**
@@ -165,22 +169,26 @@ class Invoker {
 			$nested = implode('/', $parts);
 		}
 
+		$obj_name = $object_name ?? $this->class;
+
+		if (isset($LAVA->properties[$obj_name])) {
+			return $LAVA->properties[$obj_name];
+		}
+
 		if ($module) {
 			$path = APP_DIR . "modules/{$module}/models/" . ($nested ? "{$nested}/" : '') . "{$this->class}.php";
 			if (file_exists($path)) {
 				require_once $path;
-				$obj_name = $object_name ?? $this->class;
 				$LAVA->properties[$obj_name] = new $this->class();
-				return;
+				return $LAVA->properties[$obj_name];
 			}
 		}
 
 		$path = APP_DIR . "models/" . ($nested ? "{$nested}/" : '') . "{$this->class}.php";
 		if (file_exists($path)) {
 			require_once $path;
-			$obj_name = $object_name ?? $this->class;
 			$LAVA->properties[$obj_name] = new $this->class();
-			return;
+			return $LAVA->properties[$obj_name];
 		}
 
 		$location = $module ? "module {$module}" : "app/models";
@@ -285,19 +293,35 @@ class Invoker {
 	public function library($classes, $params = NULL)
 	{
 		$LAVA = lava_instance();
-		if(is_array($classes))
-		{
-			foreach($classes as $class)
-			{
-				if($class == 'database') {
+
+		if (is_array($classes)) {
+			foreach ($classes as $class) {
+				// Skip if already loaded
+				if (isset($LAVA->properties[$class])) {
+					continue;
+				}
+
+				if ($class == 'database') {
 					$database = load_class('database', 'database');
 					$LAVA->db = $database::instance(NULL);
 				}
+
 				$LAVA->properties[$class] = load_class($class, 'libraries');
 			}
-		} else {
-			$LAVA->properties[$classes] = load_class($classes, 'libraries', $params);
+			return;
 		}
+
+		if (isset($LAVA->properties[$classes])) {
+			return $LAVA->properties[$classes];
+		}
+
+		if ($classes == 'database') {
+			$database = load_class('database', 'database');
+			$LAVA->db = $database::instance(NULL);
+		}
+
+		$LAVA->properties[$classes] = load_class($classes, 'libraries', $params);
+		return $LAVA->properties[$classes];
 	}
 
 	/**
@@ -309,12 +333,25 @@ class Invoker {
 	public function database($dbname = NULL)
 	{
 		$LAVA = lava_instance();
-		$database = load_class('database','database', $dbname);
-		if(is_null($dbname)) {
+
+		if (is_null($dbname)) {
+			// Singleton check for main db
+			if (isset($LAVA->db)) {
+				return $LAVA->db;
+			}
+			$database = load_class('database', 'database');
 			$LAVA->db = $database::instance(NULL);
-		} else {
-			$LAVA->properties[$dbname] = $database::instance($dbname);
+			return $LAVA->db;
 		}
+
+		// Singleton check for named db
+		if (isset($LAVA->properties[$dbname])) {
+			return $LAVA->properties[$dbname];
+		}
+
+		$database = load_class('database', 'database');
+		$LAVA->properties[$dbname] = $database::instance($dbname);
+		return $LAVA->properties[$dbname];
 	}
 
 	/**

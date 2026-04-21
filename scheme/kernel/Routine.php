@@ -44,59 +44,58 @@ if ( ! function_exists('load_class'))
 	 * @param  array $params    Class parameters if present
 	 * @return object
 	 */
-	function load_class(string $class, string $directory = '', $params = null, $object_name = null)
-{
-    $LAVA = Registry::instance();
-    $object_name = $object_name ?? strtolower($class);
+	function load_class($class, $directory = '', $params = null, $object_name = null)
+	{
+		$LAVA = Registry::instance();
+		$object_name = $object_name ?? strtolower($class);
 
-    // Return if already loaded
-    if ($existing = $LAVA->get_object($object_name)) {
-        return $existing;
-    }
+		// Return if already loaded
+		if ($existing = $LAVA->get_object($object_name)) {
+			return $existing;
+		}
 
-    // Search in both APP_DIR and SYSTEM_DIR
-    foreach ([APP_DIR, SYSTEM_DIR] as $base_path) {
-        $dir_path = rtrim($base_path . $directory, '/\\') . DIRECTORY_SEPARATOR;
+		// Search in both APP_DIR and SYSTEM_DIR
+		foreach ([APP_DIR, SYSTEM_DIR] as $base_path) {
+			$dir_path = rtrim($base_path . $directory, '/\\') . DIRECTORY_SEPARATOR;
 
-        if (!is_dir($dir_path)) {
-            continue;
-        }
+			if (!is_dir($dir_path)) {
+				continue;
+			}
 
-        foreach (scandir($dir_path) as $file) {
-            // Case-insensitive file match
-            if (strcasecmp($file, $class . '.php') !== 0) {
-                continue;
-            }
+			foreach (scandir($dir_path) as $file) {
+				// Case-insensitive file match
+				if (strcasecmp($file, $class . '.php') !== 0) {
+					continue;
+				}
 
-            require_once $dir_path . $file;
+				require_once $dir_path . $file;
 
-            // Find the actual class name in a case-insensitive way
-            $match = null;
-            foreach (get_declared_classes() as $declared_class) {
-                if (strcasecmp($declared_class, $class) === 0) {
-                    $match = $declared_class;
-                    break;
-                }
-            }
+				// Find the actual class name in a case-insensitive way
+				$match = null;
+				foreach (get_declared_classes() as $declared_class) {
+					if (strcasecmp($declared_class, $class) === 0) {
+						$match = $declared_class;
+						break;
+					}
+				}
 
-            if ($match === null) {
-                throw new RuntimeException("Class '{$class}' not found in file '{$file}'.");
-            }
+				if ($match === null) {
+					throw new RuntimeException("Class '{$class}' not found in file '{$file}'.");
+				}
 
-            // Register loaded class
-            loaded_class($class, $object_name);
+				// Register loaded class
+				loaded_class($class, $object_name);
 
-            // Instantiate the class
-            $instance = isset($params) ? new $match($params) : new $match();
-            $LAVA->store_object($object_name, $instance);
+				// Instantiate the class
+				$instance = isset($params) ? new $match($params) : new $match();
+				$LAVA->store_object($object_name, $instance);
 
-            return $LAVA->get_object($object_name);
-        }
-    }
+				return $LAVA->get_object($object_name);
+			}
+		}
 
-    throw new RuntimeException("Unable to locate the '{$class}' class in '{$directory}'.");
-}
-
+		throw new RuntimeException("Unable to locate the '{$class}' class in '{$directory}'.");
+	}
 }
 
 if ( ! function_exists('loaded_class'))

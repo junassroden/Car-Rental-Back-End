@@ -287,7 +287,7 @@ class Form_validation {
             $this->value = $this->post_arrays[array_shift($arr)];
             $this->name = end($arr);
         } else {
-            $this->value = $this->post_arrays[$name];
+            $this->value = $this->post_arrays[$name] ?? null;
             $this->name = $name;
         }
 
@@ -605,7 +605,7 @@ class Form_validation {
         }
         if($this->value < $min)
         {
-            $$this->set_error_message($custom_error, self::$err_greater_than, $min);
+            $this->set_error_message($custom_error, self::$err_greater_than, $min);
         }
         return $this;
     }
@@ -625,7 +625,7 @@ class Form_validation {
         }
         if($this->value <= $min)
         {
-            $$this->set_error_message($custom_error, self::$err_greater_than_equal_to, $min);
+            $this->set_error_message($custom_error, self::$err_greater_than_equal_to, $min);
         }
         return $this;
     }
@@ -705,10 +705,7 @@ class Form_validation {
      * @return bool
      */
     public function run() {
-        if(empty($this->errors))
-        {
-            return TRUE;
-        }
+        return empty($this->errors);
     }
 
     /**
@@ -741,5 +738,81 @@ class Form_validation {
                 return $errors;
             }
         }
+    }
+
+    /**
+     * Set rules
+     *
+     * @param string $rules
+     * @param array $custom_errors
+     * @return void
+     */
+    public function rules($rules, $custom_errors = [])
+    {
+        $rules = explode('|', $rules);
+
+        foreach ($rules as $rule)
+        {
+            $param = null;
+
+            if (preg_match('/(.*?)\[(.*)\]/', $rule, $match))
+            {
+                $rule  = $match[1];
+                $param = $match[2];
+            }
+
+            $custom_error = $custom_errors[$rule] ?? '';
+
+            if (method_exists($this, $rule))
+            {
+                if ($param !== null)
+                {
+                    $this->$rule($param, $custom_error);
+                }
+                else
+                {
+                    $this->$rule($custom_error);
+                }
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * Validate
+     *
+     * @param array $fields
+     * @param array $custom_errors
+     * @return bool
+     */
+    public function validate(array $fields, array $custom_errors = [])
+    {
+        $this->errors = [];
+
+        foreach ($fields as $field => $rules)
+        {
+            if (strpos($field, '|') !== false)
+            {
+                $parts = explode('|', $field);
+                $field_name  = $parts[0];
+                $field_label = $parts[1];
+            }
+            else
+            {
+                $field_name  = $field;
+                $field_label = $field;
+            }
+
+            $this->name($field_name);
+
+            $this->name = $field_label;
+
+            $field_errors = $custom_errors[$field_name] ?? [];
+
+            $this->rules($rules, $field_errors);
+        }
+
+        return $this->run();
     }
 }

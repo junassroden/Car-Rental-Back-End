@@ -172,6 +172,16 @@ class Model {
     }
 
     /**
+     * Query Builder
+     *
+     * @return Database
+     */
+    public function query()
+    {
+        return $this->db->table($this->table);
+    }
+
+    /**
      * Find Single Record
      *
      * @param integer $id
@@ -182,6 +192,208 @@ class Model {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->where($this->primary_key, $id)->get();
+    }
+
+    /**
+     * Find Single Record by Column
+     *
+     * @param string $column    
+     * @param mixed $value
+     * @param boolean $with_deleted
+     * @return void
+     */
+    public function find_by($column, $value, $with_deleted = false)
+    {
+        $this->db->table($this->table);
+        $this->apply_soft_delete($with_deleted);
+        return $this->db->where($column, $value)->get();
+    }
+
+    /**
+     * Find All Records by Column
+     *
+     * @param string $column    
+     * @param mixed $value
+     * @param boolean $with_deleted
+     * @return void
+     */
+    public function find_all_by($column, $value, $with_deleted = false)
+    {
+        $this->db->table($this->table);
+        $this->apply_soft_delete($with_deleted);
+        return $this->db->where($column, $value)->get_all() ?: [];
+    }
+
+    /**
+     * Get Column Value
+     *
+     * @param string $column    
+     * @param array $conditions
+     * @return void
+     */
+    public function value(string $column, array $conditions = [])
+    {
+        $this->db->table($this->table)->select($column);
+        if (!empty($conditions)) {
+            $this->db->where($conditions);
+        }
+        $row = $this->db->get();
+        return $row[$column] ?? null;
+    }
+
+    /**
+     * Get Column Values
+     *
+     * @param string $column    
+     * @param array $conditions
+     * @return void
+     */
+    public function pluck($column, $conditions = [], $with_deleted = false)
+    {
+        $this->db->table($this->table)->select($column);
+        $this->apply_soft_delete($with_deleted);
+        if (!empty($conditions)) {
+            $this->db->where($conditions);
+        }
+        $rows = $this->db->get_all() ?: [];
+        return array_column($rows, $column);
+    }
+
+    /**
+     * Get Column Values
+     *
+     * @param string $column    
+     * @param array $conditions
+     * @return void
+     */
+    public function first_or_create($conditions, $extra_data = [])
+    {
+        $this->db->table($this->table);
+        $this->apply_soft_delete(false);
+        $record = $this->db->where($conditions)->get();
+
+        if ($record) {
+            return ['record' => $record, 'created' => false];
+        }
+
+        $id = $this->insert(array_merge($conditions, $extra_data));
+        return ['record' => $this->find($id), 'created' => true];
+    }
+
+    /**
+     * Update existing record matching conditions or create new one
+     *
+     * @param array $conditions
+     * @param array $data
+     * @return int ID of the updated or created record
+     */
+    public function update_or_create($conditions, $data)
+    {
+        $this->db->table($this->table);
+        $this->apply_soft_delete(false);
+        $record = $this->db->where($conditions)->get();
+
+        if ($record) {
+            $this->update($record[$this->primary_key], $data);
+            return (int) $record[$this->primary_key];
+        }
+
+        return (int) $this->insert(array_merge($conditions, $data));
+    }
+
+    /**
+     * Update Records Matching Conditions
+     *
+     * @param array $conditions
+     * @param array $data
+     * @return int Number of affected rows
+     */
+    public function update_where($conditions, $data)
+    {
+        $data = $this->fillable_attributes($data);
+        if (empty($data)) return 0;
+
+        $data = $this->add_timestamps($data, true);
+        return (int) $this->db->table($this->table)->where($conditions)->update($data);
+    }
+    
+    /**
+     * Delete Records Matching Conditions
+     *
+     * @param array $conditions
+     * @return int Number of affected rows
+     */
+    public function delete_where($conditions): int
+    {
+        return (int) $this->db->table($this->table)->where($conditions)->delete();
+    }
+
+    /**
+     * Get the sum of a column.
+     *
+     * @param string $column
+     * @param array $conditions
+     * @param boolean $with_deleted
+     * @return float
+     */
+    public function sum($column, $conditions = [], $with_deleted = false)
+    {
+        $this->db->table($this->table)->select_sum($column, 'aggregate');
+        $this->apply_soft_delete($with_deleted);
+        if (!empty($conditions)) $this->db->where($conditions);
+        $row = $this->db->get();
+        return $row['aggregate'] ?? 0;
+    }
+
+    /**
+     * Get the max value of a column.
+     *
+     * @param string $column
+     * @param array $conditions
+     * @param boolean $with_deleted
+     * @return float
+     */
+    public function max($column, $conditions = [], $with_deleted = false)
+    {
+        $this->db->table($this->table)->select_max($column, 'aggregate');
+        $this->apply_soft_delete($with_deleted);
+        if (!empty($conditions)) $this->db->where($conditions);
+        $row = $this->db->get();
+        return $row['aggregate'] ?? null;
+    }
+
+    /**
+     * Get the min value of a column.
+     *
+     * @param string $column
+     * @param array $conditions
+     * @param boolean $with_deleted
+     * @return float
+     */
+    public function min($column, $conditions = [], $with_deleted = false)
+    {
+        $this->db->table($this->table)->select_min($column, 'aggregate');
+        $this->apply_soft_delete($with_deleted);
+        if (!empty($conditions)) $this->db->where($conditions);
+        $row = $this->db->get();
+        return $row['aggregate'] ?? null;
+    }
+
+    /**
+     * Get the average value of a column.
+     *
+     * @param string $column
+     * @param array $conditions
+     * @param boolean $with_deleted
+     * @return float
+     */
+    public function avg($column, $conditions = [], $with_deleted = false)
+    {
+        $this->db->table($this->table)->select_avg($column, 'aggregate');
+        $this->apply_soft_delete($with_deleted);
+        if (!empty($conditions)) $this->db->where($conditions);
+        $row = $this->db->get();
+        return $row['aggregate'] ?? null;
     }
 
     /**

@@ -534,7 +534,7 @@ list($codeExcerpt, $excerptStart) = get_code_excerpt($filepath, $line);
         </div>
 
         <div class="footer-note">
-            LavaLust Framework — Elegant error reporting • PHP <?php echo phpversion(); ?> • <?php echo date('Y'); ?>
+            LavaLust Framework — PHP <?php echo phpversion(); ?> • <?php echo date('Y'); ?>
         </div>
     </div>
 </div>

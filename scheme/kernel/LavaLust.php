@@ -127,9 +127,19 @@ $logger = load_class('logger', 'kernel');
 $security = load_class('security', 'kernel');
 
 /**
- * Instantiate the Input/Ouput class
+ * Instantiate the Input/Ouput class (deprecate in v4.7.0)
  */
 $io = load_class('io', 'kernel');
+
+/**
+ * Instantiate the Request class
+ */
+$request = load_class('request', 'kernel');
+
+/**
+ * Instantiate the Response class
+ */
+$response = load_class('response', 'kernel');
 
 /**
  * Instantiate the Language class

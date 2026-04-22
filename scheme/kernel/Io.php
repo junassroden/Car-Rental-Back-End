@@ -36,7 +36,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /**
 * ------------------------------------------------------
-*  Class IO
+*  Class IO (deprecate in v4.7.0)
 * ------------------------------------------------------
  */
 Class Io {

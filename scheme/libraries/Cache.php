@@ -228,10 +228,11 @@ class Cache
 	{
 		if (is_array($dependencies))
 		{
-			$this->_dependencies = array_merge($this->_dependencies, $dependencies);
+			$this->_dependencies = array_merge((array) $this->_dependencies, $dependencies);
 		}
 		else
 		{
+			$this->_dependencies = (array) $this->_dependencies;
 			$this->_dependencies[] = $dependencies;
 		}
 

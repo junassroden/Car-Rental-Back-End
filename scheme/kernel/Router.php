@@ -56,6 +56,13 @@ class Router
     private $group_middleware = [];
 
     /**
+     * Global middleware
+     *
+     * @var array
+     */
+    private $global_middleware = [];
+
+    /**
      * Group routes
      *
      * @var string
@@ -212,11 +219,26 @@ class Router
                 'method' => $method,
                 'name' => $name,
                 'constraints' => [],
-                'middleware'  => array_merge($this->group_middleware, []),
+                'middleware' => array_merge($this->global_middleware, $this->group_middleware, []),
             ];
             $this->routes[] = $route;
         }
 
+    }
+
+    /**
+     * Add global middleware
+     *
+     * @param mixed $middleware
+     * @return void
+     */
+    public function add_global_middleware($middleware)
+    {
+        $this->global_middleware = array_merge(
+            $this->global_middleware,
+            is_array($middleware) ? $middleware : [$middleware]
+        );
+        return $this;
     }
 
     /**
@@ -515,8 +537,6 @@ class Router
         }
         return $this;
     }
-
-
 
     /**
      * Set name of routes

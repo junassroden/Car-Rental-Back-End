@@ -354,21 +354,22 @@ if ( ! function_exists('route_config'))
 	 */
 	function route_config()
 	{
-		static $route;
+		static $router;
 
-		if ( file_exists(APP_DIR . 'config/routes.php') )
-		{
-			require_once APP_DIR . 'config/routes.php';
+		if ($router !== null) {
+			return $router;
+		}
 
-			if ( isset($route)  OR is_array($route) )
-			{
-				foreach( $route as $key => $val )
-				{
-					$route[$key] = $val;
-				}
+		if (file_exists(APP_DIR . 'config/routes.php')) {
 
-				return $route;
-			}
+			// Create router instance
+			$router = new Router();
+
+			// Make $router available inside routes.php
+			require APP_DIR . 'config/routes.php';
+
+			return $router;
+
 		} else {
 			show_404('404 Not Found', 'The configuration file does not exist');
 		}

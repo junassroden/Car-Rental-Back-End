@@ -67,7 +67,7 @@ class Invoker {
 		if (array_key_exists($prop, $this->properties)) {
 			return $this->properties[$prop];
 		} else {
-			throw new Exception("Property $prop does not exist");
+			throw new Exception("Undefined property $prop in class " . get_class($this));
 		}
 	}
 

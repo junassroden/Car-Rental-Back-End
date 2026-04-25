@@ -261,7 +261,11 @@ $config['cookie_samesite']         = 'Strict';
 |
 |--------------------------------------------------------------------------
 */
-$config['cache_dir']               = 'runtime/cache/';
+$config['cache_driver']            = 'php';
+$config['cache_dir']               = ROOT_DIR . 'runtime/cache/';
+$config['cache_default_expires']   = 0;
+$config['lock_lock_timeout']       = 5;
+$config['lock_lock_sleep']         = 100000;
 $config['cache_default_expires']   = 0;
 
 /*

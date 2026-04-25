@@ -66,14 +66,18 @@ if ($composer_autoload = config_item('composer_autoload'))
 	}
 }
 
-// Define CLI mode
-define('IS_CLI', php_sapi_name() === 'cli');
-
 /**
  * Instantiate the Benchmark class
  */
 $performance = load_class('performance', 'kernel');
 $performance->start('lavalust');
+
+/**
+ * Define CLI mode
+ *
+ * @var bool
+ */
+define('IS_CLI', php_sapi_name() === 'cli');
 
 /**
  * Deployment Environment

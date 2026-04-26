@@ -202,15 +202,39 @@ class Database {
                 throw new PDOException('No active configuration for this database.');
             }
         }
-        $this->dbprefix = $database_config['dbprefix'];
-        $driver = strtolower($database_config['driver']);
-        $charset = $database_config['charset'];
-        $host = $database_config['hostname'];
-        $port = $database_config['port'];
-        $dbname_value = $database_config['database'];
-        $username = $database_config['username'];
-        $password = $database_config['password'];
-        $path = isset($database_config['path']) ? $database_config['path'] : null;
+        $this->dbprefix = isset($database_config['dbprefix']) ? $database_config['dbprefix'] : '';
+
+        $driver = isset($database_config['driver']) && !empty($database_config['driver'])
+            ? strtolower($database_config['driver'])
+            : 'mysql';
+
+        $charset = isset($database_config['charset']) && !empty($database_config['charset'])
+            ? $database_config['charset']
+            : 'utf8mb4';
+
+        $host = isset($database_config['hostname']) && !empty($database_config['hostname'])
+            ? $database_config['hostname']
+            : 'localhost';
+
+        $port = isset($database_config['port']) && !empty($database_config['port'])
+            ? $database_config['port']
+            : null;
+
+        $dbname_value = isset($database_config['database']) && !empty($database_config['database'])
+            ? $database_config['database']
+            : '';
+
+        $username = isset($database_config['username']) && !empty($database_config['username'])
+            ? $database_config['username']
+            : '';
+
+        $password = isset($database_config['password']) && !empty($database_config['password'])
+            ? $database_config['password']
+            : '';
+
+        $path = isset($database_config['path']) && !empty($database_config['path'])
+            ? $database_config['path']
+            : null;
 
         switch ($driver) {
             case 'mysql':
@@ -1309,12 +1333,13 @@ class Database {
     }
 
     /**
-     * get
+     * get - Fetch single row
      *
-     * @param  string $mode
+     * @param  int $mode PDO fetch mode
+     * @param  mixed ...$args Additional arguments for fetch()
      * @return mixed
      */
-    public function get($mode = PDO::FETCH_ASSOC)
+    public function get($mode = PDO::FETCH_ASSOC, ...$args)
     {
         $this->buildQuery();
         $this->getSQL = $this->sql;
@@ -1322,7 +1347,7 @@ class Database {
             $stmt = $this->db->prepare($this->sql);
             $stmt->execute($this->bindValues);
             $this->rowCount = $stmt->rowCount();
-            return $stmt->fetch($mode);
+            return $stmt->fetch($mode, ...$args);
         } catch (Exception $e) {
             $error = load_class('Errors', 'kernel');
             $error->show_database_error(
@@ -1335,11 +1360,13 @@ class Database {
     }
 
     /**
-     * get_all
+     * get_all - Fetch all rows
      *
-     * @return mixed
+     * @param  int $mode PDO fetch mode
+     * @param  mixed ...$args Additional arguments for fetchAll()
+     * @return array
      */
-    public function get_all($mode = PDO::FETCH_ASSOC)
+    public function get_all($mode = PDO::FETCH_ASSOC, ...$args)
     {
         $this->buildQuery();
         $this->getSQL = $this->sql;
@@ -1347,7 +1374,7 @@ class Database {
             $stmt = $this->db->prepare($this->sql);
             $stmt->execute($this->bindValues);
             $this->rowCount = $stmt->rowCount();
-            return $stmt->fetchAll($mode);
+            return $stmt->fetchAll($mode, ...$args);
         } catch (Exception $e) {
             $error = load_class('Errors', 'kernel');
             $error->show_database_error(
@@ -1409,6 +1436,173 @@ class Database {
         $this->bindValues = array_merge([$amount], $this->bindValues);
 
         return $this->exec();
+    }
+
+    /**
+     * Returns all rows as array of objects (stdClass)
+     *
+     * @return array
+     */
+    public function result()
+    {
+        return $this->get_all(PDO::FETCH_OBJ);
+    }
+
+    /**
+     * Returns all rows as associative array
+     *
+     * @return array
+     */
+    public function result_array()
+    {
+        return $this->get_all(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Returns single row as object (stdClass)
+     *
+     * @param int $row_index Optional row index (for fetching specific row)
+     * @return object|null
+     */
+    public function row($row_index = null)
+    {
+        if ($row_index !== null) {
+            // Fetch all and get specific row by index
+            $results = $this->get_all(PDO::FETCH_OBJ);
+            return $results[$row_index] ?? null;
+        }
+        return $this->get(PDO::FETCH_OBJ);
+    }
+
+    /**
+     * Returns single row as associative array
+     *
+     * @param int $row_index Optional row index (for fetching specific row)
+     * @return array|null
+     */
+    public function row_array($row_index = null)
+    {
+        if ($row_index !== null) {
+            // Fetch all and get specific row by index
+            $results = $this->get_all(PDO::FETCH_ASSOC);
+            return $results[$row_index] ?? null;
+        }
+        return $this->get(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Maps all rows to custom class instances
+     *
+     * @param string $classname Class name
+     * @param array $ctor_args Constructor arguments
+     * @return array Array of class instances
+     */
+    public function custom_result_object($classname, $ctor_args = [])
+    {
+        if (empty($ctor_args)) {
+            return $this->get_all(PDO::FETCH_CLASS, $classname);
+        }
+        return $this->get_all(PDO::FETCH_CLASS, $classname, ...$ctor_args);
+    }
+
+    /**
+     * Maps single row to custom class instance
+     *
+     * @param int $row_index Row index
+     * @param string $classname Class name
+     * @param array $ctor_args Constructor arguments
+     * @return object|null
+     */
+    public function custom_row_object($row_index, $classname, $ctor_args = [])
+    {
+        $results = empty($ctor_args) 
+            ? $this->get_all(PDO::FETCH_CLASS, $classname)
+            : $this->get_all(PDO::FETCH_CLASS, $classname, ...$ctor_args);
+        
+        return $results[$row_index] ?? null;
+    }
+
+    /**
+     * Returns first row as object
+     *
+     * @return object|null
+     */
+    public function first_row()
+    {
+        return $this->row(0);
+    }
+
+    /**
+     * Returns last row as object
+     *
+     * @return object|null
+     */
+    public function last_row()
+    {
+        $results = $this->get_all(PDO::FETCH_OBJ);
+        return !empty($results) ? $results[count($results) - 1] : null;
+    }
+
+    /**
+     * Returns number of rows in result set
+     *
+     * @return int
+     */
+    public function num_rows()
+    {
+        return $this->rowCount;
+    }
+
+    /**
+     * Get single column from all rows (like array_column)
+     *
+     * @param int $column_index Column index (0-based)
+     * @return array
+     */
+    public function get_column($column_index = 0)
+    {
+        return $this->get_all(PDO::FETCH_COLUMN, $column_index);
+    }
+
+    /**
+     * Get key-value pairs (first column as key, second as value)
+     * Great for dropdowns and select options
+     *
+     * @return array
+     */
+    public function get_key_pair()
+    {
+        return $this->get_all(PDO::FETCH_KEY_PAIR);
+    }
+
+    /**
+     * Get grouped results by first column value
+     *
+     * @return array
+     */
+    public function get_grouped()
+    {
+        return $this->get_all(PDO::FETCH_GROUP);
+    }
+
+    /**
+     * Get results as numeric arrays
+     *
+     * @return array
+     */
+    public function result_num()
+    {
+        return $this->get_all(PDO::FETCH_NUM);
+    }
+
+    /**
+     * Get single row as numeric array
+     *
+     * @return array|null
+     */
+    public function row_num()
+    {
+        return $this->get(PDO::FETCH_NUM);
     }
 
     /**

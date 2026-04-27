@@ -6,9 +6,9 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  * ------------------------------------------------------------------
  *
  * MIT License
- * 
+ *
  * Copyright (c) 2020 Ronald M. Marasigan
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -35,287 +35,573 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  */
 
 /**
-* ------------------------------------------------------
-*  Class Email
-* ------------------------------------------------------
+ * ------------------------------------------------------
+ *  Class Email
+ * ------------------------------------------------------
+ *
+ * Composes and sends MIME emails via PHP's mail() function.
+ * Supports plain text and HTML bodies, CC, BCC, reply-to,
+ * file attachments, priority flags, and fluent method chaining.
+ *
+ * Usage:
+ *   $this->load->library('email');
+ *   $this->email->sender('from@example.com', 'My App')
+ *               ->recipient('to@example.com')
+ *               ->subject('Hello')
+ *               ->email_content('<p>Hi</p>', 'html')
+ *               ->send();
  */
-class Email {
-	/**
-	 * Sender Email
-	 *
-	 * @var string
-	 */
-	private $sender;
+class Email
+{
+    // ---------------------------------------------------------------
+    // Properties
+    // ---------------------------------------------------------------
 
-	/**
-	 * Sender Name if needed
-	 *
-	 * @var string
-	 */
-	public $sender_name = '';
+    /**
+     * Sender email address
+     * @var string
+     */
+    private $sender = '';
 
-	/**
-	 * Receipient Emails
-	 *
-	 * @var array
-	 */
-	private $recipients = array();
+    /**
+     * Sender display name (shown in From field)
+     * @var string
+     */
+    private $sender_name = '';
 
-	/**
-	 * Specified Email to receive replies
-	 *
-	 * @var string
-	 */
-	private $reply_to;
+    /**
+     * Primary recipient addresses
+     * @var array
+     */
+    private $recipients = [];
 
-	/**
-	 * Email Subject
-	 *
-	 * @var string
-	 */
-	private $subject;
+    /**
+     * CC recipient addresses
+     * @var array
+     */
+    private $cc = [];
 
-	/**
-	 * Email Attachement
-	 *
-	 * @var array
-	 */
-	private $attach_files = array();
+    /**
+     * BCC recipient addresses
+     * @var array
+     */
+    private $bcc = [];
 
-	/**
-	 * Email Content
-	 *
-	 * @var string
-	 */
-	private $emailContent;
+    /**
+     * Reply-To address (defaults to sender when not set)
+     * @var string
+     */
+    private $reply_to = '';
 
-	/**
-	 * Email type
-	 * Default: plain
-	 * Other value: html
-	 *
-	 * @var string
-	 */
-	private $emailType;
+    /**
+     * Email subject line
+     * @var string
+     */
+    private $subject = '';
 
-	/**
-	 * Class constructor
-	 */
-	public function __construct() {
+    /**
+     * Email body content
+     * @var string
+     */
+    private $email_body = '';
 
-	}
-	/**
-	 * Check if email is in correct format
-	 * 
-	 * @param  string  $email Email to check
-	 * @return boolean
-	 */
-	public function valid_email($email)
-	{
-		$email = filter_var($email,FILTER_SANITIZE_EMAIL);
-		if(filter_var($email, FILTER_VALIDATE_EMAIL))
-		{
-			return true;
-		} else {
-			throw new Exception('Invalid email address');
-		}
-	}
+    /**
+     * Body MIME type: 'plain' or 'html'
+     * @var string
+     */
+    private $email_type = 'plain';
 
-	public function filter_string($string)
-	{
-		return filter_var($string, FILTER_UNSAFE_RAW, FILTER_FLAG_STRIP_HIGH);
-	}
+    /**
+     * File paths queued for attachment
+     * @var array
+     */
+    private $attach_files = [];
 
-	/**
-	 * Check Sender Email is Valid
-	 * 
-	 * @param string $sender Email of the sender
-	 * @return string Validated email
-	 */
-	public function sender($sender_email, $display_name = '')
-	{
-		if( ! empty($sender_email) && $this->valid_email($sender_email) )
-		{
-			$this->sender = $sender_email;
-			
-			if(! is_null($display_name))
-			{
-				$this->sender_name = $this->filter_string($display_name);
-			}
-			return $this->sender;
-		}
-	}
+    /**
+     * Email priority: 1 = High, 3 = Normal, 5 = Low
+     * @var int
+     */
+    private $priority = 3;
 
-	/**
-	 * Set recepient Email Addresses
-	 * 
-	 * @param string $recipient Email of the recipient
-	 * @return array Email Addresses
-	 */
-	public function recipient($recipient)
-	{
-		if( ! empty($recipient) && $this->valid_email($recipient) )
-		{
-			if( ! in_array($recipient, $this->recipients) )
-			{
-				$this->recipients[] = $recipient;
-			}
-		}
-	}
+    /**
+     * Character set used for HTML emails.
+     * Defaults to the app charset from config.
+     * @var string
+     */
+    private $charset = '';
 
-	/**
-	 * Set Reply to Email Address
-	 * 
-	 * @param string $recipient Email of the recipient
-	 * @return string Email Address
-	 */
-	public function reply_to($reply_to)
-	{
-		if($this->valid_email($reply_to))
-		{
-			$this->reply_to = $reply_to;
-			return $this->reply_to;
-		}
-	}
+    // ---------------------------------------------------------------
+    // Constructor
+    // ---------------------------------------------------------------
 
-	/**
-	 * Set Email Subject
-	 * 
-	 * @param string $subject Email Subject
-	 * @return string Email Subject
-	 */
-	public function subject($subject)
-	{
-		if( ! empty($subject) )
-		{
-			$this->subject = $this->filter_string($subject);
-			return $this->subject;
-		} else {
-			throw new Exception("Email subject is empty");	
-		}
-	}
-
-	/**
-	 * Email Content
-	 * 
-	 * @param string $emailContent Email Content
-	 */
-	public function email_content($emailContent, $type = 'plain')
-	{
-		$emailContent = wordwrap($emailContent, 70, "\n");
-        $this->emailContent = $emailContent;
-        $this->emailType = $type;
-	}
-
-	/**
-	 * Email Attachment
-	 * 
-	 * @param string $attach_file Email Attachment
-	 * @return array Email Attachments
-	 */
-	public function attachment($attach_file)
-	{
-		if( ! empty($attach_file) )
-		{
-			if( ! in_array($attach_file, $this->attach_files) )
-			{
-				$this->attach_files[] = $attach_file;
-			}
-
-		} else {
-			throw new Exception("No file attachment was specified");	
-		}
-	}
-
-	/**
-	 * Recreate Attachment
-	 * 
-	 * @param  Stream File $attachment Attachment File
-	 * @return File
-	 */
-	public function recreate_attachment($attachment)
+    public function __construct()
     {
-        if(file_exists($attachment) === true)
-        {
-			$fileType = mime_content_type($attachment);
-			$file_size = filesize($attachment);
-			$handle = fopen($attachment, 'rb');
-			$content = fread($handle, $file_size);
-			$content = chunk_split(base64_encode($content));
-			fclose($handle);
-            $out = "\r\n";
-            $contents = 'Content-Type: '.$fileType.'; name='.basename($attachment).$out;
-            $contents .= 'Content-Transfer-Encoding: base64'.$out;
-            $contents .= 'Content-ID: <'.basename($attachment).'>'.$out;
-            $contents .= $out.$content.$out.$out;
-            return $contents;
-        }
+        // Read the app charset once; fall back to utf-8
+        $this->charset = config_item('charset') ?: 'utf-8';
+    }
 
-        return false;
+    // ---------------------------------------------------------------
+    // Fluent Setters
+    // ---------------------------------------------------------------
+
+    /**
+     * Set the sender address and optional display name.
+     *
+     * @param  string $sender_email  Valid email address
+     * @param  string $display_name  Name shown in the From field
+     * @return $this
+     * @throws Exception if the address is invalid
+     */
+    public function sender($sender_email, $display_name = '')
+    {
+        $this->valid_email($sender_email);
+        $this->sender      = $sender_email;
+        $this->sender_name = $this->filter_header($display_name);
+        return $this;
     }
 
     /**
-     * Send Email
-     * 
-     * @return function Email Sending
+     * Add a primary (To) recipient.
+     * Duplicates are silently ignored.
+     *
+     * @param  string $recipient  Valid email address
+     * @return $this
+     * @throws Exception if the address is invalid
      */
-	public function send()
-	{
-		if(( ! is_array($this->recipients) ) || (count($this->recipients) < 1)) {
-            return false;
+    public function recipient($recipient)
+    {
+        $this->valid_email($recipient);
+        if ( ! in_array($recipient, $this->recipients, TRUE))
+        {
+            $this->recipients[] = $recipient;
+        }
+        return $this;
+    }
+
+    /**
+     * Add a CC recipient.
+     * Duplicates are silently ignored.
+     *
+     * @param  string $cc_email  Valid email address
+     * @return $this
+     * @throws Exception if the address is invalid
+     */
+    public function cc($cc_email)
+    {
+        $this->valid_email($cc_email);
+        if ( ! in_array($cc_email, $this->cc, TRUE))
+        {
+            $this->cc[] = $cc_email;
+        }
+        return $this;
+    }
+
+    /**
+     * Add a BCC recipient.
+     * Duplicates are silently ignored.
+     *
+     * @param  string $bcc_email  Valid email address
+     * @return $this
+     * @throws Exception if the address is invalid
+     */
+    public function bcc($bcc_email)
+    {
+        $this->valid_email($bcc_email);
+        if ( ! in_array($bcc_email, $this->bcc, TRUE))
+        {
+            $this->bcc[] = $bcc_email;
+        }
+        return $this;
+    }
+
+    /**
+     * Set a Reply-To address.
+     * If not called, replies go to the sender address.
+     *
+     * @param  string $reply_to  Valid email address
+     * @return $this
+     * @throws Exception if the address is invalid
+     */
+    public function reply_to($reply_to)
+    {
+        $this->valid_email($reply_to);
+        $this->reply_to = $reply_to;
+        return $this;
+    }
+
+    /**
+     * Set the email subject.
+     *
+     * @param  string $subject
+     * @return $this
+     * @throws Exception if the subject is empty
+     */
+    public function subject($subject)
+    {
+        if (empty(trim($subject)))
+        {
+            throw new Exception('Email subject cannot be empty.');
+        }
+        $this->subject = $this->filter_header($subject);
+        return $this;
+    }
+
+    /**
+     * Set the email body content and type.
+     *
+     * @param  string $content  Email body (plain text or HTML)
+     * @param  string $type     'plain' (default) or 'html'
+     * @return $this
+     */
+    public function email_content($content, $type = 'plain')
+    {
+        // FIX: original used \n for wordwrap — MIME spec requires \r\n
+        $this->email_body = wordwrap($content, 70, "\r\n");
+        $this->email_type = ($type === 'html') ? 'html' : 'plain';
+        return $this;
+    }
+
+    /**
+     * Shortcut: set an HTML body without specifying the type argument.
+     *
+     * @param  string $html  HTML content
+     * @return $this
+     */
+    public function html($html)
+    {
+        return $this->email_content($html, 'html');
+    }
+
+    /**
+     * Set the email priority.
+     *
+     * @param  int $level  1 = High, 3 = Normal (default), 5 = Low
+     * @return $this
+     */
+    public function priority($level = 3)
+    {
+        $allowed = [1, 2, 3, 4, 5];
+        $this->priority = in_array((int) $level, $allowed, TRUE) ? (int) $level : 3;
+        return $this;
+    }
+
+    /**
+     * Override the charset used for HTML emails.
+     * Defaults to config_item('charset').
+     *
+     * @param  string $charset  e.g. 'utf-8', 'iso-8859-1'
+     * @return $this
+     */
+    public function charset($charset)
+    {
+        $this->charset = strtolower(trim($charset));
+        return $this;
+    }
+
+    /**
+     * Queue a file attachment.
+     * Duplicates are silently ignored.
+     *
+     * @param  string $filepath  Absolute path to the file
+     * @return $this
+     * @throws Exception if the path is empty or the file does not exist
+     */
+    public function attachment($filepath)
+    {
+        if (empty($filepath))
+        {
+            throw new Exception('Attachment path cannot be empty.');
+        }
+        if ( ! file_exists($filepath))
+        {
+            throw new Exception('Attachment file not found: ' . $filepath);
+        }
+        if ( ! in_array($filepath, $this->attach_files, TRUE))
+        {
+            $this->attach_files[] = $filepath;
+        }
+        return $this;
+    }
+
+    // ---------------------------------------------------------------
+    // Accessors (useful for testing and logging)
+    // ---------------------------------------------------------------
+
+    /**
+     * Return the sender address.
+     * @return string
+     */
+    public function get_sender()
+    {
+        return $this->sender;
+    }
+
+    /**
+     * Return the To recipient list.
+     * @return array
+     */
+    public function get_recipients()
+    {
+        return $this->recipients;
+    }
+
+    /**
+     * Return the CC list.
+     * @return array
+     */
+    public function get_cc()
+    {
+        return $this->cc;
+    }
+
+    /**
+     * Return the BCC list.
+     * @return array
+     */
+    public function get_bcc()
+    {
+        return $this->bcc;
+    }
+
+    /**
+     * Return the current subject line.
+     * @return string
+     */
+    public function get_subject()
+    {
+        return $this->subject;
+    }
+
+    /**
+     * Return true when the body type is HTML.
+     * @return bool
+     */
+    public function is_html()
+    {
+        return $this->email_type === 'html';
+    }
+
+    // ---------------------------------------------------------------
+    // Reset
+    // ---------------------------------------------------------------
+
+    /**
+     * Reset all state so the instance can be reused for a new email
+     * without reinstantiating the library.
+     *
+     * @return $this
+     */
+    public function reset()
+    {
+        $this->sender       = '';
+        $this->sender_name  = '';
+        $this->recipients   = [];
+        $this->cc           = [];
+        $this->bcc          = [];
+        $this->reply_to     = '';
+        $this->subject      = '';
+        $this->email_body   = '';
+        $this->email_type   = 'plain';
+        $this->attach_files = [];
+        $this->priority     = 3;
+        $this->charset      = config_item('charset') ?: 'utf-8';
+        return $this;
+    }
+
+    // ---------------------------------------------------------------
+    // Validation helpers
+    // ---------------------------------------------------------------
+
+    /**
+     * Validate an email address.
+     * Sanitises then validates using PHP's filter functions.
+     *
+     * @param  string $email
+     * @return bool   TRUE on success
+     * @throws Exception if the address is invalid
+     */
+    public function valid_email($email)
+    {
+        $clean = filter_var(trim($email), FILTER_SANITIZE_EMAIL);
+        if ( ! filter_var($clean, FILTER_VALIDATE_EMAIL))
+        {
+            throw new Exception('Invalid email address: ' . htmlspecialchars($email));
+        }
+        return TRUE;
+    }
+
+    /**
+     * Strip characters that are unsafe in email header fields
+     * (prevents header injection via newlines and high-byte chars).
+     *
+     * FIX: original used FILTER_UNSAFE_RAW which does NOT strip anything
+     * by default — renamed and corrected to remove newlines and high bytes.
+     *
+     * @param  string $string
+     * @return string
+     */
+    public function filter_header($string)
+    {
+        // Remove newlines / carriage returns — primary header injection vector
+        $string = str_replace(["\r", "\n", "\r\n"], '', $string);
+        // Strip high-byte characters
+        $string = filter_var($string, FILTER_UNSAFE_RAW, FILTER_FLAG_STRIP_HIGH);
+        return trim($string);
+    }
+
+    /**
+     * @deprecated  Use filter_header() instead.
+     * Kept for backwards compatibility.
+     */
+    public function filter_string($string)
+    {
+        return $this->filter_header($string);
+    }
+
+    // ---------------------------------------------------------------
+    // Attachment builder (protected — internal use only)
+    // ---------------------------------------------------------------
+
+    /**
+     * Encode a single file as a base64 MIME attachment part.
+     *
+     * @param  string $filepath  Absolute path to the file
+     * @return string|false  MIME part string, or false if file is unreadable
+     */
+    protected function recreate_attachment($filepath)
+    {
+        if ( ! file_exists($filepath))
+        {
+            return FALSE;
         }
 
-        if($this->emailType == 'plain')
-        	$contype = 'Content-Type: text/plain; charset=ISO-8859-1';
-        else
-        	$contype = 'Content-Type: text/html; charset='.config_item('charset');
+        $mime     = mime_content_type($filepath);
+        $size     = filesize($filepath);
+        $handle   = fopen($filepath, 'rb');
+        $raw      = fread($handle, $size);
+        fclose($handle);
 
-        $bm = md5(uniqid(time()).'msg');
-        $bc = md5(uniqid(time()).'cont');
+        $encoded  = chunk_split(base64_encode($raw));
+        $filename = basename($filepath);
+        $eol      = "\r\n";
 
-        $out = "\r\n";
-        $headers = array();
+        return 'Content-Type: ' . $mime . '; name="' . $filename . '"' . $eol
+             . 'Content-Transfer-Encoding: base64' . $eol
+             . 'Content-Disposition: attachment; filename="' . $filename . '"' . $eol
+             . 'Content-ID: <' . $filename . '>' . $eol
+             . $eol . $encoded . $eol;
+    }
+
+    // ---------------------------------------------------------------
+    // Send
+    // ---------------------------------------------------------------
+
+    /**
+     * Compose and send the email.
+     *
+     * Returns TRUE on success, FALSE on failure.
+     * Throws Exception when required fields (sender, recipient, subject)
+     * are missing.
+     *
+     * @return bool
+     * @throws Exception if sender, recipients, or subject are not set
+     */
+    public function send()
+    {
+        // --- Guards ---
+        if (empty($this->sender))
+        {
+            throw new Exception('Email sender is not set. Call sender() before send().');
+        }
+        if (empty($this->recipients))
+        {
+            throw new Exception('No recipients set. Call recipient() before send().');
+        }
+        if (empty($this->subject))
+        {
+            throw new Exception('Email subject is not set. Call subject() before send().');
+        }
+
+        $eol = "\r\n";
+
+        // Unique MIME boundaries
+        $bm = '----=_Part_' . md5(uniqid((string) mt_rand(), TRUE));
+        $bc = '----=_Alt_'  . md5(uniqid((string) mt_rand(), TRUE));
+
+        // Content-Type for the body part
+        $content_type = ($this->email_type === 'html')
+            ? 'Content-Type: text/html; charset=' . $this->charset
+            : 'Content-Type: text/plain; charset=iso-8859-1';
+
+        // Priority label
+        $priority_labels = [1 => 'High', 2 => 'High', 3 => 'Normal', 4 => 'Low', 5 => 'Low'];
+        $priority_label  = $priority_labels[$this->priority] ?? 'Normal';
+
+        // From header
+        $from = empty($this->sender_name)
+            ? $this->sender
+            : $this->sender_name . ' <' . $this->sender . '>';
+
+        // Reply-To header — fall back to sender when not explicitly set
+        $reply_to = ! empty($this->reply_to) ? $this->reply_to : $this->sender;
+
+        // Build headers
+        $headers   = [];
         $headers[] = 'MIME-Version: 1.0';
-        $headers[] = 'X-Mailer: PHP/'.phpversion();
-        $headers[] = 'Content-Type: multipart/related;boundary='.$bm;
-        $headers[] = 'Content-Transfer-Encoding: base64';
-        $headers[] = 'From: '.$this->sender_name.' <'.$this->sender.'>';
-		$headers[] = 'Return-Path: '.$this->sender_name.' <'.$this->sender.'>';
-      	$headers[] = 'X-Priority: 3';
+        $headers[] = 'X-Mailer: PHP/' . phpversion();
+        $headers[] = 'From: ' . $from;
+        $headers[] = 'Return-Path: ' . $from;
+        $headers[] = 'Reply-To: ' . $reply_to;
+        $headers[] = 'X-Priority: ' . $this->priority;
+        $headers[] = 'X-MS-Priority: ' . $this->priority;
+        $headers[] = 'Importance: ' . $priority_label;
 
-        if($this->reply_to !== '') {
-            $headers[] = 'Reply-To: '.$this->reply_to;
-        } else {
-            $headers[] = 'Reply-To: '.$this->sender;
+        if ( ! empty($this->cc))
+        {
+            $headers[] = 'Cc: ' . implode(', ', $this->cc);
         }
 
-      	$contents = $out.'--'.$bm.$out;
-        $contents .= 'Content-Type: multipart/alternative; boundary='.$bc.$out;
-
-        if($this->emailContent !== '') {
-            $contents .= $out.'--'.$bc.$out;
-            $contents .= $contype.$out;
-            $contents .= $out.$this->emailContent.$out;
+        if ( ! empty($this->bcc))
+        {
+            $headers[] = 'Bcc: ' . implode(', ', $this->bcc);
         }
 
-        $contents .= $out.'--'.$bc.'--'.$out;
+        $headers[] = 'Content-Type: multipart/related; boundary="' . $bm . '"';
 
-        foreach($this->attach_files as $attach_file) {
-            $attachmentContent = $this->recreate_attachment($attach_file);
+        // Build body
+        $body  = $eol . '--' . $bm . $eol;
+        $body .= 'Content-Type: multipart/alternative; boundary="' . $bc . '"' . $eol;
 
-            if($attachmentContent !== false) {
-                $contents .= $out.'--'.$bm.$out;
-                $contents .= $attachmentContent;
+        if ( ! empty($this->email_body))
+        {
+            $body .= $eol . '--' . $bc . $eol;
+            $body .= $content_type . $eol;
+            $body .= $eol . $this->email_body . $eol;
+        }
+
+        $body .= $eol . '--' . $bc . '--' . $eol;
+
+        // Attachments
+        foreach ($this->attach_files as $filepath)
+        {
+            $part = $this->recreate_attachment($filepath);
+            if ($part !== FALSE)
+            {
+                $body .= $eol . '--' . $bm . $eol;
+                $body .= $part;
             }
         }
 
-        $contents .= $out.'--'.$bm.'--'.$out;
+        $body .= $eol . '--' . $bm . '--' . $eol;
 
-		$recipients = implode(',', $this->recipients);
+        $to = implode(', ', $this->recipients);
 
-        return mail($recipients, $this->subject, $contents, implode($out, $headers), '-f'.$this->sender);
-	}
-
+        return mail(
+            $to,
+            $this->subject,
+            $body,
+            implode($eol, $headers),
+            '-f' . $this->sender
+        );
+    }
 }
-
-?>

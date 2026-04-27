@@ -46,6 +46,19 @@ require_once SYSTEM_DIR . 'kernel/Routine.php';
 define('BASE_URL', config_item('base_url'));
 
 /**
+ * Check and load .env file if any
+ */
+if (file_exists(ROOT_DIR . '.env')) {
+    $lines = file(ROOT_DIR . '.env');
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line && $line[0] !== '#') {
+            putenv($line);
+        }
+    }
+}
+
+/**
  * Composer (Autoload)
  */
 if ($composer_autoload = config_item('composer_autoload'))

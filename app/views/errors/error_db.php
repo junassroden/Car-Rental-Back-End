@@ -6,9 +6,9 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  * ------------------------------------------------------------------
  *
  * MIT License
- * 
+ *
  * Copyright (c) 2020 Ronald M. Marasigan
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -29,9 +29,8 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  *
  * @package LavaLust
  * @author Ronald M. Marasigan <ronald.marasigan@yahoo.com>
- * @copyright Copyright 2020 (https://ronmarasigan.github.io)
  * @since Version 1
- * @link https://lavalust.pinoywap.org
+ * @link https://github.com/ronmarasigan/LavaLust
  * @license https://opensource.org/licenses/MIT MIT License
  */
 
@@ -39,578 +38,587 @@ while (ob_get_level() > 0) {
     ob_end_clean();
 }
 
-function get_code_excerpt($file, $errorLine, $padding = 5) {
+function get_code_excerpt($file, $errorLine, $padding = 10) {
     if (!is_readable($file)) return [[], 0];
     $lines = file($file);
     $start = max($errorLine - $padding - 1, 0);
-    $end = min($errorLine + $padding - 1, count($lines) - 1);
+    $end   = min($errorLine + $padding - 1, count($lines) - 1);
     $excerpt = array_slice($lines, $start, $end - $start + 1, true);
     return [$excerpt, $start + 1];
 }
 
-$ex = isset($exception) && $exception instanceof Throwable ? $exception : null;
+$ex      = isset($exception) && $exception instanceof Throwable ? $exception : null;
 $filePath = $ex ? $ex->getFile() : 'Unknown';
-$lineNum = $ex ? $ex->getLine() : 0;
+$lineNum  = $ex ? $ex->getLine() : 0;
+$errMsg   = $ex ? $ex->getMessage() : ($exception_message ?? $message ?? 'Unknown database error');
 
-list($codeExcerpt, $excerptStart) = get_code_excerpt($filePath, $lineNum);
+list($codeExcerpt) = get_code_excerpt($filePath, $lineNum);
 
-// Prepare trace for interactive display (array of frames)
+// Build frames for JS
 $traceFrames = $ex ? $ex->getTrace() : [];
-if (!empty($trace) && is_string($trace)) {
-    // Fallback: if a plain text trace is provided, keep it as fallback
-    $plainTrace = $trace;
-} else {
-    $plainTrace = null;
+$allFrames   = [];
+$allFrames[] = [
+    'file'     => $filePath,
+    'line'     => $lineNum,
+    'function' => '{main}',
+    'class'    => '',
+    'type'     => '',
+    'args'     => [],
+];
+foreach ($traceFrames as $frame) {
+    if (!empty($frame['file'])) $allFrames[] = $frame;
 }
+
+$plainTrace = (!empty($trace) && is_string($trace)) ? $trace : null;
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LavaLust · Database Error</title>
+    <title>Database Error &mdash; LavaLust</title>
     <style nonce="<?= defined('CSP_NONCE') ? CSP_NONCE : '' ?>">
-        /* modern dark mode */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
         :root {
-            --bg-body: #0a0c10;
-            --bg-surface: #14161f;
-            --bg-elevated: #1a1d2b;
-            --bg-code: #0d0f15;
-            --border-subtle: #2a2e3d;
-            --text-primary: #eef2ff;
-            --text-secondary: #9ca3c7;
-            --text-muted: #6b728c;
-            --accent-error: #f97583;
-            --accent-warning: #ffb86b;
-            --accent-info: #6bc5ff;
-            --accent-success: #8be9b4;
-            --shadow-md: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-            --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-            --font-sans: system-ui, -apple-system, 'Segoe UI', 'Inter', 'Roboto', sans-serif;
+            --bg-deep:    #0d0d18;
+            --bg-panel:   #11111e;
+            --bg-surface: #16162a;
+            --bg-hover:   #1c1c2e;
+            --bg-active:  #1e1e36;
+            --border:     #1f1f32;
+            --border-mid: #2a2a42;
+            --text:       #c8c8e0;
+            --text-muted: #55556a;
+            --text-dim:   #44445a;
+            --accent:     #2dd4bf;
+            --accent-dim: rgba(45,212,191,0.13);
+            --blue:       #3b82f6;
+            --purple:     #a78bfa;
+            --green:      #86efac;
+            --orange:     #fb923c;
+            --pink:       #f472b6;
+            --cyan:       #67e8f9;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        html, body { height: 100%; overflow: hidden; }
 
         body {
-            background: var(--bg-body);
-            font-family: var(--font-sans);
-            color: var(--text-primary);
-            padding: 2rem 1rem;
-            line-height: 1.5;
-        }
-
-        .error-container {
-            max-width: 1280px;
-            margin: 0 auto;
-        }
-
-        .error-card {
-            background: var(--bg-surface);
-            border-radius: 28px;
-            border: 1px solid var(--border-subtle);
-            box-shadow: var(--shadow-md);
-            overflow: hidden;
-        }
-
-        .card-header {
-            padding: 1.75rem 2rem;
-            background: rgba(249, 117, 131, 0.08);
-            border-bottom: 1px solid var(--border-subtle);
-            display: flex;
-            flex-wrap: wrap;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 1rem;
-        }
-
-        .error-badge {
-            font-family: var(--font-mono);
-            font-size: 0.85rem;
-            background: rgba(249, 117, 131, 0.2);
-            color: var(--accent-error);
-            padding: 0.3rem 0.9rem;
-            border-radius: 40px;
-            font-weight: 500;
-            border: 1px solid rgba(249, 117, 131, 0.3);
-        }
-
-        .error-title {
-            font-size: 1.6rem;
-            font-weight: 600;
-            background: linear-gradient(135deg, #f9a8b4, #ffb86b);
-            background-clip: text;
-            -webkit-background-clip: text;
-            color: transparent;
-            margin-top: 0.5rem;
-        }
-
-        .section {
-            padding: 1.5rem 2rem;
-            border-bottom: 1px solid var(--border-subtle);
-        }
-
-        .section-header {
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-            margin-bottom: 1.25rem;
-        }
-
-        .section-header h3 {
-            font-weight: 600;
-            font-size: 1.25rem;
-        }
-
-        .section-icon {
-            font-size: 1.4rem;
-        }
-
-        .message-card, .location-card {
-            background: var(--bg-elevated);
-            border-radius: 20px;
-            padding: 1rem 1.4rem;
-            margin-bottom: 1rem;
-            border-left: 4px solid var(--accent-error);
-        }
-
-        .location-card {
-            border-left-color: var(--accent-info);
-        }
-
-        .label-sm {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            font-weight: 600;
-            color: var(--text-muted);
-            display: block;
-            margin-bottom: 0.5rem;
-        }
-
-        .error-message {
-            font-family: var(--font-mono);
-            font-size: 0.95rem;
-            word-break: break-word;
-        }
-
-        /* SQL & bindings */
-        .sql-card, .bindings-card {
-            background: var(--bg-elevated);
-            border-radius: 20px;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border: 1px solid var(--border-subtle);
-        }
-
-        .sql-card pre, .bindings-card pre {
-            background: var(--bg-code);
-            padding: 0.8rem;
-            border-radius: 14px;
-            overflow-x: auto;
-            font-family: var(--font-mono);
-            font-size: 0.85rem;
-            margin-top: 0.5rem;
-            color: #b9c3e6;
-        }
-
-        /* code preview */
-        .code-preview-wrapper {
-            background: var(--bg-code);
-            border-radius: 20px;
-            overflow: auto;
-            border: 1px solid var(--border-subtle);
-        }
-
-        .code-header {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 0.7rem 1rem;
-            font-size: 0.8rem;
-            font-family: var(--font-mono);
-            border-bottom: 1px solid var(--border-subtle);
-            color: var(--text-secondary);
-        }
-
-        .code-preview {
-            font-family: var(--font-mono);
-            font-size: 0.85rem;
-            line-height: 1.5;
-        }
-
-        .code-line {
-            display: flex;
-            padding: 0 1rem;
-            transition: background 0.1s ease;
-        }
-
-        .code-line:hover {
-            background: rgba(107, 197, 255, 0.05);
-        }
-
-        .line-number {
-            width: 3.5rem;
-            text-align: right;
-            padding-right: 1rem;
-            color: var(--text-muted);
-            user-select: none;
-            opacity: 0.7;
-        }
-
-        .line-content {
-            flex: 1;
-            white-space: pre;
-            overflow-x: auto;
-        }
-
-        .highlight-line {
-            background: rgba(255, 184, 107, 0.12);
-            border-left: 3px solid var(--accent-warning);
-        }
-
-        .highlight-line .line-number {
-            color: var(--accent-warning);
-            font-weight: 600;
-        }
-
-        /* stack trace */
-        .trace-list {
+            background: var(--bg-deep);
+            color: var(--text);
+            font-family: 'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',monospace;
+            font-size: 13px;
             display: flex;
             flex-direction: column;
-            gap: 0.75rem;
         }
+
+        /* ── TOP BAR ── */
+        .top-bar {
+            background: #0e4a45;
+            border-bottom: 2px solid var(--accent);
+            color: #fff;
+            padding: 10px 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+            min-height: 46px;
+        }
+        .top-bar .exc-type {
+            background: var(--accent);
+            color: #031a18;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .6px;
+            white-space: nowrap;
+        }
+        .top-bar .exc-msg {
+            font-family: system-ui,-apple-system,sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            flex: 1;
+            line-height: 1.4;
+            color: #b2f5ea;
+        }
+
+        /* ── LAYOUT ── */
+        .layout { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+        /* ── LEFT SIDEBAR ── */
+        .sidebar {
+            width: 360px;
+            min-width: 260px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .sidebar-title {
+            font-size: 10px;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            padding: 10px 16px 9px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .trace-list { flex: 1; overflow-y: auto; overflow-x: hidden; }
+        .trace-list::-webkit-scrollbar { width: 4px; }
+        .trace-list::-webkit-scrollbar-track { background: transparent; }
+        .trace-list::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 2px; }
 
         .trace-item {
-            background: var(--bg-elevated);
-            border-radius: 18px;
-            border: 1px solid var(--border-subtle);
-            overflow: hidden;
-        }
-
-        .trace-summary {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.9rem 1.2rem;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
             cursor: pointer;
-            font-family: var(--font-mono);
-            font-size: 0.85rem;
-            flex-wrap: wrap;
-            background: rgba(0, 0, 0, 0.2);
+            border-left: 3px solid transparent;
+            transition: background .1s;
+        }
+        .trace-item:hover { background: var(--bg-hover); }
+        .trace-item.active { background: var(--bg-active); border-left-color: var(--accent); }
+
+        .trace-fn {
+            color: var(--purple);
+            font-size: 12px;
+            margin-bottom: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .trace-item.active .trace-fn { color: #c4b5fd; }
+        .trace-loc {
+            color: var(--text-muted);
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .trace-loc .line-num { color: var(--blue); }
+
+        /* ── RIGHT PANEL ── */
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-width: 0;
+            background: var(--bg-deep);
         }
 
-        .trace-summary:hover {
-            background: rgba(107, 197, 255, 0.05);
+        /* SQL / bindings strip above code */
+        .sql-strip {
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
         }
-
-        .trace-icon {
-            font-size: 1.1rem;
-            color: var(--accent-info);
+        .sql-tabs-bar { display: flex; border-bottom: 1px solid var(--border); }
+        .sql-tab {
+            padding: 7px 14px;
+            font-size: 10.5px;
+            letter-spacing: .5px;
+            text-transform: uppercase;
+            cursor: pointer;
+            color: var(--text-muted);
+            border-bottom: 2px solid transparent;
+            background: none;
+            border-top: none; border-left: none; border-right: none;
+            font-family: inherit;
+            transition: color .15s;
         }
+        .sql-tab:hover { color: var(--text); }
+        .sql-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .sql-pane { display: none; max-height: 110px; overflow: auto; padding: 10px 16px; font-size: 12px; color: #9ab4ff; white-space: pre-wrap; word-break: break-all; }
+        .sql-pane.active { display: block; }
+        .sql-pane::-webkit-scrollbar { height: 4px; width: 4px; }
+        .sql-pane::-webkit-scrollbar-thumb { background: var(--border-mid); }
+        .no-data { color: var(--text-dim); font-size: 11.5px; }
 
-        .trace-file {
-            color: var(--accent-info);
-            word-break: break-all;
-            font-weight: 500;
-        }
+        /* SQL keywords */
+        .sk { color: var(--accent); font-weight: 600; }
 
-        .trace-function {
-            color: var(--text-secondary);
-            background: rgba(156, 163, 199, 0.15);
-            padding: 0.2rem 0.6rem;
-            border-radius: 24px;
-            font-size: 0.75rem;
-        }
-
-        .trace-details {
-            display: none;
-            padding: 1rem 1.2rem;
-            border-top: 1px solid var(--border-subtle);
-            background: var(--bg-code);
-            font-size: 0.8rem;
-        }
-
-        .trace-details pre {
-            background: #0a0c10;
-            padding: 0.8rem;
-            border-radius: 14px;
-            overflow-x: auto;
-            margin-top: 0.5rem;
-            font-size: 0.75rem;
-            color: #cbd5f0;
-        }
-
-        /* grids */
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1rem;
-            margin-top: 0.5rem;
-        }
-
-        .info-card {
-            background: var(--bg-elevated);
-            border-radius: 20px;
-            padding: 1rem;
-            border: 1px solid var(--border-subtle);
-        }
-
-        .info-card h4 {
-            font-size: 0.9rem;
-            margin-bottom: 0.75rem;
-            color: var(--text-secondary);
+        /* code view */
+        .code-header {
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            padding: 9px 18px;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .code-header .file-path {
+            color: #7dd3fc;
+            font-size: 12px;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .code-header .line-badge {
+            background: var(--accent-dim);
+            color: var(--accent);
+            font-size: 11px;
+            padding: 2px 9px;
+            border-radius: 4px;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
-        .info-card pre {
-            background: var(--bg-code);
-            padding: 0.8rem;
-            border-radius: 14px;
-            overflow-x: auto;
-            font-size: 0.75rem;
-            font-family: var(--font-mono);
-            max-height: 200px;
-            color: #b9c3e6;
-        }
+        .code-view { flex: 1; overflow: auto; font-size: 12.5px; line-height: 1.75; }
+        .code-view::-webkit-scrollbar { width: 6px; height: 6px; }
+        .code-view::-webkit-scrollbar-track { background: transparent; }
+        .code-view::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
 
-        .simple-table {
-            width: 100%;
-            font-size: 0.85rem;
-        }
+        .code-line { display: flex; align-items: stretch; min-width: max-content; }
+        .code-line:hover { background: rgba(255,255,255,.025); }
+        .code-line.error-line { background: rgba(45,212,191,.10); }
 
-        .simple-table td {
-            padding: 0.5rem 0;
-            border-bottom: 1px solid var(--border-subtle);
-            vertical-align: top;
+        .ln {
+            width: 52px;
+            text-align: right;
+            padding: 0 16px 0 0;
+            color: var(--text-dim);
+            user-select: none;
+            flex-shrink: 0;
+            font-size: 12px;
         }
+        .code-line.error-line .ln { color: var(--accent); font-weight: 700; }
 
-        .simple-table td:first-child {
-            font-weight: 600;
-            width: 140px;
-            color: var(--text-secondary);
-        }
+        .error-arrow { width: 16px; color: var(--accent); flex-shrink: 0; font-size: 12px; }
+        .src { flex: 1; padding-right: 32px; white-space: pre; color: var(--text); }
+        .code-line.error-line .src { color: #fff; }
 
-        .tip-badge {
-            background: #2a2f3e;
-            border-radius: 14px;
-            padding: 0.9rem 1.2rem;
-            font-family: var(--font-mono);
-            font-size: 0.8rem;
-            border-left: 3px solid var(--accent-warning);
-        }
+        .kw  { color: var(--pink); }
+        .str { color: var(--green); }
+        .num { color: var(--orange); }
+        .cmt { color: var(--text-dim); font-style: italic; }
+        .fn  { color: var(--blue); }
+        .var { color: var(--cyan); }
 
-        .footer-note {
-            text-align: center;
-            padding: 1.2rem;
-            background: rgba(0, 0, 0, 0.3);
+        /* args panel */
+        .args-panel { border-top: 1px solid var(--border); background: var(--bg-panel); flex-shrink: 0; max-height: 120px; overflow: auto; }
+        .args-panel::-webkit-scrollbar { width: 4px; }
+        .args-panel::-webkit-scrollbar-thumb { background: var(--border-mid); }
+        .args-title { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); padding: 8px 18px 6px; border-bottom: 1px solid var(--border); }
+        .args-body { padding: 10px 18px; font-size: 11.5px; color: #888; white-space: pre-wrap; word-break: break-all; }
+
+        /* info tabs */
+        .info-section { border-top: 1px solid var(--border); background: var(--bg-panel); flex-shrink: 0; }
+        .tabs-bar { display: flex; border-bottom: 1px solid var(--border); }
+        .tab-btn {
+            padding: 8px 16px;
+            font-size: 10.5px;
+            letter-spacing: .6px;
+            text-transform: uppercase;
+            cursor: pointer;
             color: var(--text-muted);
-            font-size: 0.75rem;
-            border-top: 1px solid var(--border-subtle);
+            border-bottom: 2px solid transparent;
+            background: none;
+            border-top: none; border-left: none; border-right: none;
+            font-family: inherit;
+            transition: color .15s;
         }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active { color: var(--purple); border-bottom-color: var(--purple); }
 
-        @media (max-width: 680px) {
-            .section {
-                padding: 1.2rem;
-            }
-            .card-header {
-                padding: 1.2rem;
-            }
-            .trace-summary {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-        }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+        .info-table-wrap { max-height: 120px; overflow: auto; padding: 6px 0; }
+        .info-table-wrap::-webkit-scrollbar { width: 4px; }
+        .info-table-wrap::-webkit-scrollbar-thumb { background: var(--border-mid); }
+        .info-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .info-table td { padding: 3px 18px; vertical-align: top; }
+        .info-table td:first-child { color: var(--text-dim); width: 160px; white-space: nowrap; }
+        .info-table td:last-child { color: #9ab4ff; word-break: break-all; }
+        .empty-note { padding: 10px 18px; color: var(--text-dim); font-size: 11.5px; }
+
+        @media (max-width: 700px) { .sidebar { width: 220px; min-width: 160px; } }
     </style>
 </head>
 <body>
-<div class="error-container">
-    <div class="error-card">
-        <div class="card-header">
-            <div>
-                <span class="error-badge">Database Error</span>
-                <div class="error-title">SQL query failed</div>
-            </div>
-            <div class="error-badge" style="background:#1e293b;">Debug mode active</div>
-        </div>
 
-        <!-- ERROR MESSAGE & LOCATION -->
-        <div class="section">
-            <div class="message-card">
-                <span class="label-sm">Error message</span>
-                <div class="error-message"><?= htmlspecialchars($exception_message ?? $message ?? 'Unknown database error', ENT_QUOTES, 'UTF-8'); ?></div>
-            </div>
-            <div class="location-card">
-                <span class="label-sm">Thrown in</span>
-                <div class="error-message"><?= htmlspecialchars($filePath); ?> : <?= $lineNum; ?></div>
-            </div>
-        </div>
+<!-- TOP BAR -->
+<div class="top-bar">
+    <span class="exc-type">Database Error</span>
+    <span class="exc-msg"><?= htmlspecialchars($errMsg, ENT_QUOTES, 'UTF-8') ?></span>
+</div>
 
-        <!-- SQL QUERY & BINDINGS (database specific) -->
-        <?php if (!empty($query)): ?>
-        <div class="section">
-            <div class="section-header">
-                <h3>SQL Query</h3>
-            </div>
-            <div class="sql-card">
-                <pre><?= htmlspecialchars($query); ?></pre>
-            </div>
-        </div>
-        <?php endif; ?>
+<div class="layout">
 
-        <?php if (!empty($bindings_data)): ?>
-        <div class="section">
-            <div class="section-header">
-                <h3>Query Bindings</h3>
-            </div>
-            <div class="bindings-card">
-                <pre><?= htmlspecialchars($bindings_data); ?></pre>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- CODE PREVIEW -->
-        <?php if (!empty($codeExcerpt)): ?>
-        <div class="section">
-            <div class="section-header">
-                <h3>Source context</h3>
-            </div>
-            <div class="code-preview-wrapper">
-                <div class="code-header">
-                    <?= htmlspecialchars($filePath); ?>
-                </div>
-                <div class="code-preview">
-                    <?php foreach ($codeExcerpt as $lineNumLocal => $codeLine): ?>
-                        <?php $currentLineNumber = $lineNumLocal + 1; ?>
-                        <div class="code-line <?= ($currentLineNumber === $lineNum) ? 'highlight-line' : ''; ?>">
-                            <span class="line-number"><?= str_pad($currentLineNumber, 3, ' ', STR_PAD_LEFT); ?></span>
-                            <span class="line-content"><?= htmlspecialchars(rtrim($codeLine)); ?></span>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- STACK TRACE (interactive) -->
-        <div class="section">
-            <div class="section-header">
-                <h3>Stack trace</h3>
-            </div>
-            <?php if (!empty($traceFrames)): ?>
-            <div class="trace-list">
-                <?php foreach ($traceFrames as $frame): ?>
-                    <?php if (isset($frame['file'])): ?>
-                    <div class="trace-item">
-                        <div class="trace-summary" onclick="toggleTraceDetails(this)">
-                            <span class="trace-file"><?= htmlspecialchars($frame['file']); ?>:<?= $frame['line'] ?? '?'; ?></span>
-                            <span class="trace-function">
-                                <?= htmlspecialchars(($frame['class'] ?? '') . ($frame['type'] ?? '') . $frame['function']); ?>()
-                            </span>
-                            <span style="margin-left: auto; font-size: 12px;">▼</span>
-                        </div>
-                        <div class="trace-details">
-                            <div><strong>⚙️ Function:</strong> <?= htmlspecialchars(($frame['class'] ?? '') . ($frame['type'] ?? '') . $frame['function']); ?>()</div>
-                            <?php if (!empty($frame['args'])): ?>
-                                <div style="margin-top: 10px;"><strong>Arguments:</strong></div>
-                                <pre><?= htmlspecialchars(print_r($frame['args'], true)); ?></pre>
-                            <?php endif; ?>
-                        </div>
-                    </div>
+    <!-- LEFT SIDEBAR -->
+    <div class="sidebar">
+        <div class="sidebar-title">Stack frames</div>
+        <div class="trace-list" id="traceList">
+            <?php foreach ($allFrames as $i => $frame): ?>
+            <div class="trace-item <?= $i === 0 ? 'active' : '' ?>"
+                 data-index="<?= $i ?>"
+                 onclick="activateFrame(<?= $i ?>)">
+                <div class="trace-fn">
+                    <?php if (!empty($frame['class'])): ?>
+                        <?= htmlspecialchars($frame['class'] . ($frame['type'] ?? '->')) ?>
                     <?php endif; ?>
-                <?php endforeach; ?>
+                    <?= htmlspecialchars($frame['function'] ?? '{closure}') ?>()
+                </div>
+                <div class="trace-loc">
+                    <?php
+                    $shortFile = isset($frame['file'])
+                        ? implode('/', array_slice(explode('/', str_replace('\\', '/', $frame['file'])), -3))
+                        : '[internal]';
+                    ?>
+                    <?= htmlspecialchars($shortFile) ?>
+                    <?php if (!empty($frame['line'])): ?>
+                        <span class="line-num">:<?= $frame['line'] ?></span>
+                    <?php endif; ?>
+                </div>
             </div>
-            <?php elseif (!empty($plainTrace)): ?>
-                <div class="code" style="background: var(--bg-elevated);"><?= nl2br(htmlspecialchars($plainTrace)); ?></div>
-            <?php else: ?>
-                <div class="tip-badge">No stack trace available.</div>
+            <?php endforeach; ?>
+
+            <?php if (empty($allFrames) && !empty($plainTrace)): ?>
+            <div style="padding:12px 14px; color:var(--text-muted); font-size:11px; white-space:pre-wrap;">
+                <?= htmlspecialchars($plainTrace) ?>
+            </div>
             <?php endif; ?>
         </div>
+    </div>
 
-        <!-- REQUEST & SERVER INFO -->
-        <div class="section">
-            <div class="section-header">
-                <h3>Request & Server</h3>
+    <!-- RIGHT PANEL -->
+    <div class="right-panel">
+
+        <!-- SQL / BINDINGS STRIP -->
+        <div class="sql-strip">
+            <div class="sql-tabs-bar">
+                <button class="sql-tab active" onclick="switchSqlTab(this,'sql')">SQL Query</button>
+                <button class="sql-tab" onclick="switchSqlTab(this,'bindings')">Bindings</button>
             </div>
-            <div class="info-grid">
-                <div class="info-card">
-                    <h4>Request</h4>
-                    <table class="simple-table">
-                        <tr><td>Method</td><td><?= htmlspecialchars($_SERVER['REQUEST_METHOD'] ?? 'CLI'); ?></td></tr>
-                        <tr><td>URI</td><td><?= htmlspecialchars($_SERVER['REQUEST_URI'] ?? '/'); ?></td></tr>
-                        <tr><td>Query String</td><td><?= htmlspecialchars($_SERVER['QUERY_STRING'] ?? 'none'); ?></td></tr>
-                    </table>
-                </div>
-                <div class="info-card">
-                    <h4>Server environment</h4>
-                    <table class="simple-table">
-                        <tr><td>PHP</td><td><?= phpversion(); ?></td></tr>
-                        <tr><td>LavaLust</td><td><?= htmlspecialchars(config_item('VERSION')); ?></td></tr>
-                        <tr><td>Software</td><td><?= htmlspecialchars($_SERVER['SERVER_SOFTWARE'] ?? 'Built-in'); ?></td></tr>
-                    </table>
-                </div>
+            <div class="sql-pane active" id="spane-sql">
+                <?php if (!empty($query)): ?>
+                    <span id="sqlContent"><?= htmlspecialchars($query) ?></span>
+                <?php else: ?>
+                    <span class="no-data">No query available.</span>
+                <?php endif; ?>
+            </div>
+            <div class="sql-pane" id="spane-bindings">
+                <?php if (!empty($bindings_data)): ?>
+                    <?= htmlspecialchars($bindings_data) ?>
+                <?php else: ?>
+                    <span class="no-data">No bindings.</span>
+                <?php endif; ?>
             </div>
         </div>
 
-        <!-- ENVIRONMENT SNAPSHOT -->
-        <div class="section">
-            <div class="section-header">
-                <h3>Environment snapshot</h3>
-            </div>
-            <div class="info-grid">
-                <div class="info-card">
-                    <h4>$_GET</h4>
-                    <pre><?= htmlspecialchars(print_r($_GET, true)); ?></pre>
-                </div>
-                <div class="info-card">
-                    <h4>$_POST</h4>
-                    <pre><?= htmlspecialchars(print_r($_POST, true)); ?></pre>
-                </div>
-                <div class="info-card">
-                    <h4>$_SESSION</h4>
-                    <pre><?= isset($_SESSION) ? htmlspecialchars(print_r($_SESSION, true)) : 'No active session'; ?></pre>
-                </div>
-                <div class="info-card">
-                    <h4>$_COOKIE</h4>
-                    <pre><?= htmlspecialchars(print_r($_COOKIE, true)); ?></pre>
-                </div>
-            </div>
+        <!-- CODE HEADER -->
+        <div class="code-header">
+            <span class="file-path" id="codeFilePath"><?= htmlspecialchars($filePath) ?></span>
+            <span class="line-badge" id="codeLineBadge">line <?= $lineNum ?></span>
         </div>
 
-        <!-- TIPS -->
-        <div class="section">
-            <div class="section-header">
-                <h3>Pro tip</h3>
+        <!-- CODE VIEW -->
+        <div class="code-view" id="codeView">
+            <?php foreach ($codeExcerpt as $lineIdx => $codeLine):
+                $currentLine = $lineIdx + 1;
+                $isError = ($currentLine === $lineNum);
+            ?>
+            <div class="code-line <?= $isError ? 'error-line' : '' ?>">
+                <span class="ln"><?= $currentLine ?></span>
+                <span class="error-arrow"><?= $isError ? '&#9654;' : '&nbsp;' ?></span>
+                <span class="src" data-raw="<?= htmlspecialchars(rtrim($codeLine), ENT_QUOTES) ?>"></span>
             </div>
-            <div class="tip-badge">
-                This detailed error page is shown because debug mode is enabled.<br>
-                In production, set <code>$config['ENVIRONMENT'] = 'production'</code> to hide sensitive traces.
-            </div>
+            <?php endforeach; ?>
         </div>
 
-        <div class="footer-note">
-            LavaLust Framework — PHP <?= phpversion(); ?> • <?= date('Y'); ?>
+        <!-- ARGS PANEL -->
+        <div class="args-panel" id="argsPanel" style="display:none">
+            <div class="args-title">Arguments</div>
+            <div class="args-body" id="argsBody"></div>
+        </div>
+
+        <!-- INFO TABS -->
+        <div class="info-section">
+            <div class="tabs-bar">
+                <button class="tab-btn active" onclick="switchTab(this,'env')">Environment</button>
+                <button class="tab-btn" onclick="switchTab(this,'get')">GET</button>
+                <button class="tab-btn" onclick="switchTab(this,'post')">POST</button>
+                <button class="tab-btn" onclick="switchTab(this,'server')">Server</button>
+            </div>
+
+            <div class="tab-pane active" id="pane-env">
+                <div class="info-table-wrap"><table class="info-table">
+                    <tr><td>PHP Version</td><td><?= phpversion() ?></td></tr>
+                    <tr><td>LavaLust</td><td><?= htmlspecialchars(config_item('VERSION') ?? 'Unknown') ?></td></tr>
+                    <tr><td>Environment</td><td><?= htmlspecialchars(config_item('ENVIRONMENT')) ?></td></tr>
+                    <tr><td>Error type</td><td>Database</td></tr>
+                    <tr><td>Memory Used</td><td><?= round(memory_get_peak_usage(true) / 1048576, 2) ?> MB</td></tr>
+                </table></div>
+            </div>
+
+            <div class="tab-pane" id="pane-get">
+                <?php if (!empty($_GET)): ?>
+                <div class="info-table-wrap"><table class="info-table">
+                    <?php foreach ($_GET as $k => $v): ?>
+                    <tr><td><?= htmlspecialchars($k) ?></td><td><?= htmlspecialchars(is_array($v) ? json_encode($v) : $v) ?></td></tr>
+                    <?php endforeach; ?>
+                </table></div>
+                <?php else: ?><div class="empty-note">No GET data.</div><?php endif; ?>
+            </div>
+
+            <div class="tab-pane" id="pane-post">
+                <?php if (!empty($_POST)): ?>
+                <div class="info-table-wrap"><table class="info-table">
+                    <?php foreach ($_POST as $k => $v): ?>
+                    <tr><td><?= htmlspecialchars($k) ?></td><td><?= htmlspecialchars(is_array($v) ? json_encode($v) : $v) ?></td></tr>
+                    <?php endforeach; ?>
+                </table></div>
+                <?php else: ?><div class="empty-note">No POST data.</div><?php endif; ?>
+            </div>
+
+            <div class="tab-pane" id="pane-server">
+                <div class="info-table-wrap"><table class="info-table">
+                    <?php foreach (['REQUEST_METHOD','REQUEST_URI','HTTP_HOST','REMOTE_ADDR',
+                                     'SERVER_SOFTWARE','SERVER_PORT','HTTPS','HTTP_USER_AGENT'] as $key):
+                        if (isset($_SERVER[$key])): ?>
+                    <tr><td><?= htmlspecialchars($key) ?></td><td><?= htmlspecialchars($_SERVER[$key]) ?></td></tr>
+                    <?php endif; endforeach; ?>
+                </table></div>
+            </div>
         </div>
     </div>
 </div>
 
+<!-- Frame data + SQL highlight -->
 <script nonce="<?= defined('CSP_NONCE') ? CSP_NONCE : '' ?>">
-    function toggleTraceDetails(element) {
-        const detailsDiv = element.nextElementSibling;
-        if (detailsDiv && detailsDiv.classList.contains('trace-details')) {
-            const isVisible = detailsDiv.style.display === 'block';
-            detailsDiv.style.display = isVisible ? 'none' : 'block';
-            const arrowSpan = element.querySelector('span:last-child');
-            if (arrowSpan) {
-                arrowSpan.textContent = isVisible ? '▼' : '▲';
-            }
+const FRAMES = <?php
+$jsFrames = [];
+foreach ($allFrames as $frame) {
+    $f  = $frame['file'] ?? null;
+    $ln = $frame['line'] ?? null;
+    $code = [];
+    if ($f && $ln) {
+        list($excerpt) = get_code_excerpt($f, $ln, 10);
+        foreach ($excerpt as $idx => $src) {
+            $code[] = ['n' => $idx + 1, 's' => rtrim($src)];
         }
     }
-    // Initially hide all trace details
-    document.querySelectorAll('.trace-details').forEach(detail => detail.style.display = 'none');
+    $args = !empty($frame['args']) ? print_r($frame['args'], true) : '';
+    $jsFrames[] = ['file' => $f ?? '', 'line' => $ln ?? 0, 'code' => $code, 'args' => $args];
+}
+echo json_encode($jsFrames, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+?>;
+
+/* PHP syntax highlighter (freeze/restore pattern) */
+function hl(src) {
+    src = src.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const frozen = [];
+    let out = '', i = 0;
+    while (i < src.length) {
+        if (src[i]==='/' && src[i+1]==='/') {
+            let e = src.indexOf('\n',i); if(e===-1) e=src.length;
+            frozen.push('<span class="cmt">'+src.slice(i,e)+'</span>');
+            out+='@@FROZEN_'+(frozen.length-1)+'@@'; i=e; continue;
+        }
+        if (src[i]==='#') {
+            let e = src.indexOf('\n',i); if(e===-1) e=src.length;
+            frozen.push('<span class="cmt">'+src.slice(i,e)+'</span>');
+            out+='@@FROZEN_'+(frozen.length-1)+'@@'; i=e; continue;
+        }
+        if (src[i]==="'") {
+            let j=i+1;
+            while(j<src.length){if(src[j]==='\\'){j+=2;continue;}if(src[j]==="'"){j++;break;}j++;}
+            frozen.push('<span class="str">'+src.slice(i,j)+'</span>');
+            out+='@@FROZEN_'+(frozen.length-1)+'@@'; i=j; continue;
+        }
+        if (src[i]==='"') {
+            let j=i+1;
+            while(j<src.length){if(src[j]==='\\'){j+=2;continue;}if(src[j]==='"'){j++;break;}j++;}
+            frozen.push('<span class="str">'+src.slice(i,j)+'</span>');
+            out+='@@FROZEN_'+(frozen.length-1)+'@@'; i=j; continue;
+        }
+        out+=src[i++];
+    }
+    src=out;
+    src=src.replace(/\b(function|class|public|protected|private|static|return|new|if|else|elseif|foreach|for|while|switch|case|default|break|continue|throw|try|catch|finally|require|require_once|include|include_once|namespace|use|extends|implements|abstract|interface|trait|echo|print|list|array|null|true|false|void|OR|AND)\b/g,'<span class="kw">$1</span>');
+    src=src.replace(/(\$[a-zA-Z_][a-zA-Z0-9_]*)/g,'<span class="var">$1</span>');
+    src=src.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g,function(m,name){
+        if(/^(if|else|elseif|for|foreach|while|switch|catch|list|array|function)$/.test(name))return m;
+        return '<span class="fn">'+name+'</span>(';
+    });
+    src=src.replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>');
+    src=src.replace(/@@FROZEN_(\d+)@@/g,(_,n)=>frozen[+n]);
+    return src;
+}
+
+/* SQL keyword highlighter */
+function hlSql(src) {
+    src = src.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const SQL_KW = /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|AND|OR|NOT|IN|IS|NULL|LIKE|BETWEEN|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|SET|VALUES|INTO|CREATE|DROP|ALTER|TABLE|INDEX|DISTINCT|COUNT|SUM|AVG|MIN|MAX|CASE|WHEN|THEN|ELSE|END|UNION|ALL|EXISTS|RETURNING)\b/gi;
+    src = src.replace(SQL_KW, '<span class="sk">$1</span>');
+    src = src.replace(/('(?:[^'\\]|\\.)*')/g, '<span class="str">$1</span>');
+    src = src.replace(/\b(\d+\.?\d*)\b/g, '<span class="num">$1</span>');
+    return src;
+}
+
+function renderCode(frameIdx) {
+    const f = FRAMES[frameIdx];
+    document.getElementById('codeFilePath').textContent = f.file || '[internal]';
+    document.getElementById('codeLineBadge').textContent = f.line ? 'line ' + f.line : '';
+
+    const view = document.getElementById('codeView');
+    view.innerHTML = f.code.map(row => {
+        const isErr = row.n === f.line;
+        return '<div class="code-line'+(isErr?' error-line':'')+'">'+
+            '<span class="ln">'+row.n+'</span>'+
+            '<span class="error-arrow">'+(isErr?'&#9654;':'&nbsp;')+'</span>'+
+            '<span class="src">'+hl(row.s)+'</span>'+
+            '</div>';
+    }).join('');
+
+    const errLine = view.querySelector('.error-line');
+    if (errLine) errLine.scrollIntoView({block:'center'});
+
+    const argsPanel = document.getElementById('argsPanel');
+    if (f.args) {
+        document.getElementById('argsBody').textContent = f.args;
+        argsPanel.style.display = 'block';
+    } else {
+        argsPanel.style.display = 'none';
+    }
+}
+
+function activateFrame(idx) {
+    document.querySelectorAll('.trace-item').forEach((el,i) => el.classList.toggle('active', i===idx));
+    renderCode(idx);
+}
+
+function switchTab(btn, id) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pane-'+id).classList.add('active');
+}
+
+function switchSqlTab(btn, id) {
+    document.querySelectorAll('.sql-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sql-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('spane-'+id).classList.add('active');
+}
+
+// Highlight SQL query
+const sqlEl = document.getElementById('sqlContent');
+if (sqlEl) sqlEl.innerHTML = hlSql(sqlEl.textContent);
+
+// Highlight initial PHP code lines
+document.querySelectorAll('.src[data-raw]').forEach(el => {
+    el.innerHTML = hl(el.getAttribute('data-raw'));
+    el.removeAttribute('data-raw');
+});
+
+// Scroll error line into view
+const initErr = document.querySelector('.code-line.error-line');
+if (initErr) initErr.scrollIntoView({block:'center'});
 </script>
 </body>
 </html>

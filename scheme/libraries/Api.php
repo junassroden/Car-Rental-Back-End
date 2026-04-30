@@ -405,7 +405,7 @@ class Api
      * encode_jwt
      *
      * @param array $payload
-     * @return void
+     * @return array<string,mixed>|null
      */
     public function encode_jwt($payload)
     {
@@ -432,7 +432,7 @@ class Api
      * decode_jwt
      *
      * @param string $token
-     * @return void
+     * @return array<string,mixed>|null
      */
     public function decode_jwt($token)
     {
@@ -454,7 +454,7 @@ class Api
      * validate_jwt
      *
      * @param string $token
-     * @return void
+     * @return array<string,mixed>|null
      */
     public function validate_jwt($token)
     {
@@ -471,7 +471,7 @@ class Api
     /**
      * get_bearer_token
      *
-     * @return void
+     * @return string|null
      */
     public function get_bearer_token()
     {
@@ -509,8 +509,8 @@ class Api
     /**
      * issue_tokens
      *
-     * @param array $user_data
-     * @return void
+     * @param array<string,mixed> $user_data
+     * @return array<string,mixed>
      */
     public function issue_tokens($user_data)
     {

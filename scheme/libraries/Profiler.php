@@ -561,9 +561,9 @@ class Profiler
 .llp-chip-q{background:#2a1a2a;color:var(--llp-purple)}
 .llp-chip-method{background:#2a2a1a;color:var(--llp-yellow)}
 .llp-toggle-icon{margin-left:auto;color:var(--llp-muted);font-size:10px;transition:transform .2s}
-.llp-body{background:var(--llp-bg);border-top:1px solid var(--llp-border);max-height:420px;display:flex;flex-direction:column}
-.llp-tabs{display:flex;gap:0;overflow-x:auto;background:var(--llp-bg2);border-bottom:1px solid var(--llp-border);scrollbar-width:thin}
-.llp-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--llp-muted);padding:8px 14px;cursor:pointer;font-family:inherit;font-size:11px;white-space:nowrap;transition:color .15s,border-color .15s}
+.llp-body{background:var(--llp-bg);border-top:1px solid var(--llp-border);max-height:480px;display:flex;flex-direction:column}
+.llp-tabs{display:flex;flex-wrap:wrap;gap:0;background:var(--llp-bg2);border-bottom:1px solid var(--llp-border);}
+.llp-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--llp-muted);padding:7px 13px;cursor:pointer;font-family:inherit;font-size:11px;white-space:nowrap;transition:color .15s,border-color .15s;flex-shrink:0}
 .llp-tab:hover{color:var(--llp-text)}
 .llp-tab-active{color:var(--llp-blue);border-bottom-color:var(--llp-blue)}
 .llp-panels{overflow-y:auto;flex:1;padding:12px 16px}

@@ -179,7 +179,7 @@ require_once APP_DIR . 'config/routes.php';
  * Allows extending any kernel class without touching core files.
  */
 if (is_dir(APP_DIR . 'kernel/')) {
-    foreach (glob(APP_DIR . 'kernel/MY_*.php') as $my_file) {
+    foreach (glob(APP_DIR . 'kernel/'.config_item('subclass_prefix').'*.php') as $my_file) {
         require_once $my_file;
     }
 }

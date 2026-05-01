@@ -200,6 +200,17 @@ $config['language'] 				= 'en-US';
 
 /*
 |--------------------------------------------------------------------------
+| Sub-class Prefix
+|--------------------------------------------------------------------------
+|
+| This lets you specify which prefix should be used for your custom classes.
+| For example, if you have a class named MY_Controller, you would set this to 'MY_'.
+|
+*/
+$config['subclass_prefix']          = 'MY_';
+
+/*
+|--------------------------------------------------------------------------
 | Session
 |--------------------------------------------------------------------------
 |

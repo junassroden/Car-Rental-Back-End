@@ -84,7 +84,7 @@ if ( ! function_exists('load_class'))
 				}
 
 				// Check if the class is a MY_ class and load it if found in APP_DIR .'kernel folder
-				$my_class = 'MY_' . $match;
+				$my_class = config_item('subclass_prefix') . $match;
 				$my_path  = APP_DIR . 'kernel' . DIRECTORY_SEPARATOR . $my_class . '.php';
 
 				if (file_exists($my_path)) {
@@ -110,11 +110,10 @@ if ( ! function_exists('load_class'))
 if ( ! function_exists('loaded_class'))
 {
 	/**
-	 * Keeps track of which libraries have been loaded. This function is
-	 * called by the load_class() function above
-	 *
-	 * @param	string
-	 * @return	array
+	 * Keeps track of loaded classes
+	 * @param  string $class
+	 * @param  mixed $object_name
+	 * @return array
 	 */
 	function loaded_class($class = '', $object_name = '')
 	{

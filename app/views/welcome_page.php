@@ -9,7 +9,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
     <title>Welcome to LavaLust</title>
     <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700;800&family=Unbounded:wght@400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -27,7 +27,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
             --text-muted: #71717a;
             --text-dim: #3f3f46;
             --mono: 'JetBrains Mono', monospace;
-            --sans: 'Syne', sans-serif;
+            --sans: 'Unbounded', sans-serif;
         }
 
         html { scroll-behavior: smooth; }

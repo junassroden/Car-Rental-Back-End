@@ -20,8 +20,6 @@
     RewriteRule ^(.*)$ index.php/$1 [L]
 </IfModule>
 
-# Optional: Deny access to sensitive files
-<FilesMatch "^\.env|composer\.json|composer\.lock">
-    Order allow,deny
-    Deny from all
+<FilesMatch "^(\.env|composer\.(json|lock)|package\.json|package-lock\.json|\.git)">
+    Require all denied
 </FilesMatch>

@@ -168,7 +168,7 @@ class Profiler
      * Supports LavaLust's built-in DB class if available.
      * Returns an array of ['query' => ..., 'time' => ...] entries.
      */
-    protected function _get_queries(): array
+    protected function _get_queries()
     {
         $rows = [];
 
@@ -213,7 +213,7 @@ class Profiler
      *
      * @return array ['current' => '1.2 MB', 'peak' => '2.5 MB', 'limit' => '128M']
      */
-    protected function _get_memory(): array
+    protected function _get_memory()
     {
         return [
             'current' => $this->_bytes(memory_get_usage(true)),
@@ -227,7 +227,7 @@ class Profiler
      *
      * @return array Associative array of header name => value
      */
-    protected function _get_headers(): array
+    protected function _get_headers()
     {
         $headers = [];
         foreach ($_SERVER as $key => $val) {
@@ -244,7 +244,7 @@ class Profiler
      *
      * @return array Session data or empty array if no session
      */
-    protected function _get_session(): array
+    protected function _get_session()
     {
         if (session_status() !== PHP_SESSION_ACTIVE) return [];
         return $_SESSION ?? [];
@@ -255,7 +255,7 @@ class Profiler
      *
      * @return array Config key-value pairs or empty array if not available
      */
-    protected function _get_config(): array
+    protected function _get_config()
     {
         if (function_exists('load_class')) {
             try {
@@ -273,7 +273,7 @@ class Profiler
      *
      * @return string Sanitized URI string
      */
-    protected function _get_uri(): string
+    protected function _get_uri()
     {
         return htmlspecialchars($_SERVER['REQUEST_URI'] ?? '');
     }
@@ -283,7 +283,7 @@ class Profiler
      *
      * @return string HTML content
      */
-    protected function _render(): string
+    protected function _render()
     {
         $id   = 'llprofiler_' . substr(md5(uniqid()), 0, 8);
         $html = $this->_styles($id);
@@ -292,7 +292,7 @@ class Profiler
 
         // ── Toggle bar ──
         $html .= '<div class="llp-bar" onclick="llpToggle(\'' . $id . '\')">';
-        $html .= '<span class="llp-logo">⚡ LavaLust Profiler</span>';
+        $html .= '<span class="llp-logo">LavaLust Profiler</span>';
         $html .= '<span class="llp-bar-meta">';
 
         $mem = $this->_get_memory();
@@ -333,7 +333,7 @@ class Profiler
                 echo '<tr class="' . $cls . '"><td>' . htmlspecialchars($b['label']) . '</td><td class="llp-mono">' . $b['time'] . 's</td></tr>';
             }
             echo '</tbody></table>';
-            $tabs[]   = ['id' => 'benchmarks', 'label' => '⏱ Benchmarks <span class="llp-cnt">' . count($benchmarks) . '</span>'];
+            $tabs[]   = ['id' => 'benchmarks', 'label' => 'Benchmarks <span class="llp-cnt">' . count($benchmarks) . '</span>'];
             $panels[] = ['id' => 'benchmarks', 'content' => ob_get_clean()];
         }
 
@@ -349,7 +349,7 @@ class Profiler
                 echo '<div class="llp-mem-card"><div class="llp-mem-val">' . $val . '</div><div class="llp-mem-label">' . $label . '</div></div>';
             }
             echo '</div>';
-            $tabs[]   = ['id' => 'memory', 'label' => '🧠 Memory'];
+            $tabs[]   = ['id' => 'memory', 'label' => 'Memory'];
             $panels[] = ['id' => 'memory', 'content' => ob_get_clean()];
         }
 
@@ -371,7 +371,7 @@ class Profiler
                 }
                 echo '</tbody></table>';
             }
-            $tabs[]   = ['id' => 'queries', 'label' => '🗄 Queries <span class="llp-cnt">' . count($queries) . '</span>'];
+            $tabs[]   = ['id' => 'queries', 'label' => 'Queries <span class="llp-cnt">' . count($queries) . '</span>'];
             $panels[] = ['id' => 'queries', 'content' => ob_get_clean()];
         }
 
@@ -379,7 +379,7 @@ class Profiler
         if ($this->sections['post_data']) {
             ob_start();
             $this->_render_kv($_POST, 'No POST data.');
-            $tabs[]   = ['id' => 'post', 'label' => '📬 POST <span class="llp-cnt">' . count($_POST) . '</span>'];
+            $tabs[]   = ['id' => 'post', 'label' => 'POST <span class="llp-cnt">' . count($_POST) . '</span>'];
             $panels[] = ['id' => 'post', 'content' => ob_get_clean()];
         }
 
@@ -387,7 +387,7 @@ class Profiler
         if ($this->sections['get_data']) {
             ob_start();
             $this->_render_kv($_GET, 'No GET data.');
-            $tabs[]   = ['id' => 'get', 'label' => '🔗 GET <span class="llp-cnt">' . count($_GET) . '</span>'];
+            $tabs[]   = ['id' => 'get', 'label' => 'GET <span class="llp-cnt">' . count($_GET) . '</span>'];
             $panels[] = ['id' => 'get', 'content' => ob_get_clean()];
         }
 
@@ -395,7 +395,7 @@ class Profiler
         if ($this->sections['uri_string']) {
             ob_start();
             echo '<div class="llp-uri">' . $this->_get_uri() . '</div>';
-            $tabs[]   = ['id' => 'uri', 'label' => '🔎 URI'];
+            $tabs[]   = ['id' => 'uri', 'label' => 'URI'];
             $panels[] = ['id' => 'uri', 'content' => ob_get_clean()];
         }
 
@@ -403,7 +403,7 @@ class Profiler
         if ($this->sections['session']) {
             ob_start();
             $this->_render_kv($this->_get_session(), 'No session data.');
-            $tabs[]   = ['id' => 'session', 'label' => '🗂 Session <span class="llp-cnt">' . count($this->_get_session()) . '</span>'];
+            $tabs[]   = ['id' => 'session', 'label' => 'Session <span class="llp-cnt">' . count($this->_get_session()) . '</span>'];
             $panels[] = ['id' => 'session', 'content' => ob_get_clean()];
         }
 
@@ -411,7 +411,7 @@ class Profiler
         if ($this->sections['headers']) {
             ob_start();
             $this->_render_kv($this->_get_headers(), 'No HTTP headers found.');
-            $tabs[]   = ['id' => 'headers', 'label' => '📡 Headers'];
+            $tabs[]   = ['id' => 'headers', 'label' => 'Headers'];
             $panels[] = ['id' => 'headers', 'content' => ob_get_clean()];
         }
 
@@ -420,7 +420,7 @@ class Profiler
             ob_start();
             $cfg = $this->_get_config();
             $this->_render_kv($cfg, 'Config not available.');
-            $tabs[]   = ['id' => 'config', 'label' => '⚙ Config <span class="llp-cnt">' . count($cfg) . '</span>'];
+            $tabs[]   = ['id' => 'config', 'label' => 'Config <span class="llp-cnt">' . count($cfg) . '</span>'];
             $panels[] = ['id' => 'config', 'content' => ob_get_clean()];
         }
 
@@ -441,7 +441,7 @@ class Profiler
                 echo '<tr><td class="llp-kv-key">' . $k . '</td><td class="llp-kv-val">' . htmlspecialchars($v) . '</td></tr>';
             }
             echo '</tbody></table>';
-            $tabs[]   = ['id' => 'phpinfo', 'label' => '🐘 PHP Info'];
+            $tabs[]   = ['id' => 'phpinfo', 'label' => 'PHP Info'];
             $panels[] = ['id' => 'phpinfo', 'content' => ob_get_clean()];
         }
 
@@ -475,7 +475,7 @@ class Profiler
      * @param array $data  Associative array of key-value pairs
      * @param string $empty_msg Message to display if $data is empty
      */
-    protected function _render_kv(array $data, string $empty_msg): void
+    protected function _render_kv($data, $empty_msg)
     {
         if (empty($data)) {
             echo '<div class="llp-empty">' . $empty_msg . '</div>';
@@ -503,7 +503,7 @@ class Profiler
      * @param string $sql
      * @return string HTML with basic syntax highlighting
      */
-    protected function _highlight_sql(string $sql): string
+    protected function _highlight_sql($sql)
     {
         $keywords = ['SELECT','FROM','WHERE','JOIN','LEFT','RIGHT','INNER','OUTER',
                      'ON','AS','AND','OR','NOT','IN','IS','NULL','ORDER','BY','GROUP',
@@ -527,7 +527,7 @@ class Profiler
      * @param int $bytes
      * @return string
      */
-    protected function _bytes(int $bytes): string
+    protected function _bytes($bytes)
     {
         if ($bytes >= 1048576) return round($bytes / 1048576, 2) . ' MB';
         if ($bytes >= 1024)    return round($bytes / 1024, 2) . ' KB';
@@ -540,7 +540,7 @@ class Profiler
      * @param string $id Unique ID for scoping styles if needed
      * @return string CSS styles wrapped in a <style> tag
      */
-    protected function _styles(string $id): string
+    protected function _styles($id)
     {
         static $injected = false;
         $css = '';

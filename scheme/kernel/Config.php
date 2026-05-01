@@ -46,7 +46,7 @@ class Config {
      *
      * @var array
      */
-    private $config = [];
+    public $config = [];
 
     /**
 	 * List of all loaded config files

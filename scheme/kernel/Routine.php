@@ -83,6 +83,15 @@ if ( ! function_exists('load_class'))
 					throw new RuntimeException("Class '{$class}' not found in file '{$file}'.");
 				}
 
+				// Check if the class is a MY_ class and load it if found in APP_DIR .'kernel folder
+				$my_class = 'MY_' . $match;
+				$my_path  = APP_DIR . 'kernel' . DIRECTORY_SEPARATOR . $my_class . '.php';
+
+				if (file_exists($my_path)) {
+					require_once $my_path;
+					$match = $my_class;
+				}
+
 				// Register loaded class
 				loaded_class($class, $object_name);
 
@@ -321,7 +330,7 @@ if ( ! function_exists('database_config'))
 	/**
 	 * To access config from config config/database.php
 	 *
-	 * @return void
+	 * @return array<string,mixed>|null
 	 */
 	function database_config()
 	{

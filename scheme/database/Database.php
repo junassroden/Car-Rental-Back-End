@@ -185,11 +185,16 @@ class Database {
      */
     private $operators = array('=', '!=', '<', '>', '<=', '>=', '<>');
 
+    /** @var array Executed queries log */
+    private array $queryLog = [];
+
+    /** @var bool Whether query logging is enabled */
+    private bool $queryLogging = true;
+
     /**
      * Class Constructor
      *
-     * @param PDO $pdo
-     * @param string $dbprefix
+     * @param string $dbname
      */
     public function __construct($dbname = NULL)
     {
@@ -287,7 +292,14 @@ class Database {
         self::$instance = new Database($dbname);
         return self::$instance;
     }
-
+    
+    /**
+     * Validate SQL identifier (table or column name)
+     *
+     * @param string $name
+     * @return bool
+     * @throws Exception if the identifier is invalid
+     */
     private function validate_identifier($name)
     {
         $name = trim($name);
@@ -319,7 +331,17 @@ class Database {
         $this->bindValues = $args;
 
         $stmt = $this->db->prepare($query);
+        $t_start = microtime(true);
         $stmt->execute($this->bindValues);
+        $t_elapsed = microtime(true) - $t_start;
+
+        if ($this->queryLogging) {
+            $this->queryLog[] = [
+                'query'    => $query,
+                'bindings' => $args,
+                'time'     => round($t_elapsed, 5),
+            ];
+        }
         return $stmt;
     }
 
@@ -335,8 +357,20 @@ class Database {
 
         try {
             $stmt = $this->db->prepare($this->sql);
-            $stmt->execute($this->bindValues);
 
+            // ── Query logging ──
+            $t_start = microtime(true);
+            $stmt->execute($this->bindValues);
+            $t_elapsed = microtime(true) - $t_start;
+
+            if ($this->queryLogging) {
+                $this->queryLog[] = [
+                    'query'    => $this->sql,
+                    'bindings' => $this->bindValues,
+                    'time'     => round($t_elapsed, 5),
+                ];
+            }
+            
             if (stripos($this->sql, 'INSERT') === 0) {
                 $driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);
 
@@ -1345,7 +1379,17 @@ class Database {
         $this->getSQL = $this->sql;
         try {
             $stmt = $this->db->prepare($this->sql);
+            $t_start = microtime(true);
             $stmt->execute($this->bindValues);
+            $t_elapsed = microtime(true) - $t_start;
+
+            if ($this->queryLogging) {
+                $this->queryLog[] = [
+                    'query'    => $this->sql,
+                    'bindings' => $this->bindValues,
+                    'time'     => round($t_elapsed, 5),
+                ];
+            }
             $this->rowCount = $stmt->rowCount();
             return $stmt->fetch($mode, ...$args);
         } catch (Exception $e) {
@@ -1372,7 +1416,17 @@ class Database {
         $this->getSQL = $this->sql;
         try {
             $stmt = $this->db->prepare($this->sql);
+            $t_start = microtime(true);
             $stmt->execute($this->bindValues);
+            $t_elapsed = microtime(true) - $t_start;
+
+            if ($this->queryLogging) {
+                $this->queryLog[] = [
+                    'query'    => $this->sql,
+                    'bindings' => $this->bindValues,
+                    'time'     => round($t_elapsed, 5),
+                ];
+            }
             $this->rowCount = $stmt->rowCount();
             return $stmt->fetchAll($mode, ...$args);
         } catch (Exception $e) {
@@ -1603,6 +1657,27 @@ class Database {
     public function row_num()
     {
         return $this->get(PDO::FETCH_NUM);
+    }
+    
+    /**
+     * Enable or disable query logging
+     *
+     * @param bool $state
+     * @return void
+     */
+    public function enable_query_log(bool $state = true): void
+    {
+        $this->queryLogging = $state;
+    }
+
+    /**
+     * Get the query log
+     *
+     * @return array
+     */
+    public function get_query_log(): array
+    {
+        return $this->queryLog;
     }
 
     /**

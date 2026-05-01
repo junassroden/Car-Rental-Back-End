@@ -175,6 +175,16 @@ $router = load_class('router', 'kernel', array(new Controller));
 require_once APP_DIR . 'config/routes.php';
 
 /**
+ * Load app-level kernel extensions (MY_* overrides)
+ * Allows extending any kernel class without touching core files.
+ */
+if (is_dir(APP_DIR . 'kernel/')) {
+    foreach (glob(APP_DIR . 'kernel/MY_*.php') as $my_file) {
+        require_once $my_file;
+    }
+}
+
+/**
  * Instantiate LavaLust Controller
  *
  * @return object

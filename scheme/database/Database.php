@@ -56,6 +56,7 @@ class Database {
 
     /**
      * Database Driver
+     * @var string
      */
     private $driver;
 
@@ -231,7 +232,7 @@ class Database {
 
         $username = isset($database_config['username']) && !empty($database_config['username'])
             ? $database_config['username']
-            : '';
+            : 'root';
 
         $password = isset($database_config['password']) && !empty($database_config['password'])
             ? $database_config['password']
@@ -1174,7 +1175,7 @@ class Database {
      * limit
      *
      * @param  integer $limit
-     * @param  integer $offset
+     * @param  integer $end
      * @return object
      */
     public function limit($limit, $end = null)

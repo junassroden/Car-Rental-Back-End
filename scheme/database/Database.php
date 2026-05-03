@@ -65,7 +65,7 @@ class Database {
      *
      * @var string
      */
-    private $dbprefix = NULL;
+    private $db_prefix = NULL;
 
     /**
      * Table name
@@ -93,14 +93,14 @@ class Database {
      *
      * @var array
      */
-    private $bindValues;
+    private $bind_values;
 
     /**
      * SQL Statement
      *
      * @var string
      */
-    private $getSQL;
+    private $get_sql;
 
     /**
      * Join
@@ -128,7 +128,7 @@ class Database {
      *
      * @var integer
      */
-    private $rowCount = 0;
+    private $row_count = 0;
 
     /**
      * Limit
@@ -142,14 +142,14 @@ class Database {
      *
      * @var string
      */
-    private $orderBy;
+    private $order_by;
 
     /**
      * Group By
      *
      * @var string
      */
-    private $groupBy = NULL;
+    private $group_by = NULL;
 
     /**
      * Having
@@ -159,18 +159,18 @@ class Database {
     private $having = NULL;
 
     /**
-     * Last Inseted ID
+     * Last Inserted ID
      *
      * @var integer
      */
-    private $lastIDInserted = 0;
+    private $last_id_inserted = 0;
 
     /**
      * Transaction Count
      *
      * @var integer
      */
-    private $transactionCount = 0;
+    private $transaction_count = 0;
 
     /**
      * Offset
@@ -187,10 +187,10 @@ class Database {
     private $operators = array('=', '!=', '<', '>', '<=', '>=', '<>');
 
     /** @var array Executed queries log */
-    private array $queryLog = [];
+    private array $query_log = [];
 
     /** @var bool Whether query logging is enabled */
-    private bool $queryLogging = true;
+    private bool $query_logging = true;
 
     /**
      * Class Constructor
@@ -200,7 +200,7 @@ class Database {
     public function __construct($dbname = NULL)
     {
         if(is_null($dbname)) {
-        $database_config = database_config()['main'];
+            $database_config = database_config()['main'];
         } else {
             if(isset(database_config()[$dbname])) {
                 $database_config = database_config()[$dbname];
@@ -208,7 +208,7 @@ class Database {
                 throw new PDOException('No active configuration for this database.');
             }
         }
-        $this->dbprefix = isset($database_config['dbprefix']) ? $database_config['dbprefix'] : '';
+        $this->db_prefix = isset($database_config['dbprefix']) ? $database_config['dbprefix'] : '';
 
         $driver = isset($database_config['driver']) && !empty($database_config['driver'])
             ? strtolower($database_config['driver'])
@@ -270,13 +270,13 @@ class Database {
 
         try {
             $this->db = new PDO($dsn, $username, $password, $options);
-             $this->driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);
+            $this->driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);
         } catch (Exception $e) {
             $error = load_class('Errors', 'kernel');
             $error->show_database_error(
                 $e->getMessage(),
-                $this->getSQL ?? '',
-                $this->bindValues ?? [],
+                $this->get_sql ?? '',
+                $this->bind_values ?? [],
                 $e
             );
         }
@@ -326,24 +326,34 @@ class Database {
      */
     public function raw($query, $args = array())
     {
-        $this->resetQuery();
+        $this->reset_query();
         $query = trim($query);
-        $this->getSQL = $query;
-        $this->bindValues = $args;
+        $this->get_sql = $query;
+        $this->bind_values = $args;
+        try
+        {     
+            $stmt = $this->db->prepare($query);
+            $t_start = microtime(true);
+            $stmt->execute($this->bind_values);
+            $t_elapsed = microtime(true) - $t_start;
 
-        $stmt = $this->db->prepare($query);
-        $t_start = microtime(true);
-        $stmt->execute($this->bindValues);
-        $t_elapsed = microtime(true) - $t_start;
-
-        if ($this->queryLogging) {
-            $this->queryLog[] = [
-                'query'    => $query,
-                'bindings' => $args,
-                'time'     => round($t_elapsed, 5),
-            ];
+            if ($this->query_logging) {
+                $this->query_log[] = [
+                    'query'    => $query,
+                    'bindings' => $args,
+                    'time'     => round($t_elapsed, 5),
+                ];
+            }
+            return $stmt;
+        } catch (Exception $e) {
+            $error = load_class('Errors', 'kernel');
+            $error->show_database_error(
+                $e->getMessage(),
+                $this->get_sql ?? '',
+                $this->bind_values ?? [],
+                $e
+            );
         }
-        return $stmt;
     }
 
     /**
@@ -354,20 +364,19 @@ class Database {
     public function exec()
     {
         $this->sql .= $this->where;
-        $this->getSQL = $this->sql;
+        $this->get_sql = $this->sql;
 
         try {
             $stmt = $this->db->prepare($this->sql);
 
-            // ── Query logging ──
             $t_start = microtime(true);
-            $stmt->execute($this->bindValues);
+            $stmt->execute($this->bind_values);
             $t_elapsed = microtime(true) - $t_start;
 
-            if ($this->queryLogging) {
-                $this->queryLog[] = [
+            if ($this->query_logging) {
+                $this->query_log[] = [
                     'query'    => $this->sql,
-                    'bindings' => $this->bindValues,
+                    'bindings' => $this->bind_values,
                     'time'     => round($t_elapsed, 5),
                 ];
             }
@@ -376,26 +385,23 @@ class Database {
                 $driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);
 
                 if ($driver === 'pgsql') {
-                    // Try to detect primary key and use RETURNING
                     if (strpos($this->sql, 'RETURNING') === false) {
-                        // Automatically add RETURNING if not already there
                         $this->sql .= ' RETURNING id';
                         $stmt = $this->db->prepare($this->sql);
-                        $stmt->execute($this->bindValues);
+                        $stmt->execute($this->bind_values);
                     }
 
-                    $this->lastIDInserted = (int) $stmt->fetchColumn();
-                    return $this->lastIDInserted;
+                    $this->last_id_inserted = (int) $stmt->fetchColumn();
+                    return $this->last_id_inserted;
                 }
 
-                // MySQL, SQLite, SQL Server
-                $this->lastIDInserted = (int) $this->db->lastInsertId();
-                return $this->lastIDInserted;
+                $this->last_id_inserted = (int) $this->db->lastInsertId();
+                return $this->last_id_inserted;
             } else {
                 return $stmt->rowCount();
             }
         } catch (Exception $e) {
-            throw new PDOException($e->getMessage() . 'Query: ' . $this->getSQL . '');
+            throw new PDOException($e->getMessage() . 'Query: ' . $this->get_sql . '');
         }
     }
 
@@ -404,22 +410,22 @@ class Database {
      *
      * @return void
      */
-    private function resetQuery()
+    private function reset_query()
     {
-        $this->table = NULL;
-        $this->columns = NULL;
-        $this->sql = NULL;
-        $this->bindValues = array();
-        $this->limit = NULL;
-        $this->offset = NULL;
-        $this->orderBy = NULL;
-        $this->groupBy = NULL;
-        $this->having = NULL;
-        $this->getSQL = NULL;
-        $this->where = NULL;
-        $this->join = NULL;
-        $this->rowCount = 0;
-        $this->lastIDInserted = 0;
+        $this->table          = NULL;
+        $this->columns        = NULL;
+        $this->sql            = NULL;
+        $this->bind_values    = array();
+        $this->limit          = NULL;
+        $this->offset         = NULL;
+        $this->order_by       = NULL;
+        $this->group_by       = NULL;
+        $this->having         = NULL;
+        $this->get_sql        = NULL;
+        $this->where          = NULL;
+        $this->join           = NULL;
+        $this->row_count      = 0;
+        $this->last_id_inserted = 0;
     }
 
     /**
@@ -430,10 +436,10 @@ class Database {
     public function count()
     {
         $sql = "SELECT COUNT(*) AS count FROM {$this->table}" . $this->where;
-        $stmt = $this->raw($sql, $this->bindValues);
+        $stmt = $this->raw($sql, $this->bind_values);
         $result = $stmt->fetch();
 
-        $this->resetQuery();
+        $this->reset_query();
 
         return $result['count'] ?? 0;
     }
@@ -455,10 +461,10 @@ class Database {
             $this->validate_identifier($column);
         }
         $placeholders = rtrim(str_repeat('(' . rtrim(str_repeat('?, ', count($columns)), ', ') . '), ', count($records)), ', ');
-        $this->bindValues = [];
+        $this->bind_values = [];
         
         foreach ($records as $record) {
-            $this->bindValues = array_merge($this->bindValues, array_values($record));
+            $this->bind_values = array_merge($this->bind_values, array_values($record));
         }
         
         $this->sql = "INSERT INTO {$this->table} (" . implode(',', $columns) . ") VALUES $placeholders";
@@ -469,33 +475,33 @@ class Database {
      * Bulk update multiple records
      *
      * @param array $records (each record should include primary key value)
-     * @param string $primaryKey
+     * @param string $primary_key
      * @return integer
      */
-    public function bulk_update($records, $primaryKey = 'id') 
+    public function bulk_update($records, $primary_key = 'id') 
     {
         if (empty($records)) {
             return false;
         }
     
-        $this->sql = '';
-        $this->bindValues = [];
-        $ids = [];
-        $updates = [];
+        $this->sql         = '';
+        $this->bind_values = [];
+        $ids               = [];
+        $updates           = [];
     
         $columns = array_keys($records[0]);
-        $columns = array_diff($columns, [$primaryKey]);
+        $columns = array_diff($columns, [$primary_key]);
     
         foreach ($columns as $column) {
             $this->validate_identifier($column);
-            $cases = [];
+            $cases  = [];
             $params = [];
             
             foreach ($records as $record) {
-                $id = $record[$primaryKey];
+                $id    = $record[$primary_key];
                 $value = $record[$column] ?? null;
                 
-                $cases[] = "WHEN ? THEN ?";
+                $cases[]  = "WHEN ? THEN ?";
                 $params[] = $id;
                 $params[] = $value;
                 
@@ -504,14 +510,14 @@ class Database {
                 }
             }
             
-            $caseStatement = "$column = CASE $primaryKey " . implode(' ', $cases) . " ELSE $column END";
-            $updates[] = $caseStatement;
-            $this->bindValues = array_merge($this->bindValues, $params);
+            $case_statement = "$column = CASE $primary_key " . implode(' ', $cases) . " ELSE $column END";
+            $updates[]      = $case_statement;
+            $this->bind_values = array_merge($this->bind_values, $params);
         }
     
         $this->sql = "UPDATE {$this->table} SET " . implode(', ', $updates) . 
-                    " WHERE $primaryKey IN (" . implode(',', array_fill(0, count($ids), '?')) . ")";
-        $this->bindValues = array_merge($this->bindValues, $ids);
+                    " WHERE $primary_key IN (" . implode(',', array_fill(0, count($ids), '?')) . ")";
+        $this->bind_values = array_merge($this->bind_values, $ids);
     
         return $this->exec();
     }
@@ -536,16 +542,16 @@ class Database {
      */
     public function update($fields = [])
     {
-        $set = '';
-        $values = [];
+        $set         = '';
+        $values      = [];
         $field_array = [];
 
         foreach ($fields as $column => $field) {
             $this->validate_identifier($column);
-            $values[] = $column . ' = ?';
+            $values[]      = $column . ' = ?';
             $field_array[] = $field;
         }
-        $this->bindValues = array_merge($field_array, $this->bindValues);
+        $this->bind_values = array_merge($field_array, $this->bind_values);
 
         $set .= implode(', ', $values);
 
@@ -563,15 +569,15 @@ class Database {
      */
     public function insert($fields = [])
     {
-        $keys = implode(', ', array_keys($fields));
+        $keys   = implode(', ', array_keys($fields));
         $values = '';
-        $x = 1;
+        $x      = 1;
         foreach ($fields as $field => $value) {
             $this->validate_identifier($field);
-            $values .='?';
-            $this->bindValues[] =  $value;
+            $values .= '?';
+            $this->bind_values[] = $value;
             if ($x < count($fields)) {
-                $values .=', ';
+                $values .= ', ';
             }
             $x++;
         }
@@ -588,7 +594,7 @@ class Database {
      */
     public function last_id()
     {
-        return $this->lastIDInserted;
+        return $this->last_id_inserted;
     }
 
     /**
@@ -599,9 +605,9 @@ class Database {
      */
     public function table($table_name)
     {
-        $this->validate_identifier(($table_name));
-        $this->resetQuery();
-        $this->table = $this->dbprefix.$table_name;
+        $this->validate_identifier($table_name);
+        $this->reset_query();
+        $this->table = $this->db_prefix . $table_name;
         return $this;
     }
 
@@ -730,8 +736,8 @@ class Database {
     public function join($table_name, $cond, $type = '')
     {
         $this->join = (is_null($this->join))
-            ? ' ' . $type . 'JOIN' . ' ' . $this->dbprefix.$table_name . ' ON ' . $cond
-            : $this->join . ' ' . $type . 'JOIN' . ' ' . $this->dbprefix.$table_name . ' ON ' . $cond;
+            ? ' ' . $type . 'JOIN' . ' ' . $this->db_prefix . $table_name . ' ON ' . $cond
+            : $this->join . ' ' . $type . 'JOIN' . ' ' . $this->db_prefix . $table_name . ' ON ' . $cond;
 
         return $this;
     }
@@ -840,19 +846,19 @@ class Database {
      * @param  string $op
      * @param  mixed $val
      * @param  string $type
-     * @param  string $andOr
+     * @param  string $and_or
      * @return object
      */
-    public function where($where, $op = null, $val = null, $type = '', $andOr = 'AND')
+    public function where($where, $op = null, $val = null, $type = '', $and_or = 'AND')
     {
         if (is_array($where) && ! empty($where)) {
             $_where = [];
             foreach ($where as $column => $data) {
                 $this->validate_identifier($column);
-                $_where[] = $type . $column . ' = ?';
-                $this->bindValues[] = $data;
+                $_where[]            = $type . $column . ' = ?';
+                $this->bind_values[] = $data;
             }
-            $where = implode(' ' . $andOr . ' ', $_where);
+            $where = implode(' ' . $and_or . ' ', $_where);
         } else {
             $this->validate_identifier($where);
             if (is_null($where) || empty($where)) {
@@ -864,28 +870,28 @@ class Database {
                 $_where = '';
                 foreach ($params as $key => $value) {
                     if (! empty($value)) {
-                        $_where .= $type . $value . (isset($op[$key]) ? ' ? ' : '');
-                        $this->bindValues[] = $op[$key];
+                        $_where             .= $type . $value . (isset($op[$key]) ? ' ? ' : '');
+                        $this->bind_values[] = $op[$key];
                     }
                 }
                 $where = $_where;
             } elseif (! in_array($op, $this->operators) || $op == false) {
-                $where = $type . $where . ' = ?';
-                $this->bindValues[] = $op;
+                $where               = $type . $where . ' = ?';
+                $this->bind_values[] = $op;
             } else {
-                $where = $type . $where . ' ' . $op . ' ?';
-                $this->bindValues[] = $val;
+                $where               = $type . $where . ' ' . $op . ' ?';
+                $this->bind_values[] = $val;
             }
         }
 
         if ($this->grouped) {
-            $where = '(' . $where;
+            $where         = '(' . $where;
             $this->grouped = false;
         }
 
         $this->where = (is_null($this->where))
             ? ' WHERE ' . $where
-            : $this->where . ' ' . $andOr . ' ' . $where;
+            : $this->where . ' ' . $and_or . ' ' . $where;
 
         return $this;
     }
@@ -973,23 +979,23 @@ class Database {
      * @param  string $field
      * @param  mixed $data
      * @param  string $type
-     * @param  string $andOr
+     * @param  string $and_or
      * @return object
      */
-    public function like($field, $data, $type = '', $andOr = 'AND')
+    public function like($field, $data, $type = '', $and_or = 'AND')
     {
         $this->validate_identifier($field);
-        $this->bindValues[] = $data;
+        $this->bind_values[] = $data;
         $where = $field . ' ' . $type . 'LIKE ?';
 
         if ($this->grouped) {
-            $where = '(' . $where;
+            $where         = '(' . $where;
             $this->grouped = false;
         }
 
         $this->where = (is_null($this->where))
             ? ' WHERE ' . $where
-            : $this->where . ' ' . $andOr . ' ' . $where;
+            : $this->where . ' ' . $and_or . ' ' . $where;
 
         return $this;
     }
@@ -1035,24 +1041,24 @@ class Database {
      * @param  mixed $value1
      * @param  mixed $value2
      * @param  string $type
-     * @param  string $andOr
+     * @param  string $and_or
      * @return object
      */
-    public function between($field, $value1, $value2, $type = '', $andOr = 'AND')
+    public function between($field, $value1, $value2, $type = '', $and_or = 'AND')
     {
         $this->validate_identifier($field);
-        $this->bindValues[] = $value1;
-        $this->bindValues[] = $value2;
+        $this->bind_values[] = $value1;
+        $this->bind_values[] = $value2;
         $where = '(' . $field . ' ' . $type . 'BETWEEN ?  AND ?)';
 
         if ($this->grouped) {
-            $where = '(' . $where;
+            $where         = '(' . $where;
             $this->grouped = false;
         }
 
         $this->where = (is_null($this->where))
             ? ' WHERE ' . $where
-            : $this->where . ' ' . $andOr . ' ' . $where;
+            : $this->where . ' ' . $and_or . ' ' . $where;
 
         return $this;
     }
@@ -1102,28 +1108,28 @@ class Database {
      * @param  string $field
      * @param  array  $keys
      * @param  string $type
-     * @param  string $andOr
+     * @param  string $and_or
      * @return object
      */
-    public function in($field, array $keys, $type = '', $andOr = 'AND')
+    public function in($field, array $keys, $type = '', $and_or = 'AND')
     {
         $this->validate_identifier($field);
         if (!empty($keys)) {
             $placeholders = implode(', ', array_fill(0, count($keys), '?'));
             foreach ($keys as $v) {
-                $this->bindValues[] = $v;
+                $this->bind_values[] = $v;
             }
 
             $where = "$field {$type}IN ($placeholders)";
 
             if ($this->grouped) {
-                $where = '(' . $where;
+                $where         = '(' . $where;
                 $this->grouped = false;
             }
 
             $this->where = is_null($this->where)
                 ? ' WHERE ' . $where
-                : $this->where . ' ' . $andOr . ' ' . $where;
+                : $this->where . ' ' . $and_or . ' ' . $where;
         }
 
         return $this;
@@ -1180,10 +1186,9 @@ class Database {
      */
     public function limit($limit, $end = null)
     {
-        $driver = $this->driver; // Assume this is already set in your PDO wrapper
+        $driver = $this->driver;
 
         if ($end === null) {
-            // Only a limit value
             switch ($driver) {
                 case 'mysql':
                 case 'pgsql':
@@ -1191,12 +1196,10 @@ class Database {
                     $this->limit = " LIMIT $limit";
                     break;
                 case 'sqlsrv':
-                    // Note: LIMIT not supported directly in SQL Server
                     $this->limit = " OFFSET 0 ROWS FETCH NEXT $limit ROWS ONLY";
                     break;
             }
         } else {
-            // Limit and offset
             switch ($driver) {
                 case 'mysql':
                     $this->limit = " LIMIT $limit, $end";
@@ -1222,7 +1225,7 @@ class Database {
      */
     public function offset($offset)
     {
-        $this->offset = ' OFFSET ';
+        $this->offset  = ' OFFSET ';
         $this->offset .= $offset;
 
         return $this;
@@ -1239,7 +1242,7 @@ class Database {
     {
         $offset = ($page - 1) * $records_per_page;
 
-        $this->limit = ' LIMIT '.$offset.', '.$records_per_page;
+        $this->limit = ' LIMIT ' . $offset . ', ' . $records_per_page;
 
         return $this;
     }
@@ -1256,11 +1259,11 @@ class Database {
         $field_name = trim($field_name);
         $this->validate_identifier($field_name);
 
-        $this->orderBy = ' ORDER BY ';
+        $this->order_by = ' ORDER BY ';
         if (! is_null($order)) {
-            $this->orderBy .= $field_name . ' ' . strtoupper($order);
+            $this->order_by .= $field_name . ' ' . strtoupper($order);
         } else {
-            $this->orderBy .= stristr($field_name, ' ') || strtolower($field_name) === 'rand()'
+            $this->order_by .= stristr($field_name, ' ') || strtolower($field_name) === 'rand()'
                 ? $field_name
                 : $field_name . ' ASC';
         }
@@ -1271,21 +1274,21 @@ class Database {
     /**
      * group_by
      *
-     * @param  string $groupBy
+     * @param  string $group_by
      * @return object
      */
-    public function group_by($groupBy)
+    public function group_by($group_by)
     {
-        $this->groupBy = ' GROUP BY ';
+        $this->group_by = ' GROUP BY ';
 
-        if (is_array($groupBy)) {
-            foreach ($groupBy as $column) {
+        if (is_array($group_by)) {
+            foreach ($group_by as $column) {
                 $this->validate_identifier($column);
             }
-            $this->groupBy .= implode(', ', $groupBy);
+            $this->group_by .= implode(', ', $group_by);
         } else {
-            $this->validate_identifier($groupBy);
-            $this->groupBy .= $groupBy;
+            $this->validate_identifier($group_by);
+            $this->group_by .= $group_by;
         }
 
         return $this;
@@ -1305,39 +1308,36 @@ class Database {
         $this->having = ' HAVING ';
         if (is_array($op)) {
             $fields = explode('?', $field);
-            $where = '';
+            $where  = '';
             foreach ($fields as $key => $value) {
                 if (! empty($value)) {
-                    $where .= $value . (isset($op[$key]) ? ' ? ' : '');
-                    $this->bindValues[] = $op[$key];
+                    $where              .= $value . (isset($op[$key]) ? ' ? ' : '');
+                    $this->bind_values[] = $op[$key];
                 }
             }
             $this->having .= $where;
         } elseif (! in_array($op, $this->operators)) {
-            $this->having .= $field . ' > ' . ' ? ';
-            $this->bindValues[] = $op;
+            $this->having       .= $field . ' > ' . ' ? ';
+            $this->bind_values[] = $op;
         } else {
-            $this->having .= $field . ' ' . $op . ' ' . ' ? ';
-            $this->bindValues[] = $val;
+            $this->having       .= $field . ' ' . $op . ' ' . ' ? ';
+            $this->bind_values[] = $val;
         }
 
         return $this;
     }
 
     /**
-     * buildQuery
+     * build_query
      *
      * @return void
      */
-    private function buildQuery()
+    private function build_query()
     {
-        if ( $this->columns !== NULL ) {
-            $select = $this->columns;
-        }else{
-            $select = "*";
-        }
+        $select = ($this->columns !== NULL) ? $this->columns : '*';
 
         $this->sql = "SELECT $select FROM {$this->table}";
+
         if ($this->join !== NULL) {
             $this->sql .= $this->join;
         }
@@ -1346,16 +1346,16 @@ class Database {
             $this->sql .= $this->where;
         }
 
-        if ($this->groupBy !== NULL) {
-            $this->sql .= $this->groupBy;
+        if ($this->group_by !== NULL) {
+            $this->sql .= $this->group_by;
         }
 
         if ($this->having !== NULL) {
             $this->sql .= $this->having;
         }
 
-        if ($this->orderBy !== NULL) {
-            $this->sql .= $this->orderBy;
+        if ($this->order_by !== NULL) {
+            $this->sql .= $this->order_by;
         }
 
         if ($this->limit !== NULL) {
@@ -1376,29 +1376,29 @@ class Database {
      */
     public function get($mode = PDO::FETCH_ASSOC, ...$args)
     {
-        $this->buildQuery();
-        $this->getSQL = $this->sql;
+        $this->build_query();
+        $this->get_sql = $this->sql;
         try {
-            $stmt = $this->db->prepare($this->sql);
+            $stmt    = $this->db->prepare($this->sql);
             $t_start = microtime(true);
-            $stmt->execute($this->bindValues);
+            $stmt->execute($this->bind_values);
             $t_elapsed = microtime(true) - $t_start;
 
-            if ($this->queryLogging) {
-                $this->queryLog[] = [
+            if ($this->query_logging) {
+                $this->query_log[] = [
                     'query'    => $this->sql,
-                    'bindings' => $this->bindValues,
+                    'bindings' => $this->bind_values,
                     'time'     => round($t_elapsed, 5),
                 ];
             }
-            $this->rowCount = $stmt->rowCount();
+            $this->row_count = $stmt->rowCount();
             return $stmt->fetch($mode, ...$args);
         } catch (Exception $e) {
             $error = load_class('Errors', 'kernel');
             $error->show_database_error(
                 $e->getMessage(),
-                $this->getSQL ?? '',
-                $this->bindValues ?? [],
+                $this->get_sql ?? '',
+                $this->bind_values ?? [],
                 $e
             );
         }
@@ -1413,29 +1413,29 @@ class Database {
      */
     public function get_all($mode = PDO::FETCH_ASSOC, ...$args)
     {
-        $this->buildQuery();
-        $this->getSQL = $this->sql;
+        $this->build_query();
+        $this->get_sql = $this->sql;
         try {
-            $stmt = $this->db->prepare($this->sql);
+            $stmt    = $this->db->prepare($this->sql);
             $t_start = microtime(true);
-            $stmt->execute($this->bindValues);
+            $stmt->execute($this->bind_values);
             $t_elapsed = microtime(true) - $t_start;
 
-            if ($this->queryLogging) {
-                $this->queryLog[] = [
+            if ($this->query_logging) {
+                $this->query_log[] = [
                     'query'    => $this->sql,
-                    'bindings' => $this->bindValues,
+                    'bindings' => $this->bind_values,
                     'time'     => round($t_elapsed, 5),
                 ];
             }
-            $this->rowCount = $stmt->rowCount();
+            $this->row_count = $stmt->rowCount();
             return $stmt->fetchAll($mode, ...$args);
         } catch (Exception $e) {
             $error = load_class('Errors', 'kernel');
             $error->show_database_error(
                 $e->getMessage(),
-                $this->getSQL ?? '',
-                $this->bindValues ?? [],
+                $this->get_sql ?? '',
+                $this->bind_values ?? [],
                 $e
             );
         }
@@ -1448,7 +1448,7 @@ class Database {
      */
     public function get_sql()
     {
-        return $this->getSQL;
+        return $this->get_sql;
     }
 
     /**
@@ -1458,7 +1458,7 @@ class Database {
      */
     public function row_count()
     {
-        return $this->rowCount;
+        return $this->row_count;
     }
 
     /**
@@ -1471,8 +1471,8 @@ class Database {
     public function increment($column, $amount = 1)
     {
         $this->validate_identifier($column);
-        $this->sql = "UPDATE {$this->table} SET {$column} = {$column} + ?";
-        $this->bindValues = array_merge([$amount], $this->bindValues);
+        $this->sql         = "UPDATE {$this->table} SET {$column} = {$column} + ?";
+        $this->bind_values = array_merge([$amount], $this->bind_values);
 
         return $this->exec();
     }
@@ -1487,8 +1487,8 @@ class Database {
     public function decrement($column, $amount = 1)
     {
         $this->validate_identifier($column);
-        $this->sql = "UPDATE {$this->table} SET {$column} = {$column} - ?";
-        $this->bindValues = array_merge([$amount], $this->bindValues);
+        $this->sql         = "UPDATE {$this->table} SET {$column} = {$column} - ?";
+        $this->bind_values = array_merge([$amount], $this->bind_values);
 
         return $this->exec();
     }
@@ -1522,7 +1522,6 @@ class Database {
     public function row($row_index = null)
     {
         if ($row_index !== null) {
-            // Fetch all and get specific row by index
             $results = $this->get_all(PDO::FETCH_OBJ);
             return $results[$row_index] ?? null;
         }
@@ -1538,7 +1537,6 @@ class Database {
     public function row_array($row_index = null)
     {
         if ($row_index !== null) {
-            // Fetch all and get specific row by index
             $results = $this->get_all(PDO::FETCH_ASSOC);
             return $results[$row_index] ?? null;
         }
@@ -1605,7 +1603,7 @@ class Database {
      */
     public function num_rows()
     {
-        return $this->rowCount;
+        return $this->row_count;
     }
 
     /**
@@ -1666,9 +1664,9 @@ class Database {
      * @param bool $state
      * @return void
      */
-    public function enable_query_log(bool $state = true): void
+    public function enable_query_log($state = true)
     {
-        $this->queryLogging = $state;
+        $this->query_logging = $state;
     }
 
     /**
@@ -1676,9 +1674,9 @@ class Database {
      *
      * @return array
      */
-    public function get_query_log(): array
+    public function get_query_log()
     {
-        return $this->queryLog;
+        return $this->query_log;
     }
 
     /**
@@ -1688,12 +1686,12 @@ class Database {
      */
     public function transaction()
     {
-        if (! $this->transactionCount++) {
+        if (! $this->transaction_count++) {
             return $this->db->beginTransaction();
         }
 
-        $this->db->exec('SAVEPOINT trans' . $this->transactionCount);
-        return $this->transactionCount >= 0;
+        $this->db->exec('SAVEPOINT trans' . $this->transaction_count);
+        return $this->transaction_count >= 0;
     }
 
     /**
@@ -1703,11 +1701,11 @@ class Database {
      */
     public function commit()
     {
-        if (! --$this->transactionCount) {
+        if (! --$this->transaction_count) {
             return $this->db->commit();
         }
 
-        return $this->transactionCount >= 0;
+        return $this->transaction_count >= 0;
     }
 
     /**
@@ -1717,8 +1715,8 @@ class Database {
      */
     public function roll_back()
     {
-        if (--$this->transactionCount) {
-            $this->db->exec('ROLLBACK TO trans' . ($this->transactionCount + 1));
+        if (--$this->transaction_count) {
+            $this->db->exec('ROLLBACK TO trans' . ($this->transaction_count + 1));
             return true;
         }
 

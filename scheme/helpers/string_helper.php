@@ -39,12 +39,13 @@ if ( ! function_exists('str_insert'))
     /**
      * Insert String
      *
-     * @param  array An associative array with key => value pairs.
-     * @param  string The text with the strings to be replaced.
+     * @param  array $keyValue
+     * @param  string $string
      * @return string
      */
     function str_insert($keyValue, $string)
     {
+        $is_assoc = FALSE;
         if(array_keys($keyValue) !== range(0, count($keyValue) - 1))
         {
             $is_assoc = TRUE;
@@ -156,8 +157,8 @@ if ( ! function_exists('strip_slashes'))
      *
      * Removes slashes contained in a string or in an array
      *
-     * @param   mixed   string or array
-     * @return  mixed   string or array
+     * @param   string|array $str;
+     * @return  string
      */
     function strip_slashes($str)
     {
@@ -184,7 +185,7 @@ if ( ! function_exists('strip_quotes'))
      *
      * Removes single and double quotes from a string
      *
-     * @param   string
+     * @param   string $str
      * @return  string
      */
     function strip_quotes($str)
@@ -202,7 +203,7 @@ if ( ! function_exists('quotes_to_entities'))
      *
      * Converts single and double quotes to entities
      *
-     * @param   string
+     * @param   string $str;
      * @return  string
      */
     function quotes_to_entities($str)
@@ -227,7 +228,7 @@ if ( ! function_exists('reduce_double_slashes'))
      *
      * http://www.some-site.com/index.php
      *
-     * @param   string
+     * @param   string $str
      * @return  string
      */
     function reduce_double_slashes($str)
@@ -251,8 +252,8 @@ if ( ! function_exists('reduce_multiples'))
      *
      * Fred, Bill, Joe, Jimmy
      *
-     * @param   string
-     * @param   string  the character you wish to reduce
+     * @param   string $character
+     * @param   string $str
      * @param   bool    TRUE/FALSE - whether to trim the character from the beginning/end
      * @return  string
      */
@@ -270,12 +271,13 @@ if ( ! function_exists('random_string'))
     /**
      * Create a "Random" String
      *
-     * @param   string  type of random string.  basic, alpha, alnum, numeric, nozero, unique, md5, encrypt and sha1
-     * @param   int number of characters
+     * @param   string  $type //type of random string.  basic, alpha, alnum, numeric, nozero, unique, md5, encrypt and sha1
+     * @param   int $len
      * @return  string
      */
     function random_string($type = 'alnum', $len = 8)
     {
+        $pool = '';
         switch ($type)
         {
             case 'basic':
@@ -315,9 +317,7 @@ if ( ! function_exists('increment_string'))
     /**
      * Add's _1 to a string or increment the ending number to allow _2, _3, etc
      *
-     * @param   string  required
-     * @param   string  What should the duplicate number be appended with
-     * @param   string  Which number should be used for the first dupe increment
+     * @param   string  $str
      * @return  string
      */
     function increment_string($str, $separator = '_', $first = 1)
@@ -336,7 +336,6 @@ if ( ! function_exists('alternator'))
      *
      * Allows strings to be alternated. See docs...
      *
-     * @param   string (as many parameters as needed)
      * @return  string
      */
     function alternator()

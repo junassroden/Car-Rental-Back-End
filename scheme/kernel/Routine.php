@@ -300,7 +300,7 @@ if ( ! function_exists('autoload_config'))
 	/**
 	 * To access config from config config/autoload.php
 	 *
-	 * @return void
+	 * @return array
 	 */
 	function autoload_config()
 	{

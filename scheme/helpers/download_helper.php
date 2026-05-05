@@ -37,16 +37,15 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 if ( ! function_exists('force_download'))
 {
 	/**
-	 * Force Download
-	 *
-	 * Generates headers that force a download to happen
-	 *
-	 * @param	string	filename
-	 * @param	mixed	the data to be downloaded
-	 * @param	bool	whether to try and send the actual file MIME type
-	 * @return	void
-	 */
-    function force_download($file, $name, $mime_type = '')
+     * Force Download
+     *
+     * @param string $file
+     * @param string $name
+     * @param string $mime_type
+     * @param mixed $range
+     * @return void
+     */
+    function force_download($file, $name, $mime_type = '', $range = null)
     {
         $LAVA =& lava_instance();
         $LAVA->call->helper('file');

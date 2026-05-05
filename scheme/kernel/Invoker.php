@@ -360,6 +360,11 @@ class Invoker {
 		$LAVA->properties['dbforge'] = load_class('dbforge','database');
 	}
 
+	/**
+	 * Initializa
+	 *
+	 * @return void
+	 */
     public function initialize()
     {
         $autoload = autoload_config();

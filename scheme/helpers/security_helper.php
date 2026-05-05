@@ -74,8 +74,8 @@ if ( ! function_exists('sanitize_filename'))
 	/**
 	 * Sanitize Filename
 	 *
-	 * @param	string
-	 * @return	string
+	 * @param	string $filename
+	 * @return string
 	 */
 	function sanitize_filename($filename)
 	{

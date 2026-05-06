@@ -160,9 +160,20 @@ class Session {
         $this->match_fingerprint = (bool)($this->config['sess_match_fingerprint'] ?? true);
 
         // Stronger HMAC secret (fallback to a generated one if not set)
-        $this->hmac_secret = $this->config['session_hmac_secret'] 
-            ?? hash('sha256', __DIR__ . $_SERVER['SERVER_NAME'] ?? 'default');
+		if (empty($this->config['session_hmac_secret']))
+		{
+			if (strtolower(config_item('environment')) === 'production')
+			{
+				throw new Exception('Session security requires an encryption key. Please set session_hmac_secret in your config file.');
+			}
 
+			$this->hmac_secret = bin2hex(random_bytes(32));
+		}
+		else
+		{
+			$this->hmac_secret = $this->config['session_hmac_secret'];
+		}
+         
         // Cookie name setup
         $prefix = $this->config['cookie_prefix'] ?? '';
         $this->config['cookie_name'] = $prefix 

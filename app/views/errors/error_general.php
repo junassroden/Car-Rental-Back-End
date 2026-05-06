@@ -86,6 +86,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 <body>
 	<div id="main">
     	<div class="fof">
+			<?php /** @var string $heading @var string $message */ ?>
 	        <h1><?php echo $heading; ?></h1>
 	        <p><?php echo $message; ?></p>
     	</div>

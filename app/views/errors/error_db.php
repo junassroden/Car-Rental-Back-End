@@ -448,8 +448,8 @@ $plainTrace = (!empty($trace) && is_string($trace)) ? $trace : null;
             <div class="tab-pane active" id="pane-env">
                 <div class="info-table-wrap"><table class="info-table">
                     <tr><td>PHP Version</td><td><?= phpversion() ?></td></tr>
-                    <tr><td>LavaLust</td><td><?= htmlspecialchars(config_item('VERSION') ?? 'Unknown') ?></td></tr>
-                    <tr><td>Environment</td><td><?= htmlspecialchars(config_item('ENVIRONMENT')) ?></td></tr>
+                    <tr><td>LavaLust</td><td><?= htmlspecialchars(config_item('version') ?? 'Unknown') ?></td></tr>
+                    <tr><td>Environment</td><td><?= htmlspecialchars(config_item('environment')) ?></td></tr>
                     <tr><td>Error type</td><td>Database</td></tr>
                     <tr><td>Memory Used</td><td><?= round(memory_get_peak_usage(true) / 1048576, 2) ?> MB</td></tr>
                 </table></div>

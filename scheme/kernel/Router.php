@@ -74,7 +74,7 @@ class Router
      * Sanitize URL
      *
      * @param string $url
-     * @return void
+     * @return string
      */
     public function sanitize_url($url)
     {
@@ -206,17 +206,15 @@ class Router
 			$url = '/' . $url;
 		}
 
-        if(is_string($method)) {
-            $methods = explode('|', strtoupper($method));
-        } else {
-            $methods = $method;
-        }
+        $methods = is_string($method)
+            ? explode('|', strtoupper($method))
+            : array_map('strtoupper', (array) $method);
 
-        foreach ($methods as $method) {
+        foreach ($methods as $http_method) {
             $route = [
                 'url' => $this->group_prefix . $this->sanitize_url($url),
                 'callback' => $callback,
-                'method' => $method,
+                'method' => $http_method,
                 'name' => $name,
                 'constraints' => [],
                 'middleware' => array_merge($this->global_middleware, $this->group_middleware, []),
@@ -242,10 +240,10 @@ class Router
     }
 
     /**
-     * Grouping Routes
+     * Group Route
      *
-     * @param string $prefix
-     * @param mixed $callback
+     * @param mixed $options
+     * @param callable $callback
      * @return void
      */
     public function group($options, $callback)
@@ -275,9 +273,10 @@ class Router
     }
 
     /**
-     * Regex Pattern
+     * Convert Pattern
      *
      * @param string $url
+     * @param array $constraints
      * @return string
      */
     private function convert_to_regex_pattern($url, $constraints)
@@ -308,18 +307,25 @@ class Router
     }
 
     /**
-     * URL Matches
+     * Check if URL matches route pattern
      *
      * @param string $url
-     * @param string $route
-     * @return void
+     * @param array $route
+     * @return bool
      */
     private function url_matches_route($url, $route)
     {
         $pattern = $this->convert_to_regex_pattern($route['url'], $route['constraints']);
-        return preg_match($pattern, $url);
+        return (bool) preg_match($pattern, $url);
     }
 
+    /**
+     * Call controller from callback
+     *
+     * @param mixed $callback
+     * @param array $matches
+     * @return void
+     */
     private function call_controller_from_callback($callback, $matches)
     {
         if (is_string($callback)) {
@@ -362,10 +368,10 @@ class Router
 
 
     /**
-     * Execute Callback
+     * Execute callback for matched route
      *
      * @param string $url
-     * @param string $route
+     * @param array $route
      * @return void
      */
     private function execute_callback($url, $route)
@@ -432,10 +438,10 @@ class Router
     }
 
     /**
-     * Where (Regex)
+     * Add constraints to route parameters
      *
      * @param mixed $param
-     * @param regex $pattern
+     * @param string|null $pattern
      * @return void
      */
     public function where($param, $pattern = null)
@@ -514,10 +520,10 @@ class Router
     }
 
     /**
-     * In
+     * Where In
      *
-     * @param  $param
-     * @param [type] $values
+     * @param mixed $param
+     * @param array $values
      * @return void
      */
     public function where_in($param, $values)
@@ -526,6 +532,11 @@ class Router
         return $this->where($param, $pattern);
     }
 
+    /**
+     * Set middleware for the last defined route
+     * @param mixed $middleware
+     * @return void
+     */
     public function middleware($middleware)
     {
         $index = count($this->routes) - 1; // always last route

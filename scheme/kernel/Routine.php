@@ -191,7 +191,7 @@ if ( ! function_exists('_exception_handler'))
 			$logger = load_class('logger', 'kernel');
 			$logger->log('error', get_class($e), $e->getMessage(), $e->getFile(), $e->getLine());
 		}
-		if(strtolower(config_item('ENVIRONMENT') == 'development'))
+		if(strtolower(config_item('environment') == 'development'))
 		{
 			$exception = load_class('Errors', 'kernel');
 			$exception->show_exception($e);
@@ -204,10 +204,10 @@ if ( ! function_exists('_error_handler'))
 {
 	/**
 	 * For Debugging
-	 * @param  string $errno
+	 * @param  int $severity
 	 * @param  string $errstr
 	 * @param  string $errfile
-	 * @param  string $errline
+	 * @param  int $errline
 	 * @return string
 	 */
 	function _error_handler($severity, $errstr, $errfile, $errline)
@@ -242,7 +242,7 @@ if ( ! function_exists('_error_handler'))
 			$logger->log('error', $severity_name, $errstr, $errfile, $errline);
 		}
 
-		if (strtolower(config_item('ENVIRONMENT')) == 'development') { 
+		if (strtolower(config_item('environment')) == 'development') { 
 			$error = load_class('Errors', 'kernel');
 			$error->show_php_error($severity_name, $errstr, $errfile, $errline);
 		}

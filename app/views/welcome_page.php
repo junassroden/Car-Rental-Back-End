@@ -745,8 +745,8 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
         <div class="footer-meta">
             <span>rendered in <span><?php echo lava_instance()->performance->elapsed_time('lavalust'); ?>s</span></span>
             <span>memory <span><?php echo lava_instance()->performance->memory_usage(); ?></span></span>
-            <?php if(config_item('ENVIRONMENT') === 'development'): ?>
-            <span>version <span><?php echo config_item('VERSION'); ?></span></span>
+            <?php if(config_item('environment') === 'development'): ?>
+            <span>version <span><?php echo config_item('version'); ?></span></span>
             <span style="color: #dd4814;">● development</span>
             <?php endif; ?>
         </div>

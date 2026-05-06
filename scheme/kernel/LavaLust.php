@@ -41,22 +41,36 @@ require_once SYSTEM_DIR . 'kernel/Registry.php';
 require_once SYSTEM_DIR . 'kernel/Routine.php';
 
 /**
- * LavaLust BASE URL of your APPLICATION
- */
-define('BASE_URL', config_item('base_url'));
-
-/**
  * Check and load .env file if any
  */
 if (file_exists(ROOT_DIR . '.env')) {
-    $lines = file(ROOT_DIR . '.env');
-    foreach ($lines as $line) {
+    foreach (file(ROOT_DIR . '.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         $line = trim($line);
-        if ($line && $line[0] !== '#') {
-            putenv($line);
+
+        // Skip comments and lines without =
+        if ($line[0] === '#' || !str_contains($line, '=')) continue;
+
+        [$key, $value] = explode('=', $line, 2);
+        $key   = trim($key);
+        $value = trim($value);
+
+        // Validate key format
+        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key)) continue;
+
+        // Strip surrounding quotes
+        if (strlen($value) >= 2 && in_array($value[0], ['"', "'"], true) && $value[-1] === $value[0]) {
+            $value = substr($value, 1, -1);
         }
+
+        putenv("$key=$value");
+        $_ENV[$key] = $_SERVER[$key] = $value;
     }
 }
+
+/**
+ * LavaLust BASE URL of your APPLICATION
+ */
+define('BASE_URL', config_item('base_url'));
 
 /**
  * Composer (Autoload)
@@ -95,7 +109,7 @@ define('IS_CLI', php_sapi_name() === 'cli');
 /**
  * Deployment Environment
  */
-switch (strtolower(config_item('ENVIRONMENT')))
+switch (strtolower(config_item('environment')))
 {
 	case 'development':
 		_handlers();

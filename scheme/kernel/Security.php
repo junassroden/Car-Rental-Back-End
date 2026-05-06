@@ -46,12 +46,12 @@ class Security
 	 *
 	 * @var string
 	 */
-	private $_csrf_hmac_string = 	'HIOtrs19yBm76xDz710LkNmFAbL';
+	private $_csrf_hmac_string;
 
 	/**
-	 * CSRF hash
+	 * CSRF Hash
 	 *
-	 * @var [type]
+	 * @var string
 	 */
 	protected $_csrf_hash;
 
@@ -84,6 +84,20 @@ class Security
 		//check if csrf protection was enabled
 		if (config_item('csrf_protection'))
 		{
+			if(empty(config_item('encryption_key')))
+			{
+				
+				if (strtolower(config_item('environment')) === 'production')
+				{
+					throw new Exception('CSRF Protection requires an encryption key. Please set an encryption key in your config file.');
+				}
+
+				$this->_csrf_hmac_string = bin2hex(random_bytes(32));
+			} else 
+			{
+				$this->_csrf_hmac_string = config_item('encryption_key');
+			}
+
 			foreach (array('csrf_expire', 'csrf_token_name', 'csrf_cookie_name') as $key)
 			{
 				$this->{'_'.$key} = config_item($key);
@@ -100,7 +114,7 @@ class Security
 	 * Set hash_hmac
 	 *
 	 * @param string $token
-	 * @return void
+	 * @return mixed
 	 */
 	public function _hash_hmac($token)
 	{
@@ -110,7 +124,7 @@ class Security
 	/**
 	 * Setting up hash_hmac token
 	 *
-	 * @return void
+	 * @return mixed
 	 */
 	public function _csrf_set_hash()
     {
@@ -195,7 +209,7 @@ class Security
 	/**
 	 * Get csrf hash
 	 *
-	 * @return void
+	 * @return mixed
 	 */
 	public function get_csrf_hash()
 	{

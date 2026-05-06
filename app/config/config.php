@@ -56,7 +56,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | LavaLust Version
 | -------------------------------------------------------------------
 */
-$config['VERSION']                 = '4.6.0';
+$config['version']                 = '4.6.0';
 
 /*
 | -------------------------------------------------------------------
@@ -64,7 +64,7 @@ $config['VERSION']                 = '4.6.0';
 | -------------------------------------------------------------------
 | Values: development and production
 */
-$config['ENVIRONMENT']             = 'development';
+$config['environment'] = getenv('APP_ENV') ?: 'development';
 
 /*
 |--------------------------------------------------------------------------
@@ -228,9 +228,9 @@ $config['sess_cookie_name']        = 'LLSession';
 $config['sess_expiration']         = 7200;
 $config['sess_save_path']          = '';
 $config['sess_match_ip']           = FALSE;
-$config['sess_match_fingerprint']  = TRUE;
+$config['sess_match_fingerprint']  = FALSE;
 $config['sess_time_to_update']     = 300;
-$config['sess_regenerate_destroy'] = TRUE;
+$config['sess_regenerate_destroy'] = FALSE;
 $config['sess_expire_on_close']    = FALSE;
 $config['max_invalid_attempts']    = 5;
 $config['invalid_window']          = 600;
@@ -240,7 +240,7 @@ $config['creation_window']         = 60;
 $config['lock_duration_creation']  = 120;
 $config['security_file']           = ROOT_DIR . 'runtime/session/session_security.json';
 $config['sess_inactivity_timeout'] = 1800;
-$config['session_hmac_secret']     = 'your-long-random-secret-here';
+$config['session_hmac_secret']     = getenv('APP_KEY') ?: '';
 
 /*
 |--------------------------------------------------------------------------
@@ -285,17 +285,18 @@ $config['cache_default_expires']   = 0;
 |--------------------------------------------------------------------------
 |
 | If you use the Encryption class, you must set an encryption key.
+| If you use csrf protection, you are highly encouraged to set an encryption key.
 |
 |
 */
-$config['encryption_key']           = '';
+$config['encryption_key']           = getenv('APP_KEY') ?: '';
 
 /*
 |--------------------------------------------------------------------------
 | Soft Delete
 |--------------------------------------------------------------------------
 |
-| If you use the Encryption class, you must set an encryption key.
+| If you use the Model class, you can set the default soft delete column name here.
 |
 | Default:
 |   $config['soft_delete']  = FALSE;

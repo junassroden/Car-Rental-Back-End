@@ -667,7 +667,7 @@ function help_text($commands) {
         'Server'    => ['run'],
         'Cache'     => ['cache:clear'],
         'Makers'    => ['make:controller', 'make:model', 'make:middleware', 'make:helper', 'make:library', 'make:view', 'make:language', 'make:config', 'make:migration', 'make:seeder', 'make:command'],
-        'Utilities' => ['route:list', 'env:check'],
+        'Utilities' => ['route:list', 'key:generate', 'env:check'],
     ];
 
     foreach ($groups as $group => $cmds) {

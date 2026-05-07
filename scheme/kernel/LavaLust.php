@@ -178,6 +178,11 @@ $response = load_class('response', 'kernel');
 $lang = load_class('lang', 'kernel');
 
 /**
+ * Instantiate the Proxies classes
+ */
+require_once SYSTEM_DIR . 'kernel/Proxies.php';
+
+/**
  * Load BaseController
  */
 require_once SYSTEM_DIR . 'kernel/Controller.php';

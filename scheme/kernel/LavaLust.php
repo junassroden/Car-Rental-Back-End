@@ -180,7 +180,9 @@ $lang = load_class('lang', 'kernel');
 /**
  * Instantiate the Proxies classes
  */
-require_once SYSTEM_DIR . 'kernel/Proxies.php';
+if(config_item('proxy_enabled')){
+	require_once SYSTEM_DIR . 'kernel/Proxies.php';
+}
 
 /**
  * Load BaseController

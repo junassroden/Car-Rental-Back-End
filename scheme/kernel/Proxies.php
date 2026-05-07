@@ -173,3 +173,57 @@ class Loader extends Proxy
     protected static function get_library() { return null; }
     protected static function get_property() { return 'call'; }
 }
+
+class Errors extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'errors'; }
+}
+
+class Io extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'io'; }
+}
+
+class Lang extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'lang'; }
+}
+
+class Logger extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'logger'; }
+}
+
+class Performance extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'performance'; }
+}
+
+class Config extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'config'; }
+}
+
+class Request extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'request'; }
+}
+
+class Response extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'response'; }
+}
+
+class Security extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'security'; }
+}

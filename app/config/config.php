@@ -89,7 +89,7 @@ $config['base_url'] 				= '';
 | Enable Static Proxies / Facades
 |
 */
-$config['proxy_enabled']           = TRUE;
+$config['proxy_enabled']           = FALSE;
 /*
 |--------------------------------------------------------------------------
 | Index File

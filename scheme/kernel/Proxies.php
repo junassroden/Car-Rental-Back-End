@@ -81,7 +81,7 @@ abstract class Proxy
      * @param array $args The arguments passed to the method.
      * @return mixed The result of the method call on the resolved instance.
      */
-    public static function __callStatic(string $method, array $args): mixed
+    public static function __callStatic($method, $args)
     {
         $instance = static::resolve();
 
@@ -99,6 +99,27 @@ class DB extends Proxy
 {
     protected static function get_library() { return 'database'; }
     protected static function get_property() { return 'db'; }
+
+    public static function __callStatic($method, $args)
+    {
+        if ($method === 'connection') {
+            $group = $args[0] ?? null;
+            return static::resolve_connection($group);
+        }
+
+        return static::resolve()->$method(...$args);
+    }
+
+    protected static function resolve_connection($group = null)
+    {
+        if ($group === null) {
+            lava_instance()->call->database();
+            return lava_instance()->db;
+        }
+
+        lava_instance()->call->database($group);
+        return lava_instance()->$group;
+    }
 }
 
 class Session extends Proxy

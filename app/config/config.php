@@ -325,6 +325,7 @@ $config['soft_delete_column']       = 'deleted_at';
 |   $config['updated_at_column'] = 'updated_at';
 |
 */
+$config['timestamps']               = FALSE;
 $config['created_at_column']        = 'created_at';
 $config['updated_at_column']        = 'updated_at';
 

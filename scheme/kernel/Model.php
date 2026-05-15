@@ -73,7 +73,7 @@ class Model {
      *
      * @var boolean
      */
-    protected $timestamps = true;
+    protected $timestamps = false;
 
     /**
      * Column name for created_at timestamp
@@ -116,6 +116,7 @@ class Model {
      */
     public function __construct()
     {
+        $this->timestamps = $this->timestamps ?? config_item('timestamps');
         $this->has_soft_delete = $this->has_soft_delete ?? config_item('soft_delete');
         $this->soft_delete_column = $this->soft_delete_column ?? config_item('soft_delete_column');
         $this->created_at_column = $this->created_at_column ?? config_item('created_at_column');
@@ -126,7 +127,7 @@ class Model {
      * Filter input data to only include fillable attributes
      * 
      * @param array $data Input data array
-     * @param array $mergeFillable Additional fillable fields for this operation
+     * @param array $merge_fillable Additional fillable fields for this operation
      * @return array Filtered data array
      */
     protected function fillable_attributes(array $data, array $merge_fillable = []): array
@@ -260,10 +261,10 @@ class Model {
     }
 
     /**
-     * Get Column Values
+     * Find First Record Matching Conditions or Create New One
      *
-     * @param string $column    
      * @param array $conditions
+     * @param array $extra_data
      * @return void
      */
     public function first_or_create($conditions, $extra_data = [])
@@ -530,7 +531,7 @@ class Model {
     /**
      * Check if record exists
      *
-     * @param mixed $id_or_conditions
+     * @param mixed $conditions
      * @param bool $with_deleted
      * @return bool
      */
@@ -685,7 +686,7 @@ class Model {
      * Insert Record to the Database
      *
      * @param array $data
-     * @return void
+     * @return int|string|false The inserted ID or false on failure
      */
     public function insert($data)
     {
@@ -806,7 +807,7 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    protected function apply_soft_delete(bool $with_deleted): void
+    protected function apply_soft_delete($with_deleted)
     {
         if (!$with_deleted && $this->has_soft_delete) {
             $this->db->where_null($this->soft_delete_column);
@@ -816,12 +817,11 @@ class Model {
     /**
      * ORM Has Many Relationship
      *
-     * @param string $related_model
+     * @param string $related
      * @param string $foreign_key
-     * @param mixed $current_id
      * @return boolean
      */
-    protected function has_many(string $related, string $foreign_key): array
+    protected function has_many($related, $foreign_key)
     {
         return ['type' => 'has_many', 'related' => $related, 'foreign_key' => $foreign_key];
     }
@@ -829,12 +829,11 @@ class Model {
     /**
      * ORM Has One Relationship
      *
-     * @param string $related_model
+     * @param string $related
      * @param string $foreign_key
-     * @param mixed $current_id
      * @return boolean
      */
-    protected function has_one(string $related, string $foreign_key): array
+    protected function has_one($related, $foreign_key)
     {
         return ['type' => 'has_one', 'related' => $related, 'foreign_key' => $foreign_key];
     }
@@ -842,14 +841,14 @@ class Model {
     /**
      * Many To Many Relationship
      *
-     * @param string $related_model
+     * @param string $related
      * @param string $pivot_table
      * @param string $current_key
      * @param string $related_key
-     * @param mixed $current_id
+     * @param mixed $current_key
      * @return void
      */
-    protected function many_to_many(string $related, string $pivot_table, string $current_key, string $related_key): array
+    protected function many_to_many($related, $pivot_table, $current_key, $related_key)
     {
         return [
             'type'         => 'many_to_many',
@@ -863,12 +862,11 @@ class Model {
     /**
      * Belong To Relationship
      *
-     * @param string $related_model
+     * @param string $related
      * @param string $foreign_key
-     * @param mixed $foreign_key_value
      * @return void
      */
-    protected function belongs_to(string $related, string $foreign_key): array
+    protected function belongs_to($related, $foreign_key)
     {
         return ['type' => 'belongs_to', 'related' => $related, 'foreign_key' => $foreign_key];
     }

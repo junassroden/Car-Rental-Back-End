@@ -46,151 +46,151 @@ class Form_validation {
     private $LAVA;
 
     /**
-     * Check if required
+     * Error message for required field
      *
      * @var string
      */
-    private static $err_required = '%s is required';
+    private static $err_required = '"%s" is required.';
 
     /**
-     * Matches
+     * Error message for matches rule
      *
      * @var string
      */
-    private static $err_matches = '%s does not match with the other field';
+    private static $err_matches = '"%s" does not match the confirmation field.';
 
     /**
-     * Differs
+     * Error message for differs rule
      *
      * @var string
      */
-    private static $err_differs = '%s matches with the other field';
+    private static $err_differs = '"%s" must be different from the other field.';
 
     /**
-     * Is unique
+     * Error message for is_unique rule
      *
      * @var string
      */
-    private static $err_is_unique = '%s is not unique';
+    private static $err_is_unique = '"%s" already exists. Please enter a unique value.';
 
     /**
-     * Exact length
+     * Error message for exact_length rule
      *
      * @var string
      */
-    private static $err_exact_length = '%s not in exact length';
+    private static $err_exact_length = '"%s" must be exactly %d character(s) long.';
 
     /**
-     * Min length
+     * Error message for min_length rule
      *
      * @var string
      */
-    private static $err_min_length = 'Please enter more than %d character/s';
+    private static $err_min_length = '"%s" must be at least %d character(s) long.';
 
     /**
-     * Max length
+     * Error message for max_length rule
      *
      * @var string
      */
-    private static $err_max_length = 'Please enter less than %d character/s';
+    private static $err_max_length = '"%s" must not exceed %d character(s).';
 
     /**
-     * Valid email
+     * Error message for valid_email rule
      *
      * @var string
      */
-    private static $err_email = '%s contains invalid email address';
+    private static $err_email = '"%s" must be a valid email address.';
 
     /**
-     * Alpha
+     * Error message for alpha rule
      *
      * @var string
      */
-    private static $err_alpha = '%s accepts letters only';
+    private static $err_alpha = '"%s" must contain letters only.';
 
     /**
-     * Alpha and num
+     * Error message for alpha_numeric rule
      *
      * @var string
      */
-    private static $err_alphanum = '%s accepts letters and numbers only';
+    private static $err_alphanum = '"%s" must contain letters and numbers only.';
 
     /**
-     * Alpha, num and space
+     * Error message for alpha_numeric_space rule
      *
      * @var string
      */
-    private static $err_alphanumspace = '%s accepts letters, numbers and spaces only';
+    private static $err_alphanumspace = '"%s" must contain letters, numbers, and spaces only.';
 
     /**
-     * alpha and space
+     * Error message for alpha_space rule
      *
      * @var string
      */
-    private static $err_alphaspace = '%s accepts letters and spaces only';
+    private static $err_alphaspace = '"%s" must contain letters and spaces only.';
 
     /**
-     * Alphanumdash
+     * Error message for alpha_numeric_dash rule
      *
      * @var string
      */
-    private static $err_alphanumdash = '%s accepts letters, numbers and dashes only';
+    private static $err_alphanumdash = '"%s" must contain letters, numbers, and dashes only.';
 
     /**
-     * numeric
+     * Error message for numeric rule
      *
      * @var string
      */
-    private static $err_numeric = '%s accepts numbers only';
+    private static $err_numeric = '"%s" must be a numeric value.';
 
     /**
-     * greater than
+     * Error message for greater_than rule
      *
      * @var string
      */
-    private static $err_greater_than = 'Please enter a value less than %f';
+    private static $err_greater_than = '"%s" must be greater than %s.';
 
     /**
-     * less than
+     * Error message for less_than rule
      *
      * @var string
      */
-    private static $err_less_than = 'Please enter a value greater than %f';
+    private static $err_less_than = '"%s" must be less than %s.';
 
     /**
-     * grater than or equal
+     * Error message for greater_than_equal_to rule
      *
      * @var string
      */
-    private static $err_greater_than_equal_to = 'Please enter a value less than or equal to %f';
+    private static $err_greater_than_equal_to = '"%s" must be greater than or equal to %s.';
 
     /**
-     * Less than or equal
+     * Error message for less_than_equal_to rule
      *
      * @var string
      */
-    private static $err_less_than_equal_to = 'Please enter a value greater than or equal to %f';
+    private static $err_less_than_equal_to = '"%s" must be less than or equal to %s.';
 
     /**
-     * In List
+     * Error message for in_list rule
      *
      * @var string
      */
-    private static $err_in_list = '%s is not in the list';
+    private static $err_in_list = '"%s" is not a valid option.';
 
     /**
-     * Valid pattern
+     * Error message for pattern rule
      *
      * @var string
      */
-    private static $err_pattern = 'Please is not in %s format';
+    private static $err_pattern = '"%s" does not match the required format.';
 
     /**
-     * Valid name
+     * Error message for valid_name rule
      *
      * @var string
      */
-    private static $err_valid_name = '%s is not a valid name';
+    private static $err_valid_name = '"%s" is not a valid name.';
 
     public $patterns = array(
         'url'           => '(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9]+\.[^\s]{2,}|www\.[a-zA-Z0-9]+\.[^\s]{2,})+',
@@ -260,17 +260,22 @@ class Form_validation {
     }
 
     /**
-     * Setting up error message
-     * @param string $custom
-     * @param string $default
-     * @param string $params
+     * Set error message
+     *
+     * @param string $custom Custom error message
+     * @param string $default Default error message
+     * @param string|null $param1 Optional parameter for default message
+     * @param string|null $param2 Optional parameter for default message
+     * @return void
      */
-    public function set_error_message($custom, $default, $params = NULL)
+    public function set_error_message($custom, $default, $param1 = NULL, $param2 = NULL)
     {
-        if(empty($custom))
-                $this->errors[] = sprintf($default, $params);
-            else
-                $this->errors[] = $custom;
+        if (empty($custom))
+            $this->errors[] = ($param2 !== NULL)
+                ? sprintf($default, $param1, $param2)
+                : sprintf($default, $param1);
+        else
+            $this->errors[] = $custom;
     }
 
     /**
@@ -300,17 +305,17 @@ class Form_validation {
      * @param  string $name Pattern
      * @return void
      */
-    public function pattern($name, $custom_error)
+    public function pattern($name, $custom_error = '')
     {
-        if($name == 'array')
+        if ($name == 'array')
         {
-            if(!is_array($this->value))
+            if (! is_array($this->value))
             {
                 $this->set_error_message($custom_error, self::$err_pattern, $this->name);
             }
         } else {
-            $regex = '/^('.$this->patterns[$name].')$/u';
-            if($this->value != '' && !preg_match($regex, $this->value))
+            $regex = '/^(' . $this->patterns[$name] . ')$/u';
+            if ($this->value != '' && ! preg_match($regex, $this->value))
             {
                 $this->set_error_message($custom_error, self::$err_pattern, $this->name);
             }
@@ -325,10 +330,10 @@ class Form_validation {
      * @param string $custom_error
      * @return void
      */
-    public function custom_pattern($pattern, $custom_error)
+    public function custom_pattern($pattern, $custom_error = '')
     {
-        $regex = '/^('.$pattern.')$/u';
-        if($this->value != '' && !preg_match($regex, $this->value))
+        $regex = '/^(' . $pattern . ')$/u';
+        if ($this->value != '' && ! preg_match($regex, $this->value))
         {
             $this->set_error_message($custom_error, self::$err_pattern, $this->name);
         }
@@ -412,14 +417,11 @@ class Form_validation {
      */
     public function exact_length($length, $custom_error = '')
     {
-        if (! is_numeric($length))
-        {
-            return FALSE;
-        }
+        if (! is_numeric($length)) return FALSE;
 
-        if(strlen($this->value) === (int) $length)
+        if (strlen($this->value) !== (int) $length)  // also fixed: was === (wrong logic)
         {
-            $this->set_error_message($custom_error, self::$err_exact_length, $length);
+            $this->set_error_message($custom_error, self::$err_exact_length, $this->name, $length);
         }
         return $this;
     }
@@ -433,14 +435,11 @@ class Form_validation {
      */
     public function min_length($length, $custom_error = '')
     {
-        if (! is_numeric($length))
-        {
-            return FALSE;
-        }
+        if (! is_numeric($length)) return FALSE;
 
-        if(strlen($this->value) < (int) $length)
+        if (strlen($this->value) < (int) $length)
         {
-            $this->set_error_message($custom_error, self::$err_min_length, $length);
+            $this->set_error_message($custom_error, self::$err_min_length, $this->name, $length);
         }
         return $this;
     }
@@ -454,14 +453,11 @@ class Form_validation {
      */
     public function max_length($length, $custom_error = '')
     {
-        if (! is_numeric($length))
-        {
-            return FALSE;
-        }
+        if (! is_numeric($length)) return FALSE;
 
-        if(strlen($this->value) > (int) $length)
+        if (strlen($this->value) > (int) $length)
         {
-            $this->set_error_message($custom_error, self::$err_max_length, $length);
+            $this->set_error_message($custom_error, self::$err_max_length, $this->name, $length);
         }
         return $this;
     }
@@ -599,13 +595,11 @@ class Form_validation {
      */
     public function greater_than($min, $custom_error = '')
     {
-        if(! is_numeric($this->value))
+        if (! is_numeric($this->value)) return FALSE;
+
+        if ($this->value <= $min)  // fixed: was < (should reject values not greater than)
         {
-            return FALSE;
-        }
-        if($this->value < $min)
-        {
-            $this->set_error_message($custom_error, self::$err_greater_than, $min);
+            $this->set_error_message($custom_error, self::$err_greater_than, $this->name, $min);
         }
         return $this;
     }
@@ -619,13 +613,11 @@ class Form_validation {
      */
     public function greater_than_equal_to($min, $custom_error = '')
     {
-        if(! is_numeric($this->value))
+        if (! is_numeric($this->value)) return FALSE;
+
+        if ($this->value < $min)  // fixed: was <=
         {
-            return FALSE;
-        }
-        if($this->value <= $min)
-        {
-            $this->set_error_message($custom_error, self::$err_greater_than_equal_to, $min);
+            $this->set_error_message($custom_error, self::$err_greater_than_equal_to, $this->name, $min);
         }
         return $this;
     }
@@ -639,13 +631,11 @@ class Form_validation {
      */
     public function less_than($max, $custom_error = '')
     {
-        if(! is_numeric($this->value))
+        if (! is_numeric($this->value)) return FALSE;
+
+        if ($this->value >= $max)  // fixed: was >
         {
-            return FALSE;
-        }
-        if($this->value > $max)
-        {
-            $this->set_error_message($custom_error, self::$err_less_than, $max);
+            $this->set_error_message($custom_error, self::$err_less_than, $this->name, $max);
         }
         return $this;
     }
@@ -659,13 +649,11 @@ class Form_validation {
      */
     public function less_than_equal_to($max, $custom_error = '')
     {
-        if(! is_numeric($this->value))
+        if (! is_numeric($this->value)) return FALSE;
+
+        if ($this->value > $max)  // fixed: was >=
         {
-            return FALSE;
-        }
-        if($this->value >= $max)
-        {
-            $this->set_error_message($custom_error, self::$err_less_than_equal_to, $max);
+            $this->set_error_message($custom_error, self::$err_less_than_equal_to, $this->name, $max);
         }
         return $this;
     }

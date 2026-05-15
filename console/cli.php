@@ -115,7 +115,7 @@ function handle_run_command($port = null, array $flags = []) {
  * @return void
  */
 function handle_make_controller($name) {
-    generate_class_file('controller', $name, 'Controllers', 'Controller', null, 'extends BaseController');
+    generate_class_file('controller', $name, 'Controllers', 'Controller', null, 'extends Controller');
 }
 
 /**

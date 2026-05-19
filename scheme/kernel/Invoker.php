@@ -199,7 +199,7 @@ class Invoker {
 	/**
 	 * Load View File
 	 *
-	 * @param string $viewFile
+	 * @param string $view_file
 	 * @param array $data
 	 * @return void
 	 */

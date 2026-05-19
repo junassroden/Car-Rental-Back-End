@@ -417,10 +417,10 @@ if ( ! function_exists('html_escape'))
 if ( ! function_exists('is_php'))
 {
 	/**
-	 * Determines if the current version of PHP is equal to or greater than the supplied value
+	 * Is PHP Version
 	 *
-	 * @param	string
-	 * @return	bool	TRUE if the current version is $version or higher
+	 * @param string $version
+	 * @return bool
 	 */
 	function is_php($version)
 	{

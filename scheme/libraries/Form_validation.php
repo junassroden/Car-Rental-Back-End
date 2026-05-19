@@ -343,7 +343,7 @@ class Form_validation {
     /**
      * Check if required field
      *
-     * @param string $err Custom Error
+     * @param string $custom_error Custom Error
      * @return void
      */
     public function required($custom_error = '')
@@ -359,7 +359,7 @@ class Form_validation {
      * Check if current field match the other field
      *
      * @param  string $field
-     * @param  string $err   Custom Error
+     * @param  string $custom_error   Custom Error
      * @return void
      */
     public function matches($field, $custom_error = '')
@@ -375,7 +375,7 @@ class Form_validation {
      * Check if current field differs from other field
      *
      * @param  string $field
-     * @param  string $err   Custom Error
+     * @param  string $custom_error   Custom Error
      * @return void
      */
     public function differs($field, $custom_error = '')
@@ -393,8 +393,10 @@ class Form_validation {
      * Check if the input value doesn't already exist
      * in the specified database field.
      *
-     * @param   string  $str
+     * @param   string  $table
      * @param   string  $field
+     * @param   string  $str
+     * @param   string  $custom_error
      * @return  void
      */
     public function is_unique($table, $field, $str,  $custom_error = '')

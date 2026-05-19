@@ -38,16 +38,19 @@ class Database_session_handler implements SessionHandlerInterface
 {
     /**
      * Database instance
+     * @var object
      */
     private $db;
 
     /**
      * Session table name
+     * @var string
      */
     private $table = 'sessions';
 
     /**
-     * Session lifetime in seconds
+     * Session lifetime
+     * @var int
      */
     private $lifetime;
 
@@ -71,6 +74,11 @@ class Database_session_handler implements SessionHandlerInterface
         return true;
     }
 
+    /**
+     * Close the session
+     *
+     * @return boolean
+     */
     public function close(): bool
     {
         return true;

@@ -594,9 +594,9 @@ class Session {
 		}
 		$userdata = array();
 		$_exclude = array_merge(array('__lava_vars'), $this->get_flash_keys());
-		foreach (array_keys($_SESSION) as $key) {
-			if (! in_array($key, $_exclude, TRUE)) {
-				$userdata[$key] = $_SESSION[$key];
+		foreach (array_keys($_SESSION) as $k) {
+			if (! in_array($k, $_exclude, TRUE)) {
+				$userdata[$k] = $_SESSION[$k];
 			}
 		}
 		return $userdata;
@@ -640,8 +640,8 @@ class Session {
 		}
 		$flashdata = array();
 		if (! empty($_SESSION['__lava_vars'])) {
-			foreach ($_SESSION['__lava_vars'] as $key => &$value) {
-				if (!is_int($value) && isset($_SESSION[$key])) $flashdata[$key] = $_SESSION[$key];
+			foreach ($_SESSION['__lava_vars'] as $k => &$value) {
+				if (!is_int($value) && isset($_SESSION[$k])) $flashdata[$k] = $_SESSION[$k];
 			}
 		}
 		return $flashdata;

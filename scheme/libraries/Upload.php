@@ -44,7 +44,7 @@ class Upload
     /**
      * store LavaLust Instance Object
      *
-     * @var [type]
+     * @var object
      */
     private $LAVA;
 
@@ -195,7 +195,7 @@ class Upload
     /**
      * Set upload directory.
      *
-     * @param [type] $dir
+     * @param string $dir
      * @return void
      */
     public function set_dir($dir)
@@ -375,7 +375,7 @@ class Upload
     /**
      * Set allowed file extensions.
      *
-     * @param array $extensions
+     * @param string $ext
      * @return void
      */
     private function allowed_extension($ext)

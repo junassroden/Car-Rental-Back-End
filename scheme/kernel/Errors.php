@@ -47,7 +47,7 @@ class Errors
 	 *
 	 * @param string $heading
 	 * @param string $message
-	 * @param string $page
+	 * @param string $template
 	 * @return void
 	 */
 	public function show_404($heading, $message, $template)
@@ -64,7 +64,7 @@ class Errors
 	 * @param string $heading
 	 * @param string $message
 	 * @param string $template
-	 * @param integer code
+	 * @param integer $code
 	 * @return void
 	 */
 	public function show_error($heading, $message, $template, $code = 500)

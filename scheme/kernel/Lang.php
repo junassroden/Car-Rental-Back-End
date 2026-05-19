@@ -84,7 +84,7 @@ class Lang {
      * 
      * @param  string $key
      * @param  array  $params
-     * @return strng
+     * @return string
      */
     public function translate($key, $params = array()) {
 

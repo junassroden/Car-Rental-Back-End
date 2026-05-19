@@ -450,8 +450,11 @@ class Email
     }
 
     /**
-     * @deprecated  Use filter_header() instead.
-     * Kept for backwards compatibility.
+     * Filter a string for safe inclusion in email headers.
+     * Alias for filter_header() to maintain backward compatibility.
+     *
+     * @param  string $string
+     * @return string
      */
     public function filter_string($string)
     {

@@ -52,7 +52,7 @@ Class Io {
 	/**
 	 * Securty instance
 	 *
-	 * @var class
+	 * @var object
 	 */
 	private $security;
 
@@ -85,7 +85,7 @@ Class Io {
 		/**
 		 * Load Security Instance
 		 *
-		 * @var class
+		 * @var object
 		 */
 		$this->security = load_class('Security', 'kernel');
 
@@ -97,9 +97,7 @@ Class Io {
 		$this->_enable_csrf	= (config_item('csrf_protection') === TRUE);
 
 		/**
-		 * Check CSRF Protection
-		 *
-		 * @var
+		 * Check CSRF
 		 */
 		if ($this->_enable_csrf === TRUE)
 		{
@@ -107,12 +105,12 @@ Class Io {
 		}
 	}
 
-  	/**
-  	 * POST Variable
-  	 *
-  	 * @param  string
-  	 * @return string
-  	 */
+	/**
+	 * POST Variable
+	 *
+	 * @param string $index
+	 * @return string
+	 */
 	public function post($index = NULL)
 	{
 		if($index === NULL && !empty($_POST)) {
@@ -126,11 +124,11 @@ Class Io {
 	}
 
 	/**
-  	 * GET Variable
-  	 *
-  	 * @param  string
-  	 * @return string
-  	 */
+	 * GET Variable
+	 *
+	 * @param string $index
+	 * @return string
+	 */
 	public function get($index = NULL)
 	{
 		if($index === NULL && !empty($_GET)) {
@@ -346,8 +344,8 @@ Class Io {
 	 */
 	public function add_header($name, $value) {
 		if(is_array($name)) {
-			foreach($name as $key => $value) {
-				$this->headers[$key] = $value;
+			foreach($name as $key => $val) {
+				$this->headers[$key] = $val;
 			}
 		} else {
 			$this->headers[$name] = $value;

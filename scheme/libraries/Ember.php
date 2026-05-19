@@ -101,7 +101,6 @@ class Ember
     /**
      * Constructor
      *
-     * @param array $options
      */
     public function __construct()
     {
@@ -193,7 +192,7 @@ class Ember
      * Apply a filter to a value
      *
      * @param string $name
-     * @param mixed $value
+     * @param mixed $callable
      * @return mixed
      */
     public function add_filter($name, $callable)
@@ -206,6 +205,7 @@ class Ember
      *
      * @param string $name
      * @param mixed $value
+     * @param mixed ...$args
      * @return mixed
      */
     public function apply_filter($name, $value, ...$args)

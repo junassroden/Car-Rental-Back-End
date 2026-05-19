@@ -413,11 +413,16 @@ class {$class_name}{$extends_str}{$interface_str} {
         $content .= "    protected \$guarded = ['id'];\n\n";
     }
 
-    $content .= "    public function __construct()
+    // Only add constructor if type is not 'library'
+    if ($type !== 'library') {
+        $content .= "    public function __construct()
     {
         parent::__construct();
     }
-}";
+";
+    }
+
+    $content .= "}";
 
     write_file($file_path, $content, $class_type, $class_name);
 }

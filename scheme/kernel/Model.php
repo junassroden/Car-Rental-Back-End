@@ -923,4 +923,31 @@ class Model {
     {
         return lava_instance()->$key;
     }
+    
+    /**
+     * magic __callStatic for static method calls
+     *
+     * @param string $method
+     * @param array $args
+     * @return void
+     */
+    public static function __callStatic($method, $args)
+    {
+        $model_name = (new \ReflectionClass(static::class))->getShortName();
+        $instance = lava_instance()->$model_name;
+
+        if ($instance === null) {
+            throw new \RuntimeException(
+                "Model '{$model_name}' is not loaded. Call Loader::model('{$model_name}') first."
+            );
+        }
+
+        if (!method_exists($instance, $method)) {
+            throw new \BadMethodCallException(
+                "{$model_name}::{$method}() does not exist."
+            );
+        }
+
+        return $instance->$method(...$args);
+    }
 }

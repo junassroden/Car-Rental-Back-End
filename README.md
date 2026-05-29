@@ -146,10 +146,10 @@ lavalust/
 │   ├── models/          # Model classes
 │   ├── views/           # View templates
 │   └── libraries/       # Custom libraries and helpers
-├── system/              # Core framework files (do not modify)
+├── scheme/              # Core framework files (do not modify)
 ├── public/              # Publicly accessible entry point
 │   └── index.php
-└── writable/            # Cache, logs, and uploads (must be writable)
+└── runtime/            # Cache, logs, and uploads (must be writable)
 ```
 
 ---

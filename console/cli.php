@@ -5,12 +5,18 @@
 define('APP_DIR', dirname(__DIR__, 1) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR);
 define('PUBLIC_DIR', dirname(__DIR__, 1) . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR);
 define('RUNTIME_DIR', dirname(__DIR__, 1) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR);
+define('COMMANDS_DIR', APP_DIR . 'commands' . DIRECTORY_SEPARATOR);
 
 // Command Registry
 $commands = [];
 
 // Register built-in commands
 register_command('run', 'handle_run_command', 'Start PHP built-in development server', [
+    '[port]'         => 'Port number (default: 3000)',
+    '[--port=<n>]'   => 'Port number via flag (e.g. --port=8080)'
+]);
+
+register_command('serve', 'handle_run_command', 'Start PHP built-in development server', [
     '[port]'         => 'Port number (default: 3000)',
     '[--port=<n>]'   => 'Port number via flag (e.g. --port=8080)'
 ]);
@@ -59,6 +65,9 @@ register_command('key:generate', 'handle_key_generate', 'Generate a new applicat
 
 register_command('env:check', 'handle_env_check', 'Display current environment configuration summary', []);
 
+autoload_commands();
+
+
 $command    = $argv[1] ?? null;
 $flags      = [];
 $positional = [];
@@ -87,6 +96,57 @@ if (!isset($commands[$command])) {
 }
 
 call_user_func($commands[$command]['handler'], $input, $flags);
+
+/**
+ * Scan app/commands/ for classes that declare:
+ *   public static $command     = 'name:of:command'
+ *   public static $description = 'What this does'          (optional)
+ *   public static $arguments   = ['--flag' => 'desc', ...]  (optional)
+ *
+ * Each file is required and the class auto-registered.
+ * Files that do not follow the convention are silently skipped.
+ */
+function autoload_commands() {
+    if (!is_dir(COMMANDS_DIR)) return;
+
+    $files = glob(COMMANDS_DIR . '*.php');
+    if (empty($files)) return;
+
+    foreach ($files as $file) {
+        // Track classes defined before this require
+        $before = get_declared_classes();
+        require_once $file;
+        $after = get_declared_classes();
+
+        $new_classes = array_diff($after, $before);
+
+        foreach ($new_classes as $class) {
+            $ref = new ReflectionClass($class);
+
+            // Must have a static $command property with a non-empty string
+            if (!$ref->hasProperty('command')) continue;
+
+            $cmd_name = $ref->getStaticPropertyValue('command');
+            if (empty($cmd_name) || !is_string($cmd_name)) continue;
+
+            $description = $ref->hasProperty('description')
+                ? $ref->getStaticPropertyValue('description')
+                : '';
+
+            $arguments = $ref->hasProperty('arguments')
+                ? $ref->getStaticPropertyValue('arguments')
+                : [];
+
+            // Handler: [instance, 'handle']
+            register_command(
+                $cmd_name,
+                [new $class, 'handle'],
+                $description,
+                is_array($arguments) ? $arguments : []
+            );
+        }
+    }
+}
 
 function handle_run_command($port = null, array $flags = []) {
     $port = $flags['port'] ?? $port ?? 3000;
@@ -225,39 +285,65 @@ function handle_cache_clear() {
  * @param string $name
  * @return void
  */
-function handle_make_command($name) {
+function handle_make_command($name, array $flags = []) {
     if (!$name) {
         echo danger("Command name is required. Example: php lava make:command SendEmails");
         exit(1);
     }
 
     $class_name   = ucfirst($name);
-    $command_name = strtolower(preg_replace('/[A-Z]/', ':$0', lcfirst($name)));
-    $folder       = APP_DIR . 'commands';
-    $file_path    = $folder . DIRECTORY_SEPARATOR . "{$class_name}.php";
+    // Convert CamelCase → colon:separated  e.g. SendEmails → send:emails
+    $command_name = strtolower(ltrim(preg_replace('/[A-Z]/', ':\0', $name), ':'));
+    $command_name = preg_replace('/:+/', ':', $command_name);
+
+    $folder    = COMMANDS_DIR;
+    $file_path = $folder . "{$class_name}.php";
 
     if (!is_dir($folder)) mkdir($folder, 0777, true);
 
-    $content = "<?php
-defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-
+    $content = <<<PHP
+<?php
 /**
  * Command: {$class_name}
- * 
- * Register this in your lava CLI file with:
- *   register_command('{$command_name}', [new {$class_name}, 'handle'], 'Description here', []);
- * 
- * Automatically generated via CLI.
+ *
+ * Auto-discovered by the LavaLust CLI.
+ * No registration needed — just drop this file in app/commands/.
  */
 class {$class_name}
 {
+    /**
+     * The CLI command name.
+     * Usage: php lava {$command_name}
+     */
+    public static \$command = '{$command_name}';
+
+    /** Short description shown in php lava help */
+    public static \$description = 'Description for {$command_name}';
+
+    /**
+     * Argument/flag descriptions shown in help.
+     *
+     * Example:
+     *   public static \$arguments = [
+     *       'name'        => 'A positional argument',
+     *       '[--flag=<v>]' => 'An optional flag',
+     *   ];
+     */
+    public static \$arguments = [];
+
+    /**
+     * Command entry point.
+     *
+     * @param string|null \$input   First positional argument (php lava {$command_name} <input>)
+     * @param array       \$flags   Associative array of --flag=value pairs
+     */
     public function handle(\$input = null, array \$flags = [])
     {
         // TODO: Add your command logic here
-        echo \"Running {$class_name}...\" . PHP_EOL;
+        echo "Running {$class_name}..." . PHP_EOL;
     }
 }
-";
+PHP;
 
     write_file($file_path, $content, 'Command', $class_name);
 }
@@ -667,15 +753,23 @@ function help_text($commands) {
     $help  = "\033[1;34mLavaLust CLI Code Generator\033[0m\n";
     $help .= "Usage: \033[1;33mphp lava <command> [options]\033[0m\n\n";
 
-    // Group commands
-    $groups = [
-        'Server'    => ['run'],
+    $built_in_groups = [
+        'Server'    => ['serve', 'run'],
         'Cache'     => ['cache:clear'],
-        'Makers'    => ['make:controller', 'make:model', 'make:middleware', 'make:helper', 'make:library', 'make:view', 'make:language', 'make:config', 'make:migration', 'make:seeder', 'make:command'],
+        'Makers'    => ['make:controller', 'make:model', 'make:middleware', 'make:helper', 'make:library', 'make:view', 'make:language', 'make:config', 'make:command'],
         'Utilities' => ['route:list', 'key:generate', 'env:check'],
     ];
 
-    foreach ($groups as $group => $cmds) {
+    $all_built_in = array_merge(...array_values($built_in_groups));
+
+    // Collect custom commands (anything not in the built-in list)
+    $custom_commands = array_filter(
+        $commands,
+        fn($key) => !in_array($key, $all_built_in),
+        ARRAY_FILTER_USE_KEY
+    );
+
+    foreach ($built_in_groups as $group => $cmds) {
         $help .= "\033[1;36m{$group}:\033[0m\n";
         foreach ($cmds as $cmd) {
             if (!isset($commands[$cmd])) continue;
@@ -688,15 +782,26 @@ function help_text($commands) {
         $help .= "\n";
     }
 
+    // Show custom commands section only when at least one exists
+    if (!empty($custom_commands)) {
+        $help .= "\033[1;36mCustom Commands:\033[0m\n";
+        foreach ($custom_commands as $cmd => $details) {
+            $help .= "  \033[1;32m" . str_pad($cmd, 22) . "\033[0m → {$details['description']}\n";
+            foreach ($details['arguments'] as $arg => $desc) {
+                $help .= "    \033[1;33m" . str_pad($arg, 20) . "\033[0m {$desc}\n";
+            }
+        }
+        $help .= "\n";
+    }
+
     $help .= "\033[1;36mExamples:\033[0m\n";
-    $help .= "  php lava run\n";
-    $help .= "  php lava run 8080\n";
-    $help .= "  php lava run --port=8080\n";
+    $help .= "  php lava serve or php lava run\n";
+    $help .= "  php lava serve --port=8080 or php lava run --port=8080\n";
     $help .= "  php lava make:controller Dashboard\n";
     $help .= "  php lava make:model User\n";
     $help .= "  php lava cache:clear\n";
     $help .= "  php lava route:list\n";
-    $help .= "  php lava env:check\n";
     $help .= "  php lava key:generate\n\n";
+
     return $help;
 }

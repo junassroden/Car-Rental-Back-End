@@ -29,16 +29,57 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  *
  * @package LavaLust
  * @author Ronald M. Marasigan <ronald.marasigan@yahoo.com>
- * @since Version 4
+ * @since Version 1
  * @link https://github.com/ronmarasigan/LavaLust
  * @license https://opensource.org/licenses/MIT MIT License
  */
 
 /**
-* ------------------------------------------------------
-*  Class Model / ORM
-* ------------------------------------------------------
- */
+| -------------------------------------------------------------------
+| Model Class
+| -------------------------------------------------------------------
+ * 
+ * @method static array         all(bool $with_deleted = false)
+ * @method static mixed        query()
+ * @method static mixed        find(int $id, bool $with_deleted = false)
+ * @method static mixed        find_by(string $column, mixed $value, bool $with_deleted = false)
+ * @method static array        find_all_by(string $column, mixed $value, bool $with_deleted = false)
+ * @method static mixed        value(string $column, array $conditions = [])
+ * @method static array        pluck(string $column, array $conditions = [], bool $with_deleted = false)
+ * @method static array        first_or_create(array $conditions, array $extra_data = [])
+ * @method static int          update_or_create(array $conditions, array $data)
+ * @method static int          update_where(array $conditions, array $data)
+ * @method static int          delete_where(array $conditions)
+ * @method static float        sum(string $column, array $conditions = [], bool $with_deleted = false)
+ * @method static float|null   max(string $column, array $conditions = [], bool $with_deleted = false)
+ * @method static float|null   min(string $column, array $conditions = [], bool $with_deleted = false)
+ * @method static float|null   avg(string $column, array $conditions = [], bool $with_deleted = false)
+ * @method static int          count(bool $with_deleted = false)
+ * @method static mixed        first(bool $with_deleted = false)
+ * @method static mixed        last(bool $with_deleted = false)
+ * @method static mixed        with(mixed $relations)
+ * @method static mixed        restore(int $id)
+ * @method static bool         exists(mixed $conditions = [], bool $with_deleted = false)
+ * @method static array        paginate(int $per_page = 10, int $page = 1, array $conditions = [], bool $with_deleted = false)
+ * @method static mixed        truncate()
+ * @method static array        order_by(string $column, string $order = 'ASC', bool $with_deleted = false)
+ * @method static array        limit(int $number, bool $with_deleted = false)
+ * @method static array        get_columns()
+ * @method static mixed        bulk_insert(array $data)
+ * @method static int          bulk_update(array $data, string $key = '', array $merge_fillable = [])
+ * @method static int|string|false insert(array $data)
+ * @method static mixed        update(int $id, array $data)
+ * @method static mixed        soft_delete(int $id)
+ * @method static mixed        delete(int $id)
+ * @method static mixed        filter(array $conditions = [], bool $with_deleted = false)
+ * @method static mixed        group_by(string $column)
+ * @method static mixed        having(string $column, string $operator, mixed $value)
+ * @method static mixed        raw(string $sql, array $params = [])
+ * @method static mixed        scope(callable $callback)
+ * @method static void         transaction()
+ * @method static void         commit()
+ * @method static void         rollback()
+*/
 class Model {  
     /**
      * Table Name of the Database
@@ -130,7 +171,7 @@ class Model {
      * @param array $merge_fillable Additional fillable fields for this operation
      * @return array Filtered data array
      */
-    protected function fillable_attributes(array $data, array $merge_fillable = []): array
+    protected function fillable_attributes(array $data, array $merge_fillable = [])
     {
         $fillable = !empty($merge_fillable) 
             ? array_merge($this->fillable, $merge_fillable) 
@@ -157,7 +198,7 @@ class Model {
      * @param bool $is_update Whether this is an update operation (true) or create (false)
      * @return array Data array with timestamps added if enabled
      */
-    protected function add_timestamps(array $data, bool $is_update = false): array
+    protected function add_timestamps(array $data, bool $is_update = false)
     {
         if (!$this->timestamps) {
             return $data;
@@ -177,7 +218,7 @@ class Model {
      *
      * @return Database
      */
-    public function query()
+    public function _query()
     {
         return $this->db->table($this->table);
     }
@@ -189,7 +230,7 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function find($id, $with_deleted = false) {
+    public function _find($id, $with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->where($this->primary_key, $id)->get();
@@ -203,7 +244,7 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function find_by($column, $value, $with_deleted = false)
+    public function _find_by($column, $value, $with_deleted = false)
     {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
@@ -218,7 +259,7 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function find_all_by($column, $value, $with_deleted = false)
+    public function _find_all_by($column, $value, $with_deleted = false)
     {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
@@ -232,7 +273,7 @@ class Model {
      * @param array $conditions
      * @return void
      */
-    public function value(string $column, array $conditions = [])
+    public function _value($column, $conditions = [])
     {
         $this->db->table($this->table)->select($column);
         if (!empty($conditions)) {
@@ -249,7 +290,7 @@ class Model {
      * @param array $conditions
      * @return void
      */
-    public function pluck($column, $conditions = [], $with_deleted = false)
+    public function _pluck($column, $conditions = [], $with_deleted = false)
     {
         $this->db->table($this->table)->select($column);
         $this->apply_soft_delete($with_deleted);
@@ -267,7 +308,7 @@ class Model {
      * @param array $extra_data
      * @return void
      */
-    public function first_or_create($conditions, $extra_data = [])
+    public function _first_or_create($conditions, $extra_data = [])
     {
         $this->db->table($this->table);
         $this->apply_soft_delete(false);
@@ -277,8 +318,8 @@ class Model {
             return ['record' => $record, 'created' => false];
         }
 
-        $id = $this->insert(array_merge($conditions, $extra_data));
-        return ['record' => $this->find($id), 'created' => true];
+        $id = $this->_insert(array_merge($conditions, $extra_data));
+        return ['record' => $this->_find($id), 'created' => true];
     }
 
     /**
@@ -288,18 +329,18 @@ class Model {
      * @param array $data
      * @return int ID of the updated or created record
      */
-    public function update_or_create($conditions, $data)
+    public function _update_or_create($conditions, $data)
     {
         $this->db->table($this->table);
         $this->apply_soft_delete(false);
         $record = $this->db->where($conditions)->get();
 
         if ($record) {
-            $this->update($record[$this->primary_key], $data);
+            $this->_update($record[$this->primary_key], $data);
             return (int) $record[$this->primary_key];
         }
 
-        return (int) $this->insert(array_merge($conditions, $data));
+        return (int) $this->_insert(array_merge($conditions, $data));
     }
 
     /**
@@ -309,7 +350,7 @@ class Model {
      * @param array $data
      * @return int Number of affected rows
      */
-    public function update_where($conditions, $data)
+    public function _update_where($conditions, $data)
     {
         $data = $this->fillable_attributes($data);
         if (empty($data)) return 0;
@@ -324,7 +365,7 @@ class Model {
      * @param array $conditions
      * @return int Number of affected rows
      */
-    public function delete_where($conditions): int
+    public function _delete_where($conditions)
     {
         return (int) $this->db->table($this->table)->where($conditions)->delete();
     }
@@ -337,7 +378,7 @@ class Model {
      * @param boolean $with_deleted
      * @return float
      */
-    public function sum($column, $conditions = [], $with_deleted = false)
+    public function _sum($column, $conditions = [], $with_deleted = false)
     {
         $this->db->table($this->table)->select_sum($column, 'aggregate');
         $this->apply_soft_delete($with_deleted);
@@ -354,7 +395,7 @@ class Model {
      * @param boolean $with_deleted
      * @return float
      */
-    public function max($column, $conditions = [], $with_deleted = false)
+    public function _max($column, $conditions = [], $with_deleted = false)
     {
         $this->db->table($this->table)->select_max($column, 'aggregate');
         $this->apply_soft_delete($with_deleted);
@@ -371,7 +412,7 @@ class Model {
      * @param boolean $with_deleted
      * @return float
      */
-    public function min($column, $conditions = [], $with_deleted = false)
+    public function _min($column, $conditions = [], $with_deleted = false)
     {
         $this->db->table($this->table)->select_min($column, 'aggregate');
         $this->apply_soft_delete($with_deleted);
@@ -388,7 +429,7 @@ class Model {
      * @param boolean $with_deleted
      * @return float
      */
-    public function avg($column, $conditions = [], $with_deleted = false)
+    public function _avg($column, $conditions = [], $with_deleted = false)
     {
         $this->db->table($this->table)->select_avg($column, 'aggregate');
         $this->apply_soft_delete($with_deleted);
@@ -403,7 +444,7 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function count($with_deleted = false) {
+    public function _count($with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->count();
@@ -415,7 +456,7 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function first($with_deleted = false) {
+    public function _first($with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->order_by($this->primary_key, 'ASC')->limit(1)->get();
@@ -427,19 +468,19 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function last($with_deleted = false) {
+    public function _last($with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->order_by($this->primary_key, 'DESC')->limit(1)->get();
     }
 
     /**
-     * Return all Rows from the Database
+     * Get All Records
      *
      * @param boolean $with_deleted
-     * @return void
+     * @return array
      */
-    public function all($with_deleted = false)
+    public function _all($with_deleted = false)
     {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
@@ -464,26 +505,26 @@ class Model {
         foreach ($records as &$record) {
             foreach ($this->with as $relationName) {
                 if (method_exists($this, $relationName)) {
-                    $rel = $this->{$relationName}(); // calls e.g. posts() which returns config array
+                    $rel = $this->{$relationName}();
 
                     $this->call->model($rel['related']);
 
                     switch ($rel['type'] ?? '') {
                         case 'has_one':
                             $record[$relationName] = $this->{$rel['related']}
-                                ->filter([$rel['foreign_key'] => $record[$this->primary_key]])
+                                ->_filter([$rel['foreign_key'] => $record[$this->primary_key]])
                                 ->get();
                             break;
 
                         case 'has_many':
                             $record[$relationName] = $this->{$rel['related']}
-                                ->filter([$rel['foreign_key'] => $record[$this->primary_key]])
+                                ->_filter([$rel['foreign_key'] => $record[$this->primary_key]])
                                 ->get_all();
                             break;
 
                         case 'belongs_to':
                             $record[$relationName] = $this->{$rel['related']}
-                                ->find($record[$rel['foreign_key']] ?? null);
+                                ->_find($record[$rel['foreign_key']] ?? null);
                             break;
 
                         case 'many_to_many':
@@ -506,7 +547,7 @@ class Model {
      * @param mixed $relations
      * @return $this
      */
-    public function with($relations)
+    public function _with($relations)
     {
         $this->with = is_array($relations) ? $relations : [$relations];
         return $this;
@@ -519,7 +560,7 @@ class Model {
      * @param int $id
      * @return void
      */
-    public function restore($id)
+    public function _restore($id)
     {
         if (!$this->has_soft_delete) return false;
 
@@ -535,7 +576,7 @@ class Model {
      * @param bool $with_deleted
      * @return bool
      */
-    public function exists($conditions = [], $with_deleted = false)
+    public function _exists($conditions = [], $with_deleted = false)
     {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
@@ -551,7 +592,7 @@ class Model {
      * @param bool $with_deleted
      * @return array
      */
-    public function paginate($per_page = 10, $page = 1, $conditions = [], $with_deleted = false)
+    public function _paginate($per_page = 10, $page = 1, $conditions = [], $with_deleted = false)
     {
         $offset = ($page - 1) * $per_page;
         $this->db->table($this->table);
@@ -578,7 +619,7 @@ class Model {
      *
      * @return void
      */
-    public function truncate() {
+    public function _truncate() {
         return $this->db->table($this->table)->delete();
     }
 
@@ -589,7 +630,7 @@ class Model {
      * @param string $order
      * @return void
      */
-    public function order_by($column, $order = 'ASC', $with_deleted = false) {
+    public function _order_by($column, $order = 'ASC', $with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->order_by($column, $order)->get_all();
@@ -601,7 +642,7 @@ class Model {
      * @param int $number
      * @return void
      */
-    public function limit($number, $with_deleted = false) {
+    public function _limit($number, $with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->limit($number)->get_all();
@@ -612,7 +653,7 @@ class Model {
      *
      * @return void
      */
-    public function get_columns() {
+    public function _get_columns() {
         $stmt = $this->db->raw("SHOW COLUMNS FROM {$this->table}");
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -623,7 +664,7 @@ class Model {
      * @param array $data
      * @return void
      */
-    public function bulk_insert($data)
+    public function _bulk_insert($data)
     {
         if (empty($data)) {
             return false;
@@ -646,7 +687,7 @@ class Model {
      * @param int $key
      * @return void
      */
-    public function bulk_update($data, $key = '', $merge_fillable = [])
+    public function _bulk_update($data, $key = '', $merge_fillable = [])
     {
         if (empty($data)) {
             return false;
@@ -688,7 +729,7 @@ class Model {
      * @param array $data
      * @return int|string|false The inserted ID or false on failure
      */
-    public function insert($data)
+    public function _insert($data)
     {
         $data = $this->fillable_attributes($data);
         if (empty($data)) {
@@ -707,7 +748,7 @@ class Model {
      * @param array $data
      * @return void
      */
-    public function update($id, $data)
+    public function _update($id, $data)
     {
         $data = $this->fillable_attributes($data);
         if (empty($data)) {
@@ -726,10 +767,10 @@ class Model {
      * @param integer $id
      * @return void
      */
-    public function soft_delete($id)
+    public function _soft_delete($id)
     {
         if (!$this->has_soft_delete) {
-            return $this->delete($id);
+            return $this->_delete($id);
         }
 
         return $this->db->table($this->table)
@@ -743,7 +784,7 @@ class Model {
      * @param integer $id
      * @return void
      */
-    public function delete($id)
+    public function _delete($id)
     {
         return $this->db->table($this->table)
                         ->where($this->primary_key, $id)
@@ -757,7 +798,7 @@ class Model {
      * @param boolean $with_deleted
      * @return void
      */
-    public function filter($conditions = [], $with_deleted = false) {
+    public function _filter($conditions = [], $with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
         return $this->db->where($conditions);
@@ -769,7 +810,7 @@ class Model {
      * @param string $column
      * @return $this
      */
-    public function group_by($column)
+    public function _group_by($column)
     {
         $this->db->table($this->table);
         $this->db->group_by($column);
@@ -784,7 +825,7 @@ class Model {
      * @param mixed $value
      * @return $this
      */
-    public function having($column, $operator, $value)
+    public function _having($column, $operator, $value)
     {
         $this->db->table($this->table);
         $this->db->having($column, $operator, $value);
@@ -798,9 +839,10 @@ class Model {
      * @param array $params
      * @return void
      */
-    public function raw($sql, $params = []) {
+    public function _raw($sql, $params = []) {
         return $this->db->raw($sql, $params);
     }
+
     /**
      * Apply Soft Delete when Displaying Records
      *
@@ -877,7 +919,7 @@ class Model {
      * @param callable $callback
      * @return $this
      */
-    public function scope($callback)
+    public function _scope($callback)
     {
         call_user_func($callback, $this->db);
         return $this;
@@ -888,7 +930,7 @@ class Model {
      *
      * @return void
      */
-    public function transaction()
+    public function _transaction()
     {
         $this->db->transaction();
     }
@@ -898,7 +940,7 @@ class Model {
      *
      * @return void
      */
-    public function commit()
+    public function _commit()
     {
         $this->db->commit();
     }
@@ -908,7 +950,7 @@ class Model {
      *
      * @return void
      */
-    public function rollback()
+    public function _rollback()
     {
         $this->db->rollback();
     }
@@ -923,9 +965,25 @@ class Model {
     {
         return lava_instance()->$key;
     }
-    
+                            
     /**
-     * magic __callStatic for static method calls
+     * __call handles dynamic method calls for instance methods
+     *
+     * @param string $method
+     * @param array $args
+     * @return void
+     */
+    public function __call($method, $args)
+    {
+        $internal = '_' . $method;
+        if (method_exists($this, $internal)) {
+            return $this->$internal(...$args);
+        }
+        throw new \BadMethodCallException("Method {$method}() does not exist.");
+    }
+
+    /**
+     * __callStatic handles dynamic method calls for static methods
      *
      * @param string $method
      * @param array $args
@@ -937,17 +995,17 @@ class Model {
         $instance = lava_instance()->$model_name;
 
         if ($instance === null) {
-            throw new \RuntimeException(
-                "Model '{$model_name}' is not loaded. Call Loader::model('{$model_name}') first."
-            );
+            $instance = new static();
+            lava_instance()->$model_name = $instance;
         }
 
-        if (!method_exists($instance, $method)) {
+        $internal = '_' . $method;
+        if (!method_exists($instance, $internal)) {
             throw new \BadMethodCallException(
                 "{$model_name}::{$method}() does not exist."
             );
         }
 
-        return $instance->$method(...$args);
+        return $instance->$internal(...$args);
     }
 }

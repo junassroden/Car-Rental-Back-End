@@ -248,3 +248,26 @@ class Security extends Proxy
     protected static function get_library() { return null; }
     protected static function get_property() { return 'security'; }
 }
+
+class Routes extends Proxy
+{
+    protected static function get_library() { return null; }
+    protected static function get_property() { return 'router'; }
+
+    public static function __callStatic($method, $args): mixed
+    {
+        static $instance = null;
+
+        if ($instance === null) {
+            $instance = lava_instance()->router ?? new \Router();
+        }
+
+        if (!method_exists($instance, $method)) {
+            throw new \BadMethodCallException(
+                "Router::{$method}() does not exist."
+            );
+        }
+
+        return $instance->$method(...$args);
+    }
+}

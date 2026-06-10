@@ -193,6 +193,9 @@ require_once SYSTEM_DIR . 'kernel/Controller.php';
  * Instantiate the routing class and set the routing
  */
 $router = load_class('router', 'kernel', array(new Controller));
+
+lava_instance()->router = $router;
+
 require_once APP_DIR . 'config/routes.php';
 
 /**

@@ -249,7 +249,7 @@ class Security extends Proxy
     protected static function get_property() { return 'security'; }
 }
 
-class Routes extends Proxy
+class Route extends Proxy
 {
     protected static function get_library() { return null; }
     protected static function get_property() { return 'router'; }

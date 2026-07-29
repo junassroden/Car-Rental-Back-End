@@ -328,6 +328,30 @@ class Router
      */
     private function call_controller_from_callback($callback, $matches)
     {
+        if (is_array($callback) && count($callback) === 2) {
+            $controller = is_object($callback[0]) ? get_class($callback[0]) : $callback[0];
+            $method     = $callback[1];
+
+            // Strip namespace if fully qualified (e.g. App\Controllers\UserController → UserController)
+            $controller = basename(str_replace('\\', '/', $controller));
+
+            $controller_file = APP_DIR . 'controllers/' . ucfirst($controller) . '.php';
+
+            if (!file_exists($controller_file)) {
+                throw new RuntimeException("Controller {$controller} does not exist.");
+            }
+
+            require_once($controller_file);
+
+            $instance = new $controller();
+
+            if (!method_exists($instance, $method)) {
+                throw new RuntimeException("Method {$controller}->{$method} does not exist.");
+            }
+
+            call_user_func_array([$instance, $method], $matches);
+            return;
+        }
         if (is_string($callback)) {
             $controller = '';
             $method = 'index';

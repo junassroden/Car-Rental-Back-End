@@ -564,9 +564,9 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
         LavaLust
     </a>
     <div class="nav-links">
-        <a href="https://lavalust.netlify.app/" target="_blank">Docs</a>
+        <a href="https://lavalust.netlify.app/docs/" target="_blank">Docs</a>
         <a href="https://github.com/ronmarasigan/LavaLust" target="_blank">GitHub</a>
-        <a href="https://lavalust.netlify.app/" target="_blank" class="btn-nav">Get Started →</a>
+        <a href="https://lavalust.netlify.app/docs/" target="_blank" class="btn-nav">Get Started →</a>
     </div>
 </nav>
 
@@ -580,7 +580,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
         A lightweight, expressive PHP MVC framework built for developers who want structure without the bloat.
     </p>
     <div class="hero-actions">
-        <a href="https://lavalust.netlify.app/" target="_blank" class="btn btn-primary">
+        <a href="https://lavalust.netlify.app/docs/" target="_blank" class="btn btn-primary">
             Read the Docs
         </a>
         <a href="https://github.com/ronmarasigan/LavaLust" target="_blank" class="btn btn-ghost">
@@ -752,7 +752,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
         </div>
         <div class="footer-links">
             <a href="https://github.com/ronmarasigan/LavaLust" target="_blank">GitHub</a>
-            <a href="https://lavalust.netlify.app/" target="_blank">Docs</a>
+            <a href="https://lavalust.netlify.app/docs/" target="_blank">Docs</a>
             <a href="https://opensource.org/licenses/MIT" target="_blank">MIT License</a>
         </div>
     </div>

@@ -303,19 +303,58 @@ class Database {
      */
     private function validate_identifier($name)
     {
+        static $blocked_keywords = [
+            'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
+            'TRUNCATE', 'EXEC', 'EXECUTE', 'UNION', 'GRANT', 'REVOKE', 'LOAD',
+            'OUTFILE', 'DUMPFILE', 'SLEEP', 'BENCHMARK', 'WAITFOR', 'XP_CMDSHELL',
+        ];
+
         $name = trim($name);
 
-        if (preg_match('/\w+\s*\(.*\)/', $name)) {
+        if ($name === '*') {
             return true;
         }
 
-        if (preg_match('/^[a-zA-Z0-9_\.]+(\s+(as\s+)?[a-zA-Z0-9_]+)?$/i', $name)) {
+        if ($name === '' || strlen($name) > 256) {
+            throw new Exception("Invalid SQL identifier: {$name}");
+        }
+
+        if (preg_match('/[\x00-\x1F\x7F]/', $name)) {
+            throw new Exception("Invalid SQL identifier: {$name}");
+        }
+
+        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)(\s+AS\s+[a-zA-Z_][a-zA-Z0-9_]*)?$/i', $name)) {
             return true;
         }
 
-        throw new Exception("Invalid SQL identifier: {$name}");
+        $base = preg_replace('/\s+(AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*$/i', '', $name);
+        $base = trim($base);
+
+        $parts = explode('.', $base);
+
+        if (count($parts) > 3) {
+            throw new Exception("Invalid SQL identifier: {$name}");
+        }
+
+        foreach ($parts as $part) {
+            $part = trim($part);
+
+            // Strip backtick quoting
+            if (strlen($part) >= 2 && $part[0] === '`' && $part[-1] === '`') {
+                $part = substr($part, 1, -1);
+            }
+
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $part)) {
+                throw new Exception("Invalid SQL identifier: {$name}");
+            }
+
+            if (in_array(strtoupper($part), $blocked_keywords, true)) {
+                throw new Exception("Invalid SQL identifier: {$name}");
+            }
+        }
+
+        return true;
     }
-
 
     /**
      * Raw Query

@@ -73,6 +73,11 @@ if (file_exists(ROOT_DIR . '.env')) {
 define('BASE_URL', config_item('base_url'));
 
 /**
+ * Date Default Timezone
+ */
+date_default_timezone_set(config_item('date_default_timezone'));
+
+/**
  * Composer (Autoload)
  */
 if ($composer_autoload = config_item('composer_autoload'))

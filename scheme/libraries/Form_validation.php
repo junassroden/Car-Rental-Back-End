@@ -738,35 +738,60 @@ class Form_validation {
      * @return void
      */
     public function rules($rules, $custom_errors = [])
+{
+    $rules = explode('|', $rules);
+
+    foreach ($rules as $rule)
     {
-        $rules = explode('|', $rules);
+        $param = null;
 
-        foreach ($rules as $rule)
+        if (preg_match('/(.*?)\[(.*)\]/s', $rule, $match))
         {
-            $param = null;
-
-            if (preg_match('/(.*?)\[(.*)\]/', $rule, $match))
-            {
-                $rule  = $match[1];
-                $param = $match[2];
-            }
-
-            $custom_error = $custom_errors[$rule] ?? '';
-
-            if (method_exists($this, $rule))
-            {
-                if ($param !== null)
-                {
-                    $this->$rule($param, $custom_error);
-                }
-                else
-                {
-                    $this->$rule($custom_error);
-                }
-            }
+            $rule  = $match[1];
+            $param = $match[2];
         }
 
-        return $this;
+        $custom_error = $custom_errors[$rule] ?? '';
+
+        if (method_exists($this, $rule))
+        {
+            if ($param !== null)
+            {
+                $params = array_map([$this, 'resolve_param'], str_getcsv($param, ',', '"', ''));
+                $params[] = $custom_error; // append instead of trailing positional
+                $this->$rule(...$params);
+            }
+            else
+            {
+                $this->$rule($custom_error);
+            }
+        }
+    }
+
+    return $this;
+}
+
+    /**
+     * Resolve {var} placeholders in rule params to their POST values
+     *
+     * @param string $param
+     * @return string
+     */
+    private function resolve_param($param)
+    {
+        $param = trim($param);
+
+        if ($param === 'self')
+        {
+            return $this->value;
+        }
+
+        if (preg_match('/^\{\$?(\w+)\}$/', $param, $match))
+        {
+            return $this->post_arrays[$match[1]] ?? $param;
+        }
+
+        return $param;
     }
 
     /**

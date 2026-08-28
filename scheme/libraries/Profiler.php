@@ -544,11 +544,11 @@ class Profiler
     {
         static $injected = false;
         $css = '';
-
+        $nonce = defined('CSP_NONCE') ? CSP_NONCE : '';
         if (!$injected) {
             $injected = true;
-            $css = <<<'CSS'
-<style>
+            $css = <<<CSS
+<style nonce="{$nonce}">
 :root{--llp-bg:#0d0e14;--llp-bg2:#13141d;--llp-bg3:#1a1b26;--llp-border:#2a2b3d;--llp-text:#c0caf5;--llp-muted:#565f89;--llp-blue:#7aa2f7;--llp-green:#9ece6a;--llp-yellow:#e0af68;--llp-red:#f7768e;--llp-purple:#bb9af7;--llp-teal:#7dcfff;--llp-bar:#0a0b10}
 .llp-wrap{position:fixed;bottom:0;left:0;right:0;z-index:99999;font-family:'JetBrains Mono','Fira Code','Cascadia Code',monospace;font-size:12px;color:var(--llp-text);box-shadow:0 -4px 24px rgba(0,0,0,.5)}
 .llp-bar{display:flex;align-items:center;gap:10px;padding:8px 16px;background:var(--llp-bar);border-top:1px solid var(--llp-border);cursor:pointer;user-select:none;transition:background .15s}
@@ -595,7 +595,7 @@ CSS;
         }
 
         $css .= <<<JS
-<script>
+<script nonce="{$nonce}">
 function llpToggle(id){
   var b=document.getElementById(id+'_body');
   var i=document.getElementById(id+'_icon');

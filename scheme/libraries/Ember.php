@@ -364,26 +364,33 @@ class Ember
         // Raw echo {!! !!}
         $source = preg_replace('/\{!!\s*(.*?)\s*!!\}/s', '<?php echo $1; ?>', $source);
 
-        // === FIXED ESCAPED ECHO {{ expression | filters }} ===
         $source = preg_replace_callback('/\{\{\s*(.+?)\s*\}\}/s', function ($m) {
             $expr = trim($m[1]);
 
-            // Support function call: {{ upper(name) }}
             if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$/s', $expr, $fnMatch)) {
                 $fnName = $fnMatch[1];
                 $args   = $fnMatch[2];
-                return "<?php echo \$this->escape((\$__fn['$fnName'])($args)); ?>";
+
+                if (isset($this->functions[$fnName])) {
+                    return "<?php echo \$this->escape((\$__fn['$fnName'])($args)); ?>";
+                }
             }
 
-            // Variable with filters: {{ var|filter1|filter2('arg') }}
             $parts = preg_split('/\s*\|\s*/', $expr);
-            $var   = array_shift($parts);
+            $var   = trim(array_shift($parts));
 
-            // If it starts with quote, treat as string literal
-            if (preg_match('/^([\'"])(.*)\1$/', trim($var), $strMatch)) {
-                $var = var_export($strMatch[2], true);   // Safe string export
-            } else {
-                $var = '$' . ltrim(trim($var), '$');
+            if (preg_match('/^([\'"])(.*)\1$/', $var, $strMatch)) {
+                $var = var_export($strMatch[2], true);
+            }
+            elseif (str_starts_with($var, '$')) {
+
+            }
+            elseif (preg_match('/^[A-Za-z_][A-Za-z0-9_]*\s*(\(|::)/', $var)) {
+
+            }
+
+            else {
+                $var = '$' . ltrim($var, '$');
             }
 
             foreach ($parts as $filter) {
@@ -404,7 +411,6 @@ class Ember
                 } elseif ($filter === 'trim') {
                     $var = "trim((string) $var)";
                 } else {
-                    // Custom filter with optional arguments
                     if (preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\((.*)\))?$/', $filter, $fMatch)) {
                         $fName = $fMatch[1];
                         $fArgs = isset($fMatch[2]) ? ', ' . trim($fMatch[2]) : '';
@@ -418,19 +424,40 @@ class Ember
             return "<?php echo \$this->escape($var); ?>";
         }, $source);
 
-        // Control structures (kept simple and safe)
-        $source = preg_replace_callback('/@if\s*\((.+?)\)/s', fn($m) => "<?php if ({$m[1]}): ?>", $source);
-        $source = preg_replace_callback('/@elseif\s*\((.+?)\)/s', fn($m) => "<?php elseif ({$m[1]}): ?>", $source);
+        $source = preg_replace_callback(
+            '/@if\s*\(((?:[^()]|\([^()]*\))*)\)/s',
+            fn($m) => "<?php if ({$m[1]}): ?>",
+            $source
+        );
+
+        $source = preg_replace_callback(
+            '/@elseif\s*\(((?:[^()]|\([^()]*\))*)\)/s',
+            fn($m) => "<?php elseif ({$m[1]}): ?>",
+            $source
+        );
+
         $source = preg_replace('/@else\b/', '<?php else: ?>', $source);
         $source = preg_replace('/@endif\b/', '<?php endif; ?>', $source);
 
-        $source = preg_replace_callback('/@foreach\s*\((.+?)\)/s', fn($m) => "<?php foreach ({$m[1]}): ?>", $source);
+        $source = preg_replace_callback(
+            '/@foreach\s*\(((?:[^()]|\([^()]*\))*)\)/s',
+            fn($m) => "<?php foreach ({$m[1]}): ?>",
+            $source
+        );
         $source = preg_replace('/@endforeach/', '<?php endforeach; ?>', $source);
 
-        $source = preg_replace_callback('/@for\s*\((.+?)\)/s', fn($m) => "<?php for ({$m[1]}): ?>", $source);
+        $source = preg_replace_callback(
+            '/@for\s*\(((?:[^()]|\([^()]*\))*)\)/s',
+            fn($m) => "<?php for ({$m[1]}): ?>",
+            $source
+        );
         $source = preg_replace('/@endfor/', '<?php endfor; ?>', $source);
 
-        $source = preg_replace_callback('/@while\s*\((.+?)\)/s', fn($m) => "<?php while ({$m[1]}): ?>", $source);
+        $source = preg_replace_callback(
+            '/@while\s*\(((?:[^()]|\([^()]*\))*)\)/s',
+            fn($m) => "<?php while ({$m[1]}): ?>",
+            $source
+        );
         $source = preg_replace('/@endwhile/', '<?php endwhile; ?>', $source);
 
         // @php blocks - disabled by default for security

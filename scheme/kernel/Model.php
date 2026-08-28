@@ -801,7 +801,8 @@ class Model {
     public function _filter($conditions = [], $with_deleted = false) {
         $this->db->table($this->table);
         $this->apply_soft_delete($with_deleted);
-        return $this->db->where($conditions);
+        $this->db->where($conditions);
+        return $this;
     }
 
     /**

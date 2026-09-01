@@ -78,15 +78,14 @@ if ( ! function_exists('site_url'))
 	 */
 	function site_url($uri = '', $protocol = null)
 	{
-		$base_url   = rtrim(filter_var(BASE_URL ?? '', FILTER_SANITIZE_URL), '/');
-		$index_page = trim(config_item('index_page') ?? '', '/');
+		$base_url = rtrim(filter_var(BASE_URL ?? '', FILTER_SANITIZE_URL), '/');
 
 		if ($protocol !== null) {
 			$base_url = preg_replace('#^https?://#i', rtrim($protocol, ':/') . '://', $base_url);
 		}
 
 		if (empty($uri)) {
-			return $index_page ? $base_url . '/' . $index_page : $base_url . '/';
+			return $base_url . '/';
 		}
 
 		if (is_array($uri)) {
@@ -94,15 +93,6 @@ if ( ! function_exists('site_url'))
 		}
 
 		$uri = ltrim(trim((string) $uri), '/');
-
-		if ($index_page && strpos($uri, $index_page) === 0) {
-			$uri = substr($uri, strlen($index_page));
-			$uri = ltrim($uri, '/');
-		}
-
-		if ($index_page) {
-			return $base_url . '/' . $index_page . '/' . $uri;
-		}
 
 		return $base_url . '/' . $uri;
 	}

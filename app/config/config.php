@@ -99,16 +99,6 @@ $config['base_url'] 				= '';
 |
 */
 $config['proxy_enabled']           = FALSE;
-/*
-|--------------------------------------------------------------------------
-| Index File
-|--------------------------------------------------------------------------
-|
-| If you are using mod_rewrite to remove index.php in the URL set this
-| variable to blank.
-|
-*/
-$config['index_page']               = 'index.php';
 
 /*
 |--------------------------------------------------------------------------

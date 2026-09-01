@@ -134,7 +134,7 @@ if ( ! function_exists('load_js'))
 	{
 		foreach ($paths as $path)
 		{
-			echo '<script src="' . BASE_URL . PUBLIC_DIR . '/' . $path . '.js"></script>' . "\r\n";
+			echo '<script src="' . base_url() . $path . '.js"></script>' . "\r\n";
 		}
 	}
 }
@@ -151,7 +151,7 @@ if ( ! function_exists('load_css'))
 	{
 		foreach ($paths as $path)
 		{
-			echo '<link rel="stylesheet" href="' . BASE_URL . PUBLIC_DIR .'/' . $path . '.css" type="text/css" />' . "\r\n";
+			echo '<link rel="stylesheet" href="' . base_url() . $path . '.css" type="text/css" />' . "\r\n";
 		}
 	}
 }
@@ -166,26 +166,15 @@ if ( ! function_exists('active'))
 	 */
 	function active($currect_page, $css_class = 'active')
 	{
-		// Explode REQUEST_URI
-		$uri_array =  explode('/', rtrim(strtok($_SERVER["REQUEST_URI"], '?'), '/'));
-		// Explode the BASE_URL
-		$url_array = explode('/', trim(preg_replace('(^https?://)', '', BASE_URL), '/'));
-		// Find the installation folder index base on $url_array
-		$folder_index = array_search(end($url_array), array_values($uri_array));
-		// Check if index_page is not empty in config file
-		if(! empty(config_item('index_page')))
-		{
-			// +2 to the installation folder index to get the index of the route and the rest of the segments if index_page is not empty
-			$url = implode('/', array_slice($uri_array, $folder_index + 2));
-		}
-		else
-		{
-			// +1 to the installation folder index to get the index of the route and the rest of the segments if index_page is not empty
-			$url = implode('/', array_slice($uri_array, $folder_index + 1));
-		}
+		$uri_array = explode('/', rtrim(strtok($_SERVER["REQUEST_URI"], '?'), '/'));
 
-		if($currect_page == explode('/', $url)[0] || $currect_page == $url)
-		{
+		$url_array = explode('/', trim(preg_replace('(^https?://)', '', BASE_URL), '/'));
+
+		$folder_index = array_search(end($url_array), array_values($uri_array));
+
+		$url = implode('/', array_slice($uri_array, $folder_index + 1));
+
+		if ($currect_page == explode('/', $url)[0] || $currect_page == $url) {
 			echo $css_class;
 		}
 	}

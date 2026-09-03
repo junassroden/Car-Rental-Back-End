@@ -1220,38 +1220,13 @@ class Database {
      * limit
      *
      * @param  integer $limit
-     * @param  integer $end
+     * @param  integer $offset
      * @return object
      */
-    public function limit($limit, $end = null)
+    public function limit($limit, $offset = null)
     {
-        $driver = $this->driver;
-
-        if ($end === null) {
-            switch ($driver) {
-                case 'mysql':
-                case 'pgsql':
-                case 'sqlite':
-                    $this->limit = " LIMIT $limit";
-                    break;
-                case 'sqlsrv':
-                    $this->limit = " OFFSET 0 ROWS FETCH NEXT $limit ROWS ONLY";
-                    break;
-            }
-        } else {
-            switch ($driver) {
-                case 'mysql':
-                    $this->limit = " LIMIT $limit, $end";
-                    break;
-                case 'pgsql':
-                case 'sqlite':
-                    $this->limit = " LIMIT $end OFFSET $limit";
-                    break;
-                case 'sqlsrv':
-                    $this->limit = " OFFSET $limit ROWS FETCH NEXT $end ROWS ONLY";
-                    break;
-            }
-        }
+        $this->limit  = (int) $limit;
+        $this->offset = $offset !== null ? (int) $offset : null;
 
         return $this;
     }
@@ -1264,9 +1239,7 @@ class Database {
      */
     public function offset($offset)
     {
-        $this->offset  = ' OFFSET ';
-        $this->offset .= $offset;
-
+        $this->offset = (int) $offset;
         return $this;
     }
 
@@ -1279,9 +1252,11 @@ class Database {
      */
     public function pagination($records_per_page, $page)
     {
-        $offset = ($page - 1) * $records_per_page;
+        $page = max(1, (int) $page);
+        $records_per_page = (int) $records_per_page;
 
-        $this->limit = ' LIMIT ' . $offset . ', ' . $records_per_page;
+        $this->limit  = $records_per_page;
+        $this->offset = ($page - 1) * $records_per_page;
 
         return $this;
     }
@@ -1398,11 +1373,30 @@ class Database {
         }
 
         if ($this->limit !== NULL) {
-            $this->sql .= $this->limit;
-        }
+            $driver = $this->driver;
 
-        if ($this->offset !== NULL) {
-            $this->sql .= $this->offset;
+            switch ($driver) {
+                case 'mysql':
+                    if ($this->offset !== null) {
+                        $this->sql .= " LIMIT {$this->offset}, {$this->limit}";
+                    } else {
+                        $this->sql .= " LIMIT {$this->limit}";
+                    }
+                    break;
+
+                case 'pgsql':
+                case 'sqlite':
+                    $this->sql .= " LIMIT {$this->limit}";
+                    if ($this->offset !== null) {
+                        $this->sql .= " OFFSET {$this->offset}";
+                    }
+                    break;
+
+                case 'sqlsrv':
+                    $offset = $this->offset ?? 0;
+                    $this->sql .= " OFFSET {$offset} ROWS FETCH NEXT {$this->limit} ROWS ONLY";
+                    break;
+            }
         }
     }
 

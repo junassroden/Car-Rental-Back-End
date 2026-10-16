@@ -45,3 +45,27 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 /** @var object $router **/
 
 $router->get('/', 'Welcome::index');
+
+$router->get('/api/cars', 'Api::cars');
+$router->get('/api/cars/available', 'Api::availableCars');
+$router->get('/api/cars/{id}', 'Api::car');
+$router->post('/api/cars', 'Api::createCar');
+$router->put('/api/cars/{id}', 'Api::updateCar');
+$router->patch('/api/cars/{id}', 'Api::updateCar');
+$router->delete('/api/cars/{id}', 'Api::deleteCar');
+$router->post('/api/cars/{id}/images', 'Api::uploadImages');
+$router->delete('/api/cars/{id}/images/{imageId}', 'Api::deleteImage');
+$router->post('/api/login', 'Api::login');
+$router->post('/api/register', 'Api::register');
+$router->post('/api/logout', 'Api::logout');
+$router->get('/api/me', 'Api::me');
+
+$router->options('/api/cars', 'Api::cars');
+$router->options('/api/cars/available', 'Api::availableCars');
+$router->options('/api/cars/{id}', 'Api::car');
+$router->options('/api/cars/{id}/images', 'Api::uploadImages');
+$router->options('/api/cars/{id}/images/{imageId}', 'Api::deleteImage');
+$router->options('/api/login', 'Api::login');
+$router->options('/api/register', 'Api::register');
+$router->options('/api/logout', 'Api::logout');
+$router->options('/api/me', 'Api::me');

@@ -59,6 +59,7 @@ $router->post('/api/login', 'Api::login');
 $router->post('/api/register', 'Api::register');
 $router->post('/api/logout', 'Api::logout');
 $router->get('/api/me', 'Api::me');
+$router->post('/api/chat', 'Api::chat');
 
 $router->options('/api/cars', 'Api::cars');
 $router->options('/api/cars/available', 'Api::availableCars');
@@ -69,3 +70,4 @@ $router->options('/api/login', 'Api::login');
 $router->options('/api/register', 'Api::register');
 $router->options('/api/logout', 'Api::logout');
 $router->options('/api/me', 'Api::me');
+$router->options('/api/chat', 'Api::chat');

@@ -144,6 +144,149 @@ class Api extends Controller
         $this->respond(200, true, 'Authenticated user retrieved.', $this->authenticatedUser());
     }
 
+    public function chat()
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+            $this->respond(405, false, 'Only POST requests are allowed.');
+        }
+
+        $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($contentLength > 8192) {
+            $this->respond(413, false, 'The chat message is too large.');
+        }
+
+        $input = $this->input();
+        $message = $input['message'] ?? null;
+        if (!is_string($message) || trim($message) === '' || strlen($message) > 4000) {
+            $this->respond(422, false, 'Enter a message of up to 4,000 characters.');
+        }
+        $conversationId = $input['conversation_id'] ?? null;
+        if ($conversationId !== null && (!is_string($conversationId)
+            || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $conversationId))) {
+            $this->respond(400, false, 'The chat conversation is invalid.');
+        }
+
+        $token = trim((string) getenv('AI_ROUTER_TOKEN'));
+        $chatbotUrl = trim((string) (getenv('CHATBOT_API_URL') ?: 'http://127.0.0.1:3001/api/chat'));
+        if ($token === '' || strlen($token) < 32 || !filter_var($chatbotUrl, FILTER_VALIDATE_URL)
+            || !in_array(strtolower((string) parse_url($chatbotUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+            $this->respond(503, false, 'The chat service is not configured.');
+        }
+        if (!function_exists('curl_init')) {
+            $this->respond(503, false, 'The chat service is unavailable right now.');
+        }
+
+        $userId = (int) ($_SESSION['user_id'] ?? 0);
+        $user = $userId ? $this->db()->raw(
+            'SELECT role FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+            [$userId]
+        )->fetch(PDO::FETCH_ASSOC) : false;
+        $isAdmin = $user && $user['role'] === 'admin';
+        $carFilter = $isAdmin ? '' : " WHERE status = 'available'";
+        $vehicleCount = (int) $this->db()->raw(
+            "SELECT COUNT(*) FROM cars{$carFilter}"
+        )->fetchColumn();
+        $cars = $this->db()->raw(
+            "SELECT make, model, year, category, daily_rental_price, security_deposit,
+                    minimum_rental_duration, transmission, fuel_type, seating_capacity,
+                    air_conditioning, gps_navigation, additional_features, description, status
+             FROM cars{$carFilter} ORDER BY make ASC, model ASC LIMIT 100"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $cars = array_map([$this, 'normalizeChatCar'], $cars);
+        $statusCounts = [];
+        if ($isAdmin) {
+            $statusRows = $this->db()->raw(
+                'SELECT status, COUNT(*) AS vehicle_count FROM cars GROUP BY status ORDER BY status'
+            )->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($statusRows as $row) {
+                $statusCounts[$row['status']] = (int) $row['vehicle_count'];
+            }
+        }
+
+        $payload = json_encode([
+            'message' => trim($message),
+            'provider' => 'auto',
+            'conversation_id' => $conversationId,
+            'conversation_scope' => $isAdmin ? 'admin:' . $userId : 'public',
+            'rental_context' => [
+                'currency' => 'PHP',
+                'data_as_of' => date(DATE_ATOM),
+                'viewer_scope' => $isAdmin ? 'admin' : 'public',
+                'vehicle_count' => $vehicleCount,
+                'vehicle_list_truncated' => $vehicleCount > count($cars),
+                'vehicles' => $cars,
+                'vehicle_counts_by_status' => $isAdmin ? $statusCounts : null,
+                'vehicle_status_field_available' => true,
+                'vehicle_status_authorized' => $isAdmin,
+                'maintenance_history_supported' => false,
+                'mileage_and_service_interval_fields_available' => false,
+                'booking_or_transaction_records_supported' => false,
+            ]
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false) {
+            error_log('Chat request could not be encoded: ' . json_last_error_msg());
+            $this->respond(500, false, 'The chat request could not be completed.');
+        }
+
+        $handle = curl_init($chatbotUrl);
+        if ($handle === false) {
+            $this->respond(503, false, 'The chat service is unavailable right now.');
+        }
+        curl_setopt_array($handle, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $token,
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'X-Chat-Client-IP: ' . (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown')
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 75,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS
+        ]);
+        $responseBody = curl_exec($handle);
+        $responseStatus = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($handle);
+        curl_close($handle);
+        if ($responseBody === false) {
+            error_log('Chat service request failed: ' . $curlError);
+            $this->respond(503, false, 'The chat service is unavailable right now.');
+        }
+
+        $result = json_decode($responseBody, true);
+        if ($responseStatus < 200 || $responseStatus >= 300
+            || !is_array($result) || empty($result['success']) || !is_string($result['message'] ?? null)) {
+            error_log('Chat service returned an unsuccessful response (HTTP ' . $responseStatus . ').');
+            $this->respond(503, false, 'The chat service is unavailable right now.');
+        }
+        $this->respond(200, true, 'Chat response generated.', [
+            'message' => $result['message'],
+            'conversation_id' => $result['conversation_id'] ?? null
+        ]);
+    }
+
+    private function normalizeChatCar(array $car)
+    {
+        $car['daily_rental_price'] = (float) $car['daily_rental_price'];
+        $car['security_deposit'] = (float) $car['security_deposit'];
+        $car['minimum_rental_duration'] = (int) $car['minimum_rental_duration'];
+        $car['seating_capacity'] = (int) $car['seating_capacity'];
+        $car['air_conditioning'] = (bool) $car['air_conditioning'];
+        $car['gps_navigation'] = (bool) $car['gps_navigation'];
+        $features = is_string($car['additional_features'])
+            ? json_decode($car['additional_features'], true)
+            : $car['additional_features'];
+        $encodedFeatures = json_encode($features);
+        $car['additional_features'] = $encodedFeatures !== false && strlen($encodedFeatures) > 1000
+            ? 'Feature details omitted because they exceed the chat context limit.'
+            : $features;
+        $car['description'] = substr((string) ($car['description'] ?? ''), 0, 240);
+        return $car;
+    }
+
     public function cars()
     {
         $this->requireAdmin();

@@ -259,8 +259,16 @@ class Api extends Controller
         $result = json_decode($responseBody, true);
         if ($responseStatus < 200 || $responseStatus >= 300
             || !is_array($result) || empty($result['success']) || !is_string($result['message'] ?? null)) {
-            error_log('Chat service returned an unsuccessful response (HTTP ' . $responseStatus . ').');
-            $this->respond(503, false, 'The chat service is unavailable right now.');
+            $detail = 'The chat service is unavailable right now.';
+            if (is_array($result) && is_string($result['error']['message'] ?? null)) {
+                $detail = $result['error']['message'];
+            } elseif (is_string($result['message'] ?? null)) {
+                $detail = $result['message'];
+            } elseif ($curlError !== '') {
+                $detail = 'The chat service is unavailable right now: ' . $curlError;
+            }
+            error_log('Chat service returned an unsuccessful response (HTTP ' . $responseStatus . '): ' . $detail);
+            $this->respond(503, false, $detail);
         }
         $this->respond(200, true, 'Chat response generated.', [
             'message' => $result['message'],

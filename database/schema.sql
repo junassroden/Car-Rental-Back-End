@@ -1,8 +1,10 @@
-CREATE DATABASE IF NOT EXISTS car_rental_db
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
-
-USE car_rental_db;
+CREATE TABLE IF NOT EXISTS migrations (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    migration INT NOT NULL,
+    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY migration_unique (migration)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS users (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -15,9 +17,20 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY users_username_unique (username),
-    UNIQUE KEY users_email_unique (email),
-    KEY users_role_idx (role)
+    UNIQUE KEY username_unique (username),
+    UNIQUE KEY email_unique (email),
+    KEY email_idx (email),
+    KEY role_idx (role)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id INT UNSIGNED NOT NULL,
+    token TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    jti TEXT NOT NULL,
+    PRIMARY KEY (id),
+    KEY user_id_idx (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS cars (

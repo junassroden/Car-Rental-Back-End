@@ -256,9 +256,23 @@ The React application uses the LavaLust API at `http://127.0.0.1:3000/`.
 The API includes `POST /api/register` (JSON `full_name`, `email`, and
 `password`), `POST /api/login`, `POST /api/logout`, `GET /api/me`,
 `GET /api/cars/available`, vehicle detail/listing endpoints, and admin-only
-vehicle CRUD and image-management endpoints. Registration does not sign a new
-user in; sign in at `/auth/login` after creating an account. Session cookies
-are HttpOnly and SameSite=Strict.
+vehicle CRUD and image-management endpoints. Authenticated customers can use
+`POST /api/reservations` with `car_id`, `start_date`, and `end_date` to request
+a booking; the backend calculates the price and checks overlapping pending or
+confirmed bookings while locking the vehicle row. `GET /api/reservations`
+returns the signed-in customer's records and returns all records to
+administrators. `GET /api/reservations/{id}` enforces ownership, and
+`PATCH /api/reservations/{id}` permits customers to cancel their own pending or
+confirmed booking and administrators to confirm, reject, cancel, or complete
+valid reservations. Reservation creation and status changes require the
+`reservations` table from `database/schema.sql` (also defined by migration
+`005_create_reservations_table.php`). Importing the schema uses
+`CREATE TABLE IF NOT EXISTS` and does not replace existing tables or records.
+
+Registration does not sign a new user in; sign in at `/auth/login` after
+creating an account. Session cookies are HttpOnly and SameSite=Strict. Payment,
+maintenance, forecasting, and risk-analysis providers/routes are not configured
+by this project and are not represented as completed features.
 
 ---
 

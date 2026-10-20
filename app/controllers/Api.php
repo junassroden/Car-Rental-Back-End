@@ -295,6 +295,248 @@ class Api extends Controller
         return $car;
     }
 
+    public function reservations()
+    {
+        $user = $this->authenticatedUser();
+        $params = [];
+        $where = '';
+        if ($user['role'] !== 'admin') {
+            $where = ' WHERE r.user_id = ?';
+            $params[] = $user['id'];
+        }
+        $reservations = $this->db()->raw(
+            "SELECT r.*, c.make, c.model, c.year, c.category, c.plate_number, c.primary_image,
+                    u.full_name, u.username, u.email
+             FROM reservations r
+             INNER JOIN cars c ON c.id = r.car_id
+             INNER JOIN users u ON u.id = r.user_id{$where}
+             ORDER BY r.created_at DESC, r.id DESC",
+            $params
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $this->respond(200, true, 'Reservations retrieved successfully.', $reservations);
+    }
+
+    public function reservation($id)
+    {
+        $user = $this->authenticatedUser();
+        if (!ctype_digit((string) $id) || (int) $id < 1) {
+            $this->respond(404, false, 'Reservation not found.');
+        }
+        $reservation = $this->findReservation((int) $id);
+        if (!$reservation || ($user['role'] !== 'admin' && (int) $reservation['user_id'] !== $user['id'])) {
+            $this->respond(404, false, 'Reservation not found.');
+        }
+        $this->respond(200, true, 'Reservation retrieved successfully.', $reservation);
+    }
+
+    public function createReservation()
+    {
+        $user = $this->authenticatedUser();
+        if ($user['role'] !== 'customer') {
+            $this->respond(403, false, 'Only customer accounts can create reservations.');
+        }
+
+        $input = $this->input();
+        $carId = filter_var($input['car_id'] ?? null, FILTER_VALIDATE_INT);
+        $startDate = $input['start_date'] ?? null;
+        $endDate = $input['end_date'] ?? null;
+        if (!$carId || $carId < 1) {
+            $this->respond(422, false, 'Select a valid vehicle.');
+        }
+        if (!$this->isValidReservationDate($startDate) || !$this->isValidReservationDate($endDate)) {
+            $this->respond(422, false, 'Enter valid rental dates.');
+        }
+
+        $start = new DateTimeImmutable($startDate);
+        $end = new DateTimeImmutable($endDate);
+        $today = new DateTimeImmutable('today');
+        $rentalDays = (int) $start->diff($end)->format('%a');
+        if ($start < $today) {
+            $this->respond(422, false, 'The rental start date cannot be in the past.');
+        }
+        if ($end <= $start || $rentalDays < 1 || $rentalDays > 65535) {
+            $this->respond(422, false, 'The return date must be after the pickup date.');
+        }
+
+        $db = $this->db();
+        $transactionStarted = false;
+        try {
+            if (!$db->transaction()) {
+                $this->respond(500, false, 'The reservation could not be started. Please try again.');
+            }
+            $transactionStarted = true;
+            $car = $db->raw(
+                'SELECT id, daily_rental_price, minimum_rental_duration, status
+                 FROM cars WHERE id = ? FOR UPDATE',
+                [$carId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$car) {
+                $transactionStarted = false;
+                $db->roll_back();
+                $this->respond(404, false, 'Vehicle not found.');
+            }
+            if ($car['status'] !== 'available') {
+                $transactionStarted = false;
+                $db->roll_back();
+                $this->respond(409, false, 'This vehicle is not currently available for reservations.');
+            }
+            if ($rentalDays < (int) $car['minimum_rental_duration']) {
+                $transactionStarted = false;
+                $db->roll_back();
+                $this->respond(422, false, 'The selected dates do not meet this vehicle’s minimum rental duration.');
+            }
+
+            $conflict = $db->raw(
+                "SELECT id FROM reservations
+                 WHERE car_id = ? AND status IN ('pending', 'confirmed')
+                   AND start_date < ? AND end_date > ?
+                 LIMIT 1",
+                [$carId, $endDate, $startDate]
+            )->fetch(PDO::FETCH_ASSOC);
+            if ($conflict) {
+                $transactionStarted = false;
+                $db->roll_back();
+                $this->respond(409, false, 'This vehicle is already reserved for part or all of those dates.');
+            }
+
+            $dailyRate = round((float) $car['daily_rental_price'], 2);
+            $totalAmount = round($dailyRate * $rentalDays, 2);
+            if (!is_finite($totalAmount) || $totalAmount > 99999999.99) {
+                $transactionStarted = false;
+                $db->roll_back();
+                $this->respond(422, false, 'The selected rental period exceeds the maximum supported amount.');
+            }
+
+            $db->raw(
+                "INSERT INTO reservations
+                    (user_id, car_id, start_date, end_date, rental_days, daily_rate, total_amount, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
+                [$user['id'], $carId, $startDate, $endDate, $rentalDays, number_format($dailyRate, 2, '.', ''), number_format($totalAmount, 2, '.', '')]
+            );
+            $reservationId = (int) $db->last_id();
+            $transactionStarted = false;
+            if (!$db->commit()) {
+                $this->respond(500, false, 'The reservation could not be committed. Please try again.');
+            }
+        } catch (PDOException $exception) {
+            if ($transactionStarted) {
+                $transactionStarted = false;
+                $db->roll_back();
+            }
+            error_log('Reservation creation failed: ' . $exception->getMessage());
+            $this->respond(500, false, 'The reservation could not be created. Please try again.');
+        }
+
+        $this->respond(201, true, 'Reservation created successfully and is awaiting confirmation.', $this->findReservation($reservationId));
+    }
+
+    public function updateReservation($id)
+    {
+        $user = $this->authenticatedUser();
+        if (!ctype_digit((string) $id) || (int) $id < 1) {
+            $this->respond(404, false, 'Reservation not found.');
+        }
+        $input = $this->input();
+        $status = $input['status'] ?? null;
+        if (!is_string($status)) {
+            $this->respond(422, false, 'A valid reservation status is required.');
+        }
+
+        $isAdmin = $user['role'] === 'admin';
+        $db = $this->db();
+        $transactionStarted = false;
+        try {
+            if (!$db->transaction()) {
+                $this->respond(500, false, 'The reservation update could not be started. Please try again.');
+            }
+            $transactionStarted = true;
+            $reservation = $db->raw(
+                'SELECT * FROM reservations WHERE id = ? FOR UPDATE',
+                [(int) $id]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$reservation || (!$isAdmin && (int) $reservation['user_id'] !== $user['id'])) {
+                $transactionStarted = false;
+                $db->roll_back();
+                $this->respond(404, false, 'Reservation not found.');
+            }
+            if ($isAdmin) {
+                $transitions = [
+                    'pending' => ['confirmed', 'rejected', 'cancelled'],
+                    'confirmed' => ['cancelled', 'completed'],
+                ];
+                if (!in_array($status, $transitions[$reservation['status']] ?? [], true)) {
+                    $transactionStarted = false;
+                    $db->roll_back();
+                    $this->respond(409, false, 'That reservation status change is not allowed.');
+                }
+            } elseif ($status !== 'cancelled' || !in_array($reservation['status'], ['pending', 'confirmed'], true)) {
+                $transactionStarted = false;
+                $db->roll_back();
+                $this->respond(403, false, 'You may only cancel your own pending or confirmed reservations.');
+            }
+
+            if ($isAdmin && $status === 'confirmed') {
+                $car = $db->raw(
+                    'SELECT status FROM cars WHERE id = ? FOR UPDATE',
+                    [(int) $reservation['car_id']]
+                )->fetch(PDO::FETCH_ASSOC);
+                $conflict = $db->raw(
+                    "SELECT id FROM reservations
+                     WHERE car_id = ? AND id <> ? AND status IN ('pending', 'confirmed')
+                       AND start_date < ? AND end_date > ?
+                     LIMIT 1",
+                    [(int) $reservation['car_id'], (int) $id, $reservation['end_date'], $reservation['start_date']]
+                )->fetch(PDO::FETCH_ASSOC);
+                if (!$car || $car['status'] !== 'available' || $conflict) {
+                    $transactionStarted = false;
+                    $db->roll_back();
+                    $this->respond(409, false, 'This vehicle is no longer available for those dates.');
+                }
+            }
+            $db->raw(
+                'UPDATE reservations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [$status, (int) $id]
+            );
+            $transactionStarted = false;
+            if (!$db->commit()) {
+                $this->respond(500, false, 'The reservation update could not be committed. Please try again.');
+            }
+        } catch (PDOException $exception) {
+            if ($transactionStarted) {
+                $transactionStarted = false;
+                $db->roll_back();
+            }
+            error_log('Reservation update failed: ' . $exception->getMessage());
+            $this->respond(500, false, 'The reservation could not be updated. Please try again.');
+        }
+        $this->respond(200, true, 'Reservation status updated successfully.', $this->findReservation((int) $id));
+    }
+
+    private function findReservation($id)
+    {
+        return $this->db()->raw(
+            'SELECT r.*, c.make, c.model, c.year, c.category, c.plate_number, c.primary_image,
+                    u.full_name, u.username, u.email
+             FROM reservations r
+             INNER JOIN cars c ON c.id = r.car_id
+             INNER JOIN users u ON u.id = r.user_id
+             WHERE r.id = ? LIMIT 1',
+            [(int) $id]
+        )->fetch(PDO::FETCH_ASSOC);
+    }
+
+    private function isValidReservationDate($value)
+    {
+        if (!is_string($value)) {
+            return false;
+        }
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        $errors = DateTimeImmutable::getLastErrors();
+        return $date !== false
+            && $date->format('Y-m-d') === $value
+            && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0));
+    }
+
     public function cars()
     {
         $this->requireAdmin();

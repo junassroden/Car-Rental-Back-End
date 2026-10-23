@@ -152,6 +152,11 @@ lavalust/
 └── runtime/            # Cache, logs, and uploads (must be writable)
 ```
 
+Car listing and car/image create, read, update, and delete queries are handled
+by `app/models/CarModel.php`. The model is registered in
+`app/config/autoload.php` and is available to `ApiController` as `$this->carModel`;
+request validation, authorization, and HTTP responses remain in the controller.
+
 ---
 
 ## Configuration
@@ -192,7 +197,7 @@ LavaLust supports REST API development out of the box. Controllers can return JS
 ```php
 <?php
 
-class Api extends Controller
+class ApiController extends Controller
 {
     $this->call->library('api');
 
@@ -212,7 +217,7 @@ class Api extends Controller
 Route definition:
 
 ```php
-$router->get('/api/users', 'Api::users');
+$router->get('/api/users', 'ApiController::users');
 ```
 
 ---
@@ -224,7 +229,9 @@ The React application uses the LavaLust API at `http://127.0.0.1:3000/`.
 1. Copy `.env.example` to `.env` and set `DB_HOST`, `DB_PORT`, `DB_USER`, and
    `DB_PASSWORD` for your local MySQL instance. Keep `DB_NAME=car_rental_db`
    and `FRONTEND_ORIGIN=http://127.0.0.1:5173` for the supplied development
-   configuration. Do not commit `.env`.
+   configuration. LavaLust loads `.env` before its config files; `database.php`
+   only maps those environment variables to the framework's connection settings.
+   Do not commit `.env`.
 2. Import `database/schema.sql` into MySQL. Its `CREATE ... IF NOT EXISTS`
    statements preserve existing tables and rows.
 3. From `Back-End`, start LavaLust on the configured API address:
@@ -268,11 +275,31 @@ valid reservations. Reservation creation and status changes require the
 `reservations` table from `database/schema.sql` (also defined by migration
 `005_create_reservations_table.php`). Importing the schema uses
 `CREATE TABLE IF NOT EXISTS` and does not replace existing tables or records.
+For date-aware browsing, pass both `start_date=YYYY-MM-DD` and
+`end_date=YYYY-MM-DD` to `GET /api/cars/available`; vehicles with overlapping
+pending or confirmed reservations are excluded. The date range must start
+today or later and end after pickup.
 
 Registration does not sign a new user in; sign in at `/auth/login` after
 creating an account. Session cookies are HttpOnly and SameSite=Strict. Payment,
 maintenance, forecasting, and risk-analysis providers/routes are not configured
 by this project and are not represented as completed features.
+
+### Chatbot integration
+
+The browser sends chat requests to this API, which forwards them to the
+Chatbot service at `CHATBOT_API_URL` (default
+`http://127.0.0.1:3001/api/chat`). Keep `AI_ROUTER_TOKEN` identical in
+`Back-End/.env` and `Chatbot/.env`; do not expose or commit this token.
+Start the Chatbot service from `..\chatbot` with:
+
+```powershell
+cd ..\chatbot
+php lava serve --port=3001
+```
+
+The React app loads its widget from `..\chatbot\frontend`. Configure at least
+one provider in `Chatbot/.env` or make the configured Ollama service available.
 
 ---
 

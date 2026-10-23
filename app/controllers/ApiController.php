@@ -1,7 +1,7 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
-class Api extends Controller
+class ApiController extends Controller
 {
     private const CAR_FIELDS = [
         'make', 'model', 'year', 'category', 'plate_number', 'color',
@@ -13,6 +13,8 @@ class Api extends Controller
 
     public function before_action()
     {
+        $this->carModel = $this->call->model('CarModel');
+
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
         $allowedOrigin = getenv('FRONTEND_ORIGIN') ?: 'http://127.0.0.1:5173';
         if ($origin === $allowedOrigin) {
@@ -144,6 +146,163 @@ class Api extends Controller
         $this->respond(200, true, 'Authenticated user retrieved.', $this->authenticatedUser());
     }
 
+    public function profile()
+    {
+        header('Cache-Control: private, no-store, max-age=0');
+        header('Pragma: no-cache');
+        $user = $this->authenticatedUserRecord();
+        if ($user['role'] === 'admin') {
+            $this->respond(403, false, 'Customer profile access is required.');
+        }
+
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if ($method === 'GET') {
+            $this->respond(200, true, 'Profile retrieved successfully.', $this->profileData($user));
+        }
+        if ($method !== 'POST') {
+            $this->respond(405, false, 'Only GET and POST requests are allowed.');
+        }
+
+        if ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 6 * 1024 * 1024) {
+            $this->respond(413, false, 'The profile photo must be no larger than 5 MB.');
+        }
+
+        $input = $this->input();
+        $fields = [
+            'full_name' => ['label' => 'Full name', 'max' => 150],
+            'phone' => ['label' => 'Phone number', 'max' => 30],
+            'address_line' => ['label' => 'Street address', 'max' => 255],
+            'city' => ['label' => 'City or municipality', 'max' => 100],
+            'province' => ['label' => 'Province or region', 'max' => 100],
+            'postal_code' => ['label' => 'Postal code', 'max' => 20],
+            'country' => ['label' => 'Country', 'max' => 100],
+            'driver_license_number' => ['label' => 'Driver’s licence number', 'max' => 100],
+            'driver_license_expiry' => ['label' => 'Licence expiry date', 'max' => 10],
+        ];
+        $values = [];
+        foreach ($fields as $field => $rules) {
+            $value = is_string($input[$field] ?? null) ? trim($input[$field]) : '';
+            if ($value === '' || strlen($value) > $rules['max']) {
+                $this->respond(422, false, $rules['label'] . ' is required and must be no longer than ' . $rules['max'] . ' characters.');
+            }
+            $values[$field] = $value;
+        }
+
+        if (!preg_match('/^[+0-9().\-\s]{7,30}$/', $values['phone'])) {
+            $this->respond(422, false, 'Enter a valid phone number.');
+        }
+        $expiry = DateTimeImmutable::createFromFormat('!Y-m-d', $values['driver_license_expiry']);
+        if (!$expiry || $expiry->format('Y-m-d') !== $values['driver_license_expiry']) {
+            $this->respond(422, false, 'Enter a valid driver’s licence expiry date.');
+        }
+        if ($expiry < new DateTimeImmutable('today')) {
+            $this->respond(422, false, 'The driver’s licence must not be expired.');
+        }
+        if (($input['verification_consent'] ?? '') !== 'yes') {
+            $this->respond(422, false, 'Confirm that the photo shows you holding your driver’s licence before saving.');
+        }
+
+        $uploadedPhoto = $_FILES['verification_photo'] ?? null;
+        $hasExistingPhoto = $this->hasVerificationPhoto($user);
+        if (!$hasExistingPhoto && (!$uploadedPhoto || $uploadedPhoto['error'] !== UPLOAD_ERR_OK)) {
+            $this->respond(422, false, 'Upload a photo of yourself holding your driver’s licence.');
+        }
+
+        $newFilename = null;
+        if ($uploadedPhoto && $uploadedPhoto['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($uploadedPhoto['error'] !== UPLOAD_ERR_OK || $uploadedPhoto['size'] > 5 * 1024 * 1024) {
+                $this->respond(422, false, 'The profile photo must be a valid image no larger than 5 MB.');
+            }
+            $mime = (new finfo(FILEINFO_MIME_TYPE))->file($uploadedPhoto['tmp_name']);
+            $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+            if (!isset($extensions[$mime]) || @getimagesize($uploadedPhoto['tmp_name']) === false) {
+                $this->respond(422, false, 'Only valid JPEG, PNG, and WebP profile photos are accepted.');
+            }
+            $newFilename = bin2hex(random_bytes(24)) . '.' . $extensions[$mime];
+        }
+
+        $photoDirectory = $this->verificationPhotoDirectory();
+        if ($newFilename !== null && !is_dir($photoDirectory)
+            && !mkdir($photoDirectory, 0700, true) && !is_dir($photoDirectory)) {
+            error_log('Could not create the private profile photo directory.');
+            $this->respond(500, false, 'The profile photo could not be saved. Please try again.');
+        }
+
+        if ($newFilename !== null && !move_uploaded_file(
+            $uploadedPhoto['tmp_name'],
+            $photoDirectory . DIRECTORY_SEPARATOR . $newFilename
+        )) {
+            error_log('Could not save a private customer profile photo.');
+            $this->respond(500, false, 'The profile photo could not be saved. Please try again.');
+        }
+
+        try {
+            $this->db()->raw(
+                'UPDATE users SET full_name = ?, phone = ?, address_line = ?, city = ?, province = ?, postal_code = ?, country = ?, driver_license_number = ?, driver_license_expiry = ?, verification_photo_filename = COALESCE(?, verification_photo_filename), verification_consent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [
+                    $values['full_name'],
+                    $values['phone'],
+                    $values['address_line'],
+                    $values['city'],
+                    $values['province'],
+                    $values['postal_code'],
+                    $values['country'],
+                    $values['driver_license_number'],
+                    $values['driver_license_expiry'],
+                    $newFilename,
+                    (int) $user['id'],
+                ]
+            );
+        } catch (PDOException $exception) {
+            if ($newFilename !== null) {
+                $this->deleteVerificationPhoto($newFilename);
+            }
+            error_log('Customer profile update failed: ' . $exception->getMessage());
+            $this->respond(500, false, 'The profile could not be saved. Please try again.');
+        }
+
+        if ($newFilename !== null && !empty($user['verification_photo_filename'])) {
+            $this->deleteVerificationPhoto($user['verification_photo_filename']);
+        }
+        $updatedUser = $this->db()->raw(
+            'SELECT * FROM users WHERE id = ? LIMIT 1',
+            [(int) $user['id']]
+        )->fetch(PDO::FETCH_ASSOC);
+        if (!$updatedUser) {
+            error_log('Updated customer profile could not be reloaded.');
+            $this->respond(500, false, 'The profile was saved but could not be reloaded. Please refresh and try again.');
+        }
+        $this->respond(200, true, 'Profile saved successfully.', $this->profileData($updatedUser));
+    }
+
+    public function verificationPhoto()
+    {
+        header('Cache-Control: private, no-store, max-age=0');
+        $user = $this->authenticatedUserRecord();
+        if ($user['role'] === 'admin') {
+            $this->respond(403, false, 'Customer profile access is required.');
+        }
+        $filename = basename((string) ($user['verification_photo_filename'] ?? ''));
+        $path = $filename !== ''
+            ? $this->verificationPhotoDirectory() . DIRECTORY_SEPARATOR . $filename
+            : '';
+        if ($path === '' || !is_file($path)) {
+            $this->respond(404, false, 'No profile verification photo was found.');
+        }
+
+        $mime = (new finfo(FILEINFO_MIME_TYPE))->file($path);
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            error_log('Stored customer verification photo has an unsupported content type.');
+            $this->respond(415, false, 'The profile verification photo cannot be displayed.');
+        }
+        header('Content-Type: ' . $mime);
+        header('Content-Length: ' . filesize($path));
+        header('Cache-Control: private, no-store, max-age=0');
+        header('X-Content-Type-Options: nosniff');
+        readfile($path);
+        exit;
+    }
+
     public function chat()
     {
         if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -166,8 +325,9 @@ class Api extends Controller
             $this->respond(400, false, 'The chat conversation is invalid.');
         }
 
-        $token = trim((string) getenv('AI_ROUTER_TOKEN'));
-        $chatbotUrl = trim((string) (getenv('CHATBOT_API_URL') ?: 'http://127.0.0.1:3001/api/chat'));
+        lava_instance()->config->load('api');
+        $token = trim((string) config_item('chatbot_api_token'));
+        $chatbotUrl = trim((string) config_item('chatbot_api_url'));
         if ($token === '' || strlen($token) < 32 || !filter_var($chatbotUrl, FILTER_VALIDATE_URL)
             || !in_array(strtolower((string) parse_url($chatbotUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
             $this->respond(503, false, 'The chat service is not configured.');
@@ -553,10 +713,7 @@ class Api extends Controller
         if (!ctype_digit((string) $id) || (int) $id < 1) {
             $this->respond(404, false, 'Vehicle not found.');
         }
-        $car = $this->db()->raw(
-            'SELECT * FROM cars WHERE id = ? LIMIT 1',
-            [(int) $id]
-        )->fetch(PDO::FETCH_ASSOC);
+        $car = $this->carModel->findCar((int) $id);
         if (!$car) {
             $this->respond(404, false, 'Vehicle not found.');
         }
@@ -570,44 +727,29 @@ class Api extends Controller
                 $this->respond(404, false, 'Vehicle not found.');
             }
         }
-        $this->respond(200, true, 'Vehicle retrieved successfully.', $this->withImages($car));
+        $this->respond(200, true, 'Vehicle retrieved successfully.', $this->carModel->findWithImages((int) $id));
     }
 
     public function createCar()
     {
         $this->requireAdmin();
         $values = $this->validateCar($this->input());
-        $columns = implode(', ', array_keys($values));
-        $placeholders = implode(', ', array_fill(0, count($values), '?'));
-        $this->db()->raw(
-            "INSERT INTO cars ({$columns}) VALUES ({$placeholders})",
-            array_values($values)
-        );
-        $id = (int) $this->db()->last_id();
-        $this->respond(201, true, 'Vehicle created successfully.', $this->getCar($id));
+        $id = $this->carModel->create($values);
+        $this->respond(201, true, 'Vehicle created successfully.', $this->carModel->findWithImages($id));
     }
 
     public function updateCar($id)
     {
         $this->requireAdmin();
-        if (!ctype_digit((string) $id) || (int) $id < 1 || !$this->getCar((int) $id)) {
+        if (!ctype_digit((string) $id) || (int) $id < 1 || !$this->carModel->findCar((int) $id)) {
             $this->respond(404, false, 'Vehicle not found.');
         }
         $values = $this->validateCar($this->input(), true, (int) $id);
         if (!$values) {
             $this->respond(422, false, 'No valid vehicle fields were provided.');
         }
-        $assignments = implode(', ', array_map(
-            static fn($field) => "{$field} = ?",
-            array_keys($values)
-        ));
-        $params = array_values($values);
-        $params[] = (int) $id;
-        $this->db()->raw(
-            "UPDATE cars SET {$assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            $params
-        );
-        $this->respond(200, true, 'Vehicle updated successfully.', $this->getCar((int) $id));
+        $this->carModel->update((int) $id, $values);
+        $this->respond(200, true, 'Vehicle updated successfully.', $this->carModel->findWithImages((int) $id));
     }
 
     public function deleteCar($id)
@@ -616,13 +758,11 @@ class Api extends Controller
         if (!ctype_digit((string) $id) || (int) $id < 1) {
             $this->respond(404, false, 'Vehicle not found.');
         }
-        $images = $this->images((int) $id);
-        if (!$this->getCar((int) $id)) {
+        if (!$this->carModel->findCar((int) $id)) {
             $this->respond(404, false, 'Vehicle not found.');
         }
         try {
-            $this->db()->raw('DELETE FROM car_images WHERE car_id = ?', [(int) $id]);
-            $this->db()->raw('DELETE FROM cars WHERE id = ?', [(int) $id]);
+            $images = $this->carModel->delete((int) $id);
         } catch (PDOException $exception) {
             error_log('Vehicle deletion failed: ' . $exception->getMessage());
             $this->respond(409, false, 'This vehicle cannot be deleted while it is referenced by other records.');
@@ -636,7 +776,7 @@ class Api extends Controller
     public function uploadImages($id)
     {
         $this->requireAdmin();
-        if (!ctype_digit((string) $id) || (int) $id < 1 || !$this->getCar((int) $id)) {
+        if (!ctype_digit((string) $id) || (int) $id < 1 || !$this->carModel->findCar((int) $id)) {
             $this->respond(404, false, 'Vehicle not found.');
         }
         $files = $this->uploadedFiles();
@@ -648,7 +788,6 @@ class Api extends Controller
         if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
             $this->respond(500, false, 'The vehicle image directory could not be created.');
         }
-        $db = $this->db();
         $saved = [];
         foreach ($files as $file) {
             if ($file['error'] !== UPLOAD_ERR_OK || $file['size'] > 5 * 1024 * 1024) {
@@ -664,19 +803,7 @@ class Api extends Controller
             if (!move_uploaded_file($file['tmp_name'], $directory . DIRECTORY_SEPARATOR . $filename)) {
                 $this->respond(500, false, 'The vehicle image could not be saved.');
             }
-            $isPrimary = empty($this->images((int) $id)) && empty($saved) ? 1 : 0;
-            $db->raw(
-                'INSERT INTO car_images (car_id, image_path, is_primary) VALUES (?, ?, ?)',
-                [(int) $id, $relativePath, $isPrimary]
-            );
-            if ($isPrimary) {
-                $db->raw('UPDATE cars SET primary_image = ? WHERE id = ?', [$relativePath, (int) $id]);
-            }
-            $saved[] = [
-                'id' => (int) $db->last_id(),
-                'image_path' => $relativePath,
-                'is_primary' => $isPrimary,
-            ];
+            $saved[] = $this->carModel->createImage((int) $id, $relativePath);
         }
         $this->respond(201, true, 'Vehicle images uploaded successfully.', $saved);
     }
@@ -684,76 +811,53 @@ class Api extends Controller
     public function deleteImage($id, $imageId)
     {
         $this->requireAdmin();
-        $image = $this->db()->raw(
-            'SELECT id, image_path, is_primary FROM car_images WHERE id = ? AND car_id = ?',
-            [(int) $imageId, (int) $id]
-        )->fetch(PDO::FETCH_ASSOC);
+        $image = $this->carModel->deleteImage((int) $imageId, (int) $id);
         if (!$image) {
             $this->respond(404, false, 'Vehicle image not found.');
         }
-        $this->db()->raw('DELETE FROM car_images WHERE id = ?', [(int) $imageId]);
         $this->deleteImageFile($image['image_path']);
-        if ((int) $image['is_primary'] === 1) {
-            $next = $this->db()->raw(
-                'SELECT id, image_path FROM car_images WHERE car_id = ? ORDER BY id ASC LIMIT 1',
-                [(int) $id]
-            )->fetch(PDO::FETCH_ASSOC);
-            if ($next) {
-                $this->db()->raw('UPDATE car_images SET is_primary = 1 WHERE id = ?', [(int) $next['id']]);
-            }
-            $this->db()->raw('UPDATE cars SET primary_image = ? WHERE id = ?', [$next['image_path'] ?? null, (int) $id]);
-        }
-        $this->respond(200, true, 'Vehicle image deleted successfully.', $this->getCar((int) $id));
+        $this->respond(200, true, 'Vehicle image deleted successfully.', $this->carModel->findWithImages((int) $id));
     }
 
     private function listCars($availableOnly)
     {
-        $filters = [];
-        $params = [];
-        if ($availableOnly) {
-            $filters[] = "status = 'available'";
-        }
-        foreach (['category', 'make', 'status'] as $filter) {
-            if (!empty($_GET[$filter])) {
-                $filters[] = "{$filter} = ?";
-                $params[] = trim((string) $_GET[$filter]);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+        if ($startDate !== null || $endDate !== null) {
+            if (!$availableOnly || !$this->isValidReservationDate($startDate)
+                || !$this->isValidReservationDate($endDate)
+                || $endDate <= $startDate
+                || $startDate < (new DateTimeImmutable('today'))->format('Y-m-d')) {
+                $this->respond(422, false, 'Provide a valid future pickup and return date range.');
             }
         }
-        if (!empty($_GET['search'])) {
-            $term = '%' . trim((string) $_GET['search']) . '%';
-            $filters[] = '(make LIKE ? OR model LIKE ? OR plate_number LIKE ?)';
-            array_push($params, $term, $term, $term);
-        }
-        $where = $filters ? ' WHERE ' . implode(' AND ', $filters) : '';
-        $sorts = [
-            'newest' => 'created_at DESC, id DESC',
-            'price_asc' => 'daily_rental_price ASC, id DESC',
-            'price_desc' => 'daily_rental_price DESC, id DESC',
-            'name' => 'make ASC, model ASC',
-        ];
-        $sort = $sorts[$_GET['sort'] ?? 'newest'] ?? $sorts['newest'];
         $page = max(1, filter_var($_GET['page'] ?? 1, FILTER_VALIDATE_INT) ?: 1);
         $perPage = min(48, max(1, filter_var($_GET['per_page'] ?? 12, FILTER_VALIDATE_INT) ?: 12));
-        $count = (int) $this->db()->raw("SELECT COUNT(*) FROM cars{$where}", $params)->fetchColumn();
-        $availableCount = (int) $this->db()->raw("SELECT COUNT(*) FROM cars WHERE status = 'available'")->fetchColumn();
-        $unavailableCount = (int) $this->db()->raw("SELECT COUNT(*) FROM cars WHERE status <> 'available'")->fetchColumn();
-        $categories = $this->db()->raw('SELECT DISTINCT category FROM cars ORDER BY category')->fetchAll(PDO::FETCH_COLUMN);
-        $brands = $this->db()->raw('SELECT DISTINCT make FROM cars ORDER BY make')->fetchAll(PDO::FETCH_COLUMN);
-        $cars = $this->db()->raw(
-            "SELECT * FROM cars{$where} ORDER BY {$sort} LIMIT {$perPage} OFFSET " . (($page - 1) * $perPage),
-            $params
-        )->fetchAll(PDO::FETCH_ASSOC);
-        $cars = array_map(fn($car) => $this->withImages($car), $cars);
-        $this->respond(200, true, 'Vehicles retrieved successfully.', $cars, [
-            'page' => $page,
-            'per_page' => $perPage,
-            'total' => $count,
-            'total_pages' => (int) ceil($count / $perPage),
-            'available_count' => $availableCount,
-            'unavailable_count' => $unavailableCount,
-            'categories' => $categories,
-            'brands' => $brands,
-        ]);
+        $filters = [];
+        foreach (['category', 'make', 'status', 'search'] as $filter) {
+            if (isset($_GET[$filter]) && is_scalar($_GET[$filter])) {
+                $filters[$filter] = trim((string) $_GET[$filter]);
+            }
+        }
+        if ($startDate !== null && $endDate !== null) {
+            $filters['start_date'] = $startDate;
+            $filters['end_date'] = $endDate;
+        }
+
+        $result = $this->carModel->read(
+            $availableOnly,
+            $filters,
+            $page,
+            $perPage,
+            is_string($_GET['sort'] ?? null) ? $_GET['sort'] : 'newest'
+        );
+        $this->respond(
+            200,
+            true,
+            'Vehicles retrieved successfully.',
+            $result['cars'],
+            $result['meta']
+        );
     }
 
     private function validateCar(array $input, $partial = false, $currentId = 0)
@@ -805,11 +909,7 @@ class Api extends Controller
             }
         }
         if (!empty($values['plate_number'])) {
-            $duplicate = $this->db()->raw(
-                'SELECT id FROM cars WHERE plate_number = ? AND id <> ? LIMIT 1',
-                [$values['plate_number'], $currentId]
-            )->fetch(PDO::FETCH_ASSOC);
-            if ($duplicate) {
+            if ($this->carModel->plateNumberExists($values['plate_number'], $currentId)) {
                 $this->respond(409, false, 'That plate number is already assigned to another vehicle.');
             }
         }
@@ -865,27 +965,6 @@ class Api extends Controller
         return $values;
     }
 
-    private function getCar($id)
-    {
-        $car = $this->db()->raw('SELECT * FROM cars WHERE id = ? LIMIT 1', [(int) $id])
-            ->fetch(PDO::FETCH_ASSOC);
-        return $car ? $this->withImages($car) : null;
-    }
-
-    private function withImages(array $car)
-    {
-        $car['images'] = $this->images((int) $car['id']);
-        return $car;
-    }
-
-    private function images($carId)
-    {
-        return $this->db()->raw(
-            'SELECT id, image_path, is_primary, created_at FROM car_images WHERE car_id = ? ORDER BY is_primary DESC, id ASC',
-            [(int) $carId]
-        )->fetchAll(PDO::FETCH_ASSOC);
-    }
-
     private function uploadedFiles()
     {
         $input = $_FILES['images'] ?? $_FILES['image'] ?? null;
@@ -939,6 +1018,12 @@ class Api extends Controller
 
     private function authenticatedUser()
     {
+        $user = $this->authenticatedUserRecord();
+        return $this->publicUser($user);
+    }
+
+    private function authenticatedUserRecord()
+    {
         $id = (int) ($_SESSION['user_id'] ?? 0);
         if (!$id) {
             $this->respond(401, false, 'Authentication is required.');
@@ -951,7 +1036,50 @@ class Api extends Controller
             unset($_SESSION['user_id']);
             $this->respond(401, false, 'Authentication is required.');
         }
-        return $this->publicUser($user);
+        return $user;
+    }
+
+    private function profileData(array $user)
+    {
+        return [
+            'id' => (int) $user['id'],
+            'username' => $user['username'],
+            'full_name' => $user['full_name'] ?? '',
+            'email' => $user['email'],
+            'phone' => $user['phone'] ?? '',
+            'address_line' => $user['address_line'] ?? '',
+            'city' => $user['city'] ?? '',
+            'province' => $user['province'] ?? '',
+            'postal_code' => $user['postal_code'] ?? '',
+            'country' => $user['country'] ?? '',
+            'driver_license_number' => $user['driver_license_number'] ?? '',
+            'driver_license_expiry' => $user['driver_license_expiry'] ?? '',
+            'has_verification_photo' => $this->hasVerificationPhoto($user),
+            'verification_consent_given' => !empty($user['verification_consent_at']),
+            'role' => $user['role'] === 'admin' ? 'admin' : 'customer',
+        ];
+    }
+
+    private function verificationPhotoDirectory()
+    {
+        return ROOT_DIR . 'storage' . DIRECTORY_SEPARATOR . 'private' . DIRECTORY_SEPARATOR . 'user-verification';
+    }
+
+    private function hasVerificationPhoto(array $user)
+    {
+        $filename = basename((string) ($user['verification_photo_filename'] ?? ''));
+        return $filename !== '' && is_file(
+            $this->verificationPhotoDirectory() . DIRECTORY_SEPARATOR . $filename
+        );
+    }
+
+    private function deleteVerificationPhoto($filename)
+    {
+        $safeFilename = basename((string) $filename);
+        $path = $this->verificationPhotoDirectory() . DIRECTORY_SEPARATOR . $safeFilename;
+        if ($safeFilename !== '' && is_file($path) && !unlink($path)) {
+            error_log('Could not remove a replaced customer verification photo.');
+        }
     }
 
     private function publicUser(array $user)

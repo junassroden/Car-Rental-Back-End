@@ -14,6 +14,7 @@ composer.lock
 runtime/*
 !runtime/.htaccess
 !runtime/index.html
+storage/private/user-verification/*
 *.log
 *.cache
 

@@ -179,6 +179,8 @@ class Database {
      */
     private $offset = null;
 
+    private $for_update = false;
+
     /**
      * Operators
      *
@@ -467,6 +469,7 @@ class Database {
         $this->join           = NULL;
         $this->row_count      = 0;
         $this->last_id_inserted = 0;
+        $this->for_update = false;
     }
 
     /**
@@ -1233,6 +1236,16 @@ class Database {
         return $this;
     }
 
+    public function for_update()
+    {
+        if (!in_array($this->driver, ['mysql', 'pgsql'], true)) {
+            throw new RuntimeException('Row locking is not supported by this database driver.');
+        }
+
+        $this->for_update = true;
+        return $this;
+    }
+
     /**
      * Offset
      *
@@ -1399,6 +1412,10 @@ class Database {
                     $this->sql .= " OFFSET {$offset} ROWS FETCH NEXT {$this->limit} ROWS ONLY";
                     break;
             }
+        }
+
+        if ($this->for_update) {
+            $this->sql .= ' FOR UPDATE';
         }
     }
 

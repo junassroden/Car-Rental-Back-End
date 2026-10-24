@@ -14,6 +14,9 @@ class ApiController extends Controller
     public function before_action()
     {
         $this->carModel = $this->call->model('CarModel');
+        $this->maintenanceModel = $this->call->model('MaintenanceModel');
+        $this->userModel = $this->call->model('UserModel');
+        $this->reservationModel = $this->call->model('ReservationModel');
 
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
         $allowedOrigin = getenv('FRONTEND_ORIGIN') ?: 'http://127.0.0.1:5173';
@@ -52,10 +55,7 @@ class ApiController extends Controller
             $this->respond(422, false, 'Email/username and password are required.');
         }
 
-        $user = $this->db()->raw(
-            'SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1',
-            [$identity, $identity]
-        )->fetch(PDO::FETCH_ASSOC);
+        $user = $this->userModel->findByIdentity($identity);
         if (!$user || (int) $user['is_active'] !== 1 || !password_verify($password, $user['password'])) {
             $this->respond(401, false, 'Invalid login credentials.');
         }
@@ -82,37 +82,13 @@ class ApiController extends Controller
             $this->respond(422, false, 'Password must be between 8 and 72 characters.');
         }
 
-        $db = $this->db();
-        $existingEmail = $db->raw(
-            'SELECT id FROM users WHERE email = ? LIMIT 1',
-            [$email]
-        )->fetch(PDO::FETCH_ASSOC);
-        if ($existingEmail) {
+        if ($this->userModel->emailExists($email)) {
             $this->respond(409, false, 'An account with that email address already exists.');
         }
 
-        $localPart = strstr($email, '@', true);
-        $baseUsername = trim((string) preg_replace('/[^a-z0-9._-]+/i', '-', $localPart), '.-_');
-        $baseUsername = substr($baseUsername !== '' ? $baseUsername : 'driver', 0, 100);
-        $username = $baseUsername;
-        for ($suffix = 2; ; $suffix++) {
-            $existingUsername = $db->raw(
-                'SELECT id FROM users WHERE username = ? LIMIT 1',
-                [$username]
-            )->fetch(PDO::FETCH_ASSOC);
-            if (!$existingUsername) {
-                break;
-            }
-            $suffixText = '-' . $suffix;
-            $username = substr($baseUsername, 0, 100 - strlen($suffixText)) . $suffixText;
-        }
-
         try {
-            $db->raw(
-                'INSERT INTO users (username, full_name, email, password, role, is_active) VALUES (?, ?, ?, ?, ?, ?)',
-                [$username, $fullName, $email, password_hash($password, PASSWORD_DEFAULT), 'user', 1]
-            );
-        } catch (PDOException $exception) {
+            $this->userModel->createCustomer($fullName, $email, $password);
+        } catch (Exception $exception) {
             if ($exception->getCode() === '23000') {
                 $this->respond(409, false, 'An account could not be created because the email address or username is already in use.');
             }
@@ -237,23 +213,8 @@ class ApiController extends Controller
         }
 
         try {
-            $this->db()->raw(
-                'UPDATE users SET full_name = ?, phone = ?, address_line = ?, city = ?, province = ?, postal_code = ?, country = ?, driver_license_number = ?, driver_license_expiry = ?, verification_photo_filename = COALESCE(?, verification_photo_filename), verification_consent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [
-                    $values['full_name'],
-                    $values['phone'],
-                    $values['address_line'],
-                    $values['city'],
-                    $values['province'],
-                    $values['postal_code'],
-                    $values['country'],
-                    $values['driver_license_number'],
-                    $values['driver_license_expiry'],
-                    $newFilename,
-                    (int) $user['id'],
-                ]
-            );
-        } catch (PDOException $exception) {
+            $updatedUser = $this->userModel->updateProfile((int) $user['id'], $values, $newFilename);
+        } catch (Exception $exception) {
             if ($newFilename !== null) {
                 $this->deleteVerificationPhoto($newFilename);
             }
@@ -264,10 +225,6 @@ class ApiController extends Controller
         if ($newFilename !== null && !empty($user['verification_photo_filename'])) {
             $this->deleteVerificationPhoto($user['verification_photo_filename']);
         }
-        $updatedUser = $this->db()->raw(
-            'SELECT * FROM users WHERE id = ? LIMIT 1',
-            [(int) $user['id']]
-        )->fetch(PDO::FETCH_ASSOC);
         if (!$updatedUser) {
             error_log('Updated customer profile could not be reloaded.');
             $this->respond(500, false, 'The profile was saved but could not be reloaded. Please refresh and try again.');
@@ -303,10 +260,186 @@ class ApiController extends Controller
         exit;
     }
 
+    public function maintenanceRecords()
+    {
+        $this->requireAdmin();
+        $this->maintenanceModel->ensureSchema();
+
+        $vehicles = $this->maintenanceModel->getVehicleOverview();
+
+        $records = $this->maintenanceModel->getVehicleRecords();
+
+        $summary = [
+            'total_vehicles' => count($vehicles),
+            'approaching' => 0,
+            'overdue' => 0,
+            'insufficient' => 0,
+        ];
+
+        $warningWindow = new DateTimeImmutable('today');
+        $warningWindow = $warningWindow->modify('+30 days');
+
+        foreach ($vehicles as $vehicle) {
+            $lastDate = $vehicle['last_maintenance_date'];
+            $mileage = $vehicle['current_mileage'];
+            if ($lastDate === null && $mileage === null) {
+                $summary['insufficient']++;
+                continue;
+            }
+            if ($lastDate !== null) {
+                $threshold = new DateTimeImmutable($lastDate);
+                $nextDue = $threshold->modify('+180 days');
+                if ($mileage !== null && ($vehicle['last_maintenance_odometer'] !== null && ((int) $vehicle['last_maintenance_odometer'] + 5000) <= (int) $mileage)) {
+                    $summary['overdue']++;
+                } elseif ($nextDue <= $warningWindow) {
+                    $summary['approaching']++;
+                }
+            }
+        }
+
+        $this->respond(200, true, 'Maintenance records retrieved successfully.', [
+            'summary' => $summary,
+            'vehicles' => $vehicles,
+            'records' => $records,
+        ]);
+    }
+
+    public function maintenancePredictions()
+    {
+        $this->requireAdmin();
+        $this->maintenanceModel->ensureSchema();
+
+        $predictions = $this->maintenanceModel->getPredictions();
+        $vehicles = $this->maintenanceModel->getVehicles();
+
+        $summary = [
+            'total_vehicles' => count($vehicles),
+            'approaching' => 0,
+            'overdue' => 0,
+            'insufficient' => 0,
+        ];
+        foreach ($predictions as $prediction) {
+            $level = strtolower((string) ($prediction['riskLevel'] ?? 'low'));
+            if ($level === 'high' || $level === 'overdue') {
+                $summary['overdue']++;
+            } elseif ($level === 'medium' || $level === 'approaching') {
+                $summary['approaching']++;
+            } elseif ($level === 'insufficient') {
+                $summary['insufficient']++;
+            }
+        }
+
+        if (!$predictions) {
+            $predictions = $this->maintenanceModel->generatePredictions();
+            $summary = [
+                'total_vehicles' => count($vehicles),
+                'approaching' => 0,
+                'overdue' => 0,
+                'insufficient' => 0,
+            ];
+            foreach ($predictions as $prediction) {
+                $level = strtolower((string) ($prediction['riskLevel'] ?? 'low'));
+                if ($level === 'high' || $level === 'overdue') {
+                    $summary['overdue']++;
+                } elseif ($level === 'medium' || $level === 'approaching') {
+                    $summary['approaching']++;
+                } elseif ($level === 'insufficient') {
+                    $summary['insufficient']++;
+                }
+            }
+        }
+
+        $this->respond(200, true, 'Maintenance predictions retrieved successfully.', [
+            'summary' => $summary,
+            'vehicles' => $vehicles,
+            'predictions' => $predictions,
+        ]);
+    }
+
+    public function generateMaintenancePredictions()
+    {
+        $this->requireAdmin();
+        $predictions = $this->maintenanceModel->generatePredictions();
+        $this->respond(200, true, 'Maintenance predictions were recalculated successfully.', $predictions);
+    }
+
+    public function createMaintenanceRecord()
+    {
+        $this->requireAdmin();
+        $input = $this->input();
+
+        $required = ['vehicleID', 'maintenanceType'];
+        foreach ($required as $field) {
+            if (!array_key_exists($field, $input) || trim((string) $input[$field]) === '') {
+                $this->respond(422, false, 'Vehicle and maintenance type are required.');
+            }
+        }
+
+        if (!$this->carModel->findCar((int) $input['vehicleID'])) {
+            $this->respond(404, false, 'Vehicle not found.');
+        }
+
+        try {
+            $record = $this->maintenanceModel->createRecord($input);
+            $this->respond(201, true, 'Maintenance record saved successfully.', $record);
+        } catch (InvalidArgumentException $exception) {
+            $this->respond(422, false, $exception->getMessage());
+        } catch (Exception $exception) {
+            error_log('Maintenance record creation failed: ' . $exception->getMessage());
+            $this->respond(500, false, 'The maintenance record could not be saved.');
+        }
+    }
+
+    public function updateMaintenanceRecord($id)
+    {
+        $this->requireAdmin();
+
+        if (!ctype_digit((string) $id) || (int) $id < 1) {
+            $this->respond(404, false, 'Maintenance record not found.');
+        }
+
+        $input = $this->input();
+        $result = $this->maintenanceModel->updateRecord((int) $id, $input);
+        if ($result === null) {
+            $this->respond(404, false, 'Maintenance record not found.');
+        }
+        if (!$result['updated']) {
+            $this->respond(422, false, 'No fields were provided to update.');
+        }
+        $this->respond(200, true, 'Maintenance record updated successfully.', $result['record']);
+    }
+
+    public function updateVehicleMileage()
+    {
+        $this->requireAdmin();
+        $input = $this->input();
+
+        $vehicleId = (int) ($input['vehicleID'] ?? $input['car_id'] ?? 0);
+        $mileage = isset($input['current_mileage']) ? (int) $input['current_mileage'] : (isset($input['mileage']) ? (int) $input['mileage'] : 0);
+        if ($vehicleId < 1 || $mileage < 0) {
+            $this->respond(422, false, 'A valid vehicle and mileage are required.');
+        }
+        if (!$this->carModel->findCar((int) $vehicleId)) {
+            $this->respond(404, false, 'Vehicle not found.');
+        }
+
+        try {
+            $updated = $this->maintenanceModel->updateMileage($vehicleId, $mileage);
+            $this->respond(200, true, 'Vehicle mileage updated successfully.', $updated);
+        } catch (InvalidArgumentException $exception) {
+            $this->respond(422, false, $exception->getMessage());
+        }
+    }
+
     public function chat()
     {
         if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
             $this->respond(405, false, 'Only POST requests are allowed.');
+        }
+
+        $sessionUser = $this->authenticatedUserRecord();
+        if (!isset($sessionUser['role']) || !in_array($sessionUser['role'], ['admin', 'customer'], true)) {
+            $this->respond(403, false, 'Authenticated customer or administrator access is required.');
         }
 
         $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
@@ -337,31 +470,12 @@ class ApiController extends Controller
         }
 
         $userId = (int) ($_SESSION['user_id'] ?? 0);
-        $user = $userId ? $this->db()->raw(
-            'SELECT role FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
-            [$userId]
-        )->fetch(PDO::FETCH_ASSOC) : false;
+        $user = $userId ? $this->userModel->activeRole($userId) : false;
         $isAdmin = $user && $user['role'] === 'admin';
-        $carFilter = $isAdmin ? '' : " WHERE status = 'available'";
-        $vehicleCount = (int) $this->db()->raw(
-            "SELECT COUNT(*) FROM cars{$carFilter}"
-        )->fetchColumn();
-        $cars = $this->db()->raw(
-            "SELECT make, model, year, category, daily_rental_price, security_deposit,
-                    minimum_rental_duration, transmission, fuel_type, seating_capacity,
-                    air_conditioning, gps_navigation, additional_features, description, status
-             FROM cars{$carFilter} ORDER BY make ASC, model ASC LIMIT 100"
-        )->fetchAll(PDO::FETCH_ASSOC);
-        $cars = array_map([$this, 'normalizeChatCar'], $cars);
-        $statusCounts = [];
-        if ($isAdmin) {
-            $statusRows = $this->db()->raw(
-                'SELECT status, COUNT(*) AS vehicle_count FROM cars GROUP BY status ORDER BY status'
-            )->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($statusRows as $row) {
-                $statusCounts[$row['status']] = (int) $row['vehicle_count'];
-            }
-        }
+        $carContext = $this->carModel->getChatContext($isAdmin);
+        $vehicleCount = $carContext['vehicle_count'];
+        $cars = array_map([$this, 'normalizeChatCar'], $carContext['cars']);
+        $statusCounts = $carContext['status_counts'];
 
         $payload = json_encode([
             'message' => trim($message),
@@ -378,8 +492,8 @@ class ApiController extends Controller
                 'vehicle_counts_by_status' => $isAdmin ? $statusCounts : null,
                 'vehicle_status_field_available' => true,
                 'vehicle_status_authorized' => $isAdmin,
-                'maintenance_history_supported' => false,
-                'mileage_and_service_interval_fields_available' => false,
+                'maintenance_history_supported' => true,
+                'mileage_and_service_interval_fields_available' => true,
                 'booking_or_transaction_records_supported' => false,
             ]
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -458,21 +572,7 @@ class ApiController extends Controller
     public function reservations()
     {
         $user = $this->authenticatedUser();
-        $params = [];
-        $where = '';
-        if ($user['role'] !== 'admin') {
-            $where = ' WHERE r.user_id = ?';
-            $params[] = $user['id'];
-        }
-        $reservations = $this->db()->raw(
-            "SELECT r.*, c.make, c.model, c.year, c.category, c.plate_number, c.primary_image,
-                    u.full_name, u.username, u.email
-             FROM reservations r
-             INNER JOIN cars c ON c.id = r.car_id
-             INNER JOIN users u ON u.id = r.user_id{$where}
-             ORDER BY r.created_at DESC, r.id DESC",
-            $params
-        )->fetchAll(PDO::FETCH_ASSOC);
+        $reservations = $this->reservationModel->getForUser($user);
         $this->respond(200, true, 'Reservations retrieved successfully.', $reservations);
     }
 
@@ -518,76 +618,42 @@ class ApiController extends Controller
             $this->respond(422, false, 'The return date must be after the pickup date.');
         }
 
-        $db = $this->db();
-        $transactionStarted = false;
         try {
-            if (!$db->transaction()) {
-                $this->respond(500, false, 'The reservation could not be started. Please try again.');
-            }
-            $transactionStarted = true;
-            $car = $db->raw(
-                'SELECT id, daily_rental_price, minimum_rental_duration, status
-                 FROM cars WHERE id = ? FOR UPDATE',
-                [$carId]
-            )->fetch(PDO::FETCH_ASSOC);
-            if (!$car) {
-                $transactionStarted = false;
-                $db->roll_back();
-                $this->respond(404, false, 'Vehicle not found.');
-            }
-            if ($car['status'] !== 'available') {
-                $transactionStarted = false;
-                $db->roll_back();
-                $this->respond(409, false, 'This vehicle is not currently available for reservations.');
-            }
-            if ($rentalDays < (int) $car['minimum_rental_duration']) {
-                $transactionStarted = false;
-                $db->roll_back();
-                $this->respond(422, false, 'The selected dates do not meet this vehicle’s minimum rental duration.');
-            }
-
-            $conflict = $db->raw(
-                "SELECT id FROM reservations
-                 WHERE car_id = ? AND status IN ('pending', 'confirmed')
-                   AND start_date < ? AND end_date > ?
-                 LIMIT 1",
-                [$carId, $endDate, $startDate]
-            )->fetch(PDO::FETCH_ASSOC);
-            if ($conflict) {
-                $transactionStarted = false;
-                $db->roll_back();
-                $this->respond(409, false, 'This vehicle is already reserved for part or all of those dates.');
-            }
-
-            $dailyRate = round((float) $car['daily_rental_price'], 2);
-            $totalAmount = round($dailyRate * $rentalDays, 2);
-            if (!is_finite($totalAmount) || $totalAmount > 99999999.99) {
-                $transactionStarted = false;
-                $db->roll_back();
-                $this->respond(422, false, 'The selected rental period exceeds the maximum supported amount.');
-            }
-
-            $db->raw(
-                "INSERT INTO reservations
-                    (user_id, car_id, start_date, end_date, rental_days, daily_rate, total_amount, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
-                [$user['id'], $carId, $startDate, $endDate, $rentalDays, number_format($dailyRate, 2, '.', ''), number_format($totalAmount, 2, '.', '')]
+            $result = $this->reservationModel->createReservation(
+                $user['id'],
+                $carId,
+                $startDate,
+                $endDate,
+                $rentalDays
             );
-            $reservationId = (int) $db->last_id();
-            $transactionStarted = false;
-            if (!$db->commit()) {
-                $this->respond(500, false, 'The reservation could not be committed. Please try again.');
-            }
-        } catch (PDOException $exception) {
-            if ($transactionStarted) {
-                $transactionStarted = false;
-                $db->roll_back();
-            }
+        } catch (Exception $exception) {
             error_log('Reservation creation failed: ' . $exception->getMessage());
             $this->respond(500, false, 'The reservation could not be created. Please try again.');
         }
 
-        $this->respond(201, true, 'Reservation created successfully and is awaiting confirmation.', $this->findReservation($reservationId));
+        switch ($result['status']) {
+            case 'vehicle_not_found':
+                $this->respond(404, false, 'Vehicle not found.');
+            case 'vehicle_unavailable':
+                $this->respond(409, false, 'This vehicle is not currently available for reservations.');
+            case 'duration_too_short':
+                $this->respond(422, false, 'The selected dates do not meet this vehicle’s minimum rental duration.');
+            case 'date_conflict':
+                $this->respond(409, false, 'This vehicle is already reserved for part or all of those dates.');
+            case 'amount_too_large':
+                $this->respond(422, false, 'The selected rental period exceeds the maximum supported amount.');
+            case 'start_failed':
+                $this->respond(500, false, 'The reservation could not be started. Please try again.');
+            case 'commit_failed':
+                $this->respond(500, false, 'The reservation could not be committed. Please try again.');
+            case 'created':
+                break;
+            default:
+                error_log('Reservation creation returned an unexpected result.');
+                $this->respond(500, false, 'The reservation could not be created. Please try again.');
+        }
+
+        $this->respond(201, true, 'Reservation created successfully and is awaiting confirmation.', $this->findReservation($result['id']));
     }
 
     public function updateReservation($id)
@@ -602,87 +668,38 @@ class ApiController extends Controller
             $this->respond(422, false, 'A valid reservation status is required.');
         }
 
-        $isAdmin = $user['role'] === 'admin';
-        $db = $this->db();
-        $transactionStarted = false;
         try {
-            if (!$db->transaction()) {
-                $this->respond(500, false, 'The reservation update could not be started. Please try again.');
-            }
-            $transactionStarted = true;
-            $reservation = $db->raw(
-                'SELECT * FROM reservations WHERE id = ? FOR UPDATE',
-                [(int) $id]
-            )->fetch(PDO::FETCH_ASSOC);
-            if (!$reservation || (!$isAdmin && (int) $reservation['user_id'] !== $user['id'])) {
-                $transactionStarted = false;
-                $db->roll_back();
-                $this->respond(404, false, 'Reservation not found.');
-            }
-            if ($isAdmin) {
-                $transitions = [
-                    'pending' => ['confirmed', 'rejected', 'cancelled'],
-                    'confirmed' => ['cancelled', 'completed'],
-                ];
-                if (!in_array($status, $transitions[$reservation['status']] ?? [], true)) {
-                    $transactionStarted = false;
-                    $db->roll_back();
-                    $this->respond(409, false, 'That reservation status change is not allowed.');
-                }
-            } elseif ($status !== 'cancelled' || !in_array($reservation['status'], ['pending', 'confirmed'], true)) {
-                $transactionStarted = false;
-                $db->roll_back();
-                $this->respond(403, false, 'You may only cancel your own pending or confirmed reservations.');
-            }
-
-            if ($isAdmin && $status === 'confirmed') {
-                $car = $db->raw(
-                    'SELECT status FROM cars WHERE id = ? FOR UPDATE',
-                    [(int) $reservation['car_id']]
-                )->fetch(PDO::FETCH_ASSOC);
-                $conflict = $db->raw(
-                    "SELECT id FROM reservations
-                     WHERE car_id = ? AND id <> ? AND status IN ('pending', 'confirmed')
-                       AND start_date < ? AND end_date > ?
-                     LIMIT 1",
-                    [(int) $reservation['car_id'], (int) $id, $reservation['end_date'], $reservation['start_date']]
-                )->fetch(PDO::FETCH_ASSOC);
-                if (!$car || $car['status'] !== 'available' || $conflict) {
-                    $transactionStarted = false;
-                    $db->roll_back();
-                    $this->respond(409, false, 'This vehicle is no longer available for those dates.');
-                }
-            }
-            $db->raw(
-                'UPDATE reservations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [$status, (int) $id]
-            );
-            $transactionStarted = false;
-            if (!$db->commit()) {
-                $this->respond(500, false, 'The reservation update could not be committed. Please try again.');
-            }
-        } catch (PDOException $exception) {
-            if ($transactionStarted) {
-                $transactionStarted = false;
-                $db->roll_back();
-            }
+            $result = $this->reservationModel->updateStatus((int) $id, $user, $status);
+        } catch (Exception $exception) {
             error_log('Reservation update failed: ' . $exception->getMessage());
             $this->respond(500, false, 'The reservation could not be updated. Please try again.');
+        }
+
+        switch ($result) {
+            case 'not_found':
+                $this->respond(404, false, 'Reservation not found.');
+            case 'invalid_transition':
+                $this->respond(409, false, 'That reservation status change is not allowed.');
+            case 'customer_forbidden':
+                $this->respond(403, false, 'You may only cancel your own pending or confirmed reservations.');
+            case 'vehicle_unavailable':
+                $this->respond(409, false, 'This vehicle is no longer available for those dates.');
+            case 'start_failed':
+                $this->respond(500, false, 'The reservation update could not be started. Please try again.');
+            case 'commit_failed':
+                $this->respond(500, false, 'The reservation update could not be committed. Please try again.');
+            case 'updated':
+                break;
+            default:
+                error_log('Reservation update returned an unexpected result.');
+                $this->respond(500, false, 'The reservation could not be updated. Please try again.');
         }
         $this->respond(200, true, 'Reservation status updated successfully.', $this->findReservation((int) $id));
     }
 
     private function findReservation($id)
     {
-        return $this->db()->raw(
-            'SELECT r.*, c.make, c.model, c.year, c.category, c.plate_number, c.primary_image,
-                    u.full_name, u.username, u.email
-             FROM reservations r
-             INNER JOIN cars c ON c.id = r.car_id
-             INNER JOIN users u ON u.id = r.user_id
-             WHERE r.id = ? LIMIT 1',
-            [(int) $id]
-        )->fetch(PDO::FETCH_ASSOC);
+        return $this->reservationModel->findWithDetails($id);
     }
 
     private function isValidReservationDate($value)
@@ -719,10 +736,7 @@ class ApiController extends Controller
         }
         if ($car['status'] !== 'available') {
             $userId = (int) ($_SESSION['user_id'] ?? 0);
-            $user = $userId ? $this->db()->raw(
-                'SELECT role FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
-                [$userId]
-            )->fetch(PDO::FETCH_ASSOC) : false;
+            $user = $userId ? $this->userModel->activeRole($userId) : false;
             if (!$user || $user['role'] !== 'admin') {
                 $this->respond(404, false, 'Vehicle not found.');
             }
@@ -763,7 +777,7 @@ class ApiController extends Controller
         }
         try {
             $images = $this->carModel->delete((int) $id);
-        } catch (PDOException $exception) {
+        } catch (Exception $exception) {
             error_log('Vehicle deletion failed: ' . $exception->getMessage());
             $this->respond(409, false, 'This vehicle cannot be deleted while it is referenced by other records.');
         }
@@ -998,11 +1012,6 @@ class ApiController extends Controller
         }
     }
 
-    private function db()
-    {
-        return $this->call->database();
-    }
-
     private function input()
     {
         if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
@@ -1028,10 +1037,7 @@ class ApiController extends Controller
         if (!$id) {
             $this->respond(401, false, 'Authentication is required.');
         }
-        $user = $this->db()->raw(
-            'SELECT * FROM users WHERE id = ? LIMIT 1',
-            [$id]
-        )->fetch(PDO::FETCH_ASSOC);
+        $user = $this->userModel->findById($id);
         if (!$user || (int) $user['is_active'] !== 1) {
             unset($_SESSION['user_id']);
             $this->respond(401, false, 'Authentication is required.');

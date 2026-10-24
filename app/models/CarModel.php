@@ -131,6 +131,40 @@ class CarModel extends Model
             ->get();
     }
 
+    public function getChatContext($isAdmin)
+    {
+        $vehicleCount = (int) $this->carQuery(!$isAdmin, [])->count();
+        $query = $this->db->table($this->table);
+        if (!$isAdmin) {
+            $query->where('status', 'available');
+        }
+        $cars = $query->select(
+            'make, model, year, category, daily_rental_price, security_deposit, minimum_rental_duration, transmission, fuel_type, seating_capacity, air_conditioning, gps_navigation, additional_features, description, status'
+        )
+            ->order_by('make', 'ASC')
+            ->order_by('model', 'ASC')
+            ->limit(100)
+            ->get_all();
+        $statusCounts = [];
+        if ($isAdmin) {
+            $statusRows = $this->db->table($this->table)
+                ->select('status')
+                ->select_count('status', 'vehicle_count')
+                ->group_by('status')
+                ->order_by('status')
+                ->get_all();
+            foreach ($statusRows as $row) {
+                $statusCounts[$row['status']] = (int) $row['vehicle_count'];
+            }
+        }
+
+        return [
+            'vehicle_count' => $vehicleCount,
+            'cars' => $cars,
+            'status_counts' => $statusCounts,
+        ];
+    }
+
     public function findWithImages($id)
     {
         $car = $this->findCar($id);

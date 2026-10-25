@@ -514,6 +514,7 @@ class ApiController extends Controller
         if ($handle === false) {
             $this->respond(503, false, 'The chat service is unavailable right now.');
         }
+        $chatbotResponseHeaders = [];
         curl_setopt_array($handle, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $payload,
@@ -527,11 +528,24 @@ class ApiController extends Controller
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_TIMEOUT => 75,
             CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_HEADERFUNCTION => static function ($curl, $headerLine) use (&$chatbotResponseHeaders) {
+                $length = strlen($headerLine);
+                $parts = explode(':', $headerLine, 2);
+                if (count($parts) === 2) {
+                    $name = strtolower(trim($parts[0]));
+                    if (in_array($name, ['content-type', 'content-length', 'transfer-encoding', 'server', 'location'], true)) {
+                        $chatbotResponseHeaders[$name] = trim($parts[1]);
+                    }
+                }
+                return $length;
+            }
         ]);
         $responseBody = curl_exec($handle);
         $responseStatus = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
         $responseContentType = (string) curl_getinfo($handle, CURLINFO_CONTENT_TYPE);
+        $responseBytesReceived = (int) curl_getinfo($handle, CURLINFO_SIZE_DOWNLOAD);
+        $effectiveUrl = (string) curl_getinfo($handle, CURLINFO_EFFECTIVE_URL);
         $curlError = curl_error($handle);
         curl_close($handle);
         if ($responseBody === false) {
@@ -578,7 +592,12 @@ class ApiController extends Controller
             error_log(
                 'Chat service returned an unsuccessful response (HTTP ' . $responseStatus
                 . ', content type ' . ($responseContentType !== '' ? $responseContentType : 'unknown')
-                . ', body bytes ' . strlen($responseBody) . '): ' . $detail
+                . ', body bytes ' . strlen($responseBody)
+                . ', cURL downloaded bytes ' . $responseBytesReceived
+                . ', effective endpoint ' . (parse_url($effectiveUrl, PHP_URL_HOST) ?: 'unknown')
+                . (parse_url($effectiveUrl, PHP_URL_PATH) ?: '/')
+                . ', response headers ' . json_encode($chatbotResponseHeaders)
+                . '): ' . $detail
                 . '; response diagnostics: ' . implode('; ', $diagnostics)
             );
             $this->respond(503, false, $detail);

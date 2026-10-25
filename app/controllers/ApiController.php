@@ -523,7 +523,6 @@ class ApiController extends Controller
                 'Content-Type: application/json',
                 'Accept: application/json',
                 'Accept-Encoding: identity',
-                'Connection: close',
                 'X-Chat-Client-IP: ' . (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown')
             ],
             CURLOPT_RETURNTRANSFER => true,
@@ -531,7 +530,7 @@ class ApiController extends Controller
             CURLOPT_TIMEOUT => 75,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2TLS,
             CURLOPT_FORBID_REUSE => true,
             CURLOPT_HEADERFUNCTION => static function ($curl, $headerLine) use (&$chatbotResponseHeaders) {
                 $length = strlen($headerLine);

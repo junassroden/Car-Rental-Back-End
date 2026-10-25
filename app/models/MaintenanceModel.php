@@ -6,6 +6,8 @@ class MaintenanceModel extends Model
     private const BASELINE_SERVICE_DAYS = 180;
     private const BASELINE_SERVICE_KILOMETERS = 5000;
 
+    private $schemaReady = false;
+
     protected $table = 'tblvehicle_maintenance';
     protected $primary_key = 'maintenanceID';
     protected $fillable = [
@@ -19,18 +21,18 @@ class MaintenanceModel extends Model
         'odometerReading',
     ];
 
-    public function __construct()
-    {
-        parent::__construct();
-    }
-
     public function ensureSchema()
     {
+        if ($this->schemaReady) {
+            return;
+        }
+
         $bufferLevel = ob_get_level();
         ob_start();
 
         try {
             $this->ensureSchemaStructure();
+            $this->schemaReady = true;
         } finally {
             while (ob_get_level() > $bufferLevel) {
                 ob_end_clean();
@@ -391,6 +393,7 @@ class MaintenanceModel extends Model
         $this->db->table('tblai_maintenance_predictions')->delete();
 
         $rows = [];
+        $predictionRecords = [];
         $today = new DateTimeImmutable('today');
         foreach ($vehicles as $vehicle) {
             $vehicleId = (int) ($vehicle['id'] ?? 0);
@@ -442,7 +445,7 @@ class MaintenanceModel extends Model
             }
 
             $predictedFor = $nextMaintenanceDate ?? $today->format('Y-m-d');
-            $this->db->table('tblai_maintenance_predictions')->insert([
+            $predictionRecords[] = [
                 'vehicleID' => $vehicleId,
                 'predictedFor' => $predictedFor,
                 'predictedMaintenanceType' => $maintenanceType,
@@ -452,7 +455,7 @@ class MaintenanceModel extends Model
                 'predictionDate' => $today->format('Y-m-d H:i:s'),
                 'nextMaintenanceDate' => $nextMaintenanceDate,
                 'confidenceScore' => null,
-            ]);
+            ];
 
             $rows[] = [
                 'vehicleID' => $vehicleId,
@@ -467,6 +470,10 @@ class MaintenanceModel extends Model
                 'nextMaintenanceDate' => $nextMaintenanceDate,
                 'current_mileage' => $currentMileage,
             ];
+        }
+
+        foreach (array_chunk($predictionRecords, 200) as $batch) {
+            $this->db->table('tblai_maintenance_predictions')->bulk_insert($batch);
         }
 
         return $rows;

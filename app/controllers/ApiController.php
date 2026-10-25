@@ -452,6 +452,10 @@ class ApiController extends Controller
         if (!is_string($message) || trim($message) === '' || strlen($message) > 4000) {
             $this->respond(422, false, 'Enter a message of up to 4,000 characters.');
         }
+        $mode = $input['mode'] ?? 'rental';
+        if (!is_string($mode) || !in_array($mode, ['rental', 'diagnostic'], true)) {
+            $this->respond(422, false, 'Chat mode must be rental or diagnostic.');
+        }
         $conversationId = $input['conversation_id'] ?? null;
         if ($conversationId !== null && (!is_string($conversationId)
             || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $conversationId))) {
@@ -472,17 +476,67 @@ class ApiController extends Controller
         $userId = (int) ($_SESSION['user_id'] ?? 0);
         $user = $userId ? $this->userModel->activeRole($userId) : false;
         $isAdmin = $user && $user['role'] === 'admin';
-        $carContext = $this->carModel->getChatContext($isAdmin);
-        $vehicleCount = $carContext['vehicle_count'];
-        $cars = array_map([$this, 'normalizeChatCar'], $carContext['cars']);
-        $statusCounts = $carContext['status_counts'];
+        if ($mode === 'diagnostic' && !$isAdmin) {
+            $this->respond(403, false, 'Administrator access is required for vehicle diagnostics.');
+        }
 
-        $payload = json_encode([
-            'message' => trim($message),
-            'provider' => 'auto',
-            'conversation_id' => $conversationId,
-            'conversation_scope' => $isAdmin ? 'admin:' . $userId : 'public',
-            'rental_context' => [
+        if ($mode === 'diagnostic') {
+            $vehicleId = filter_var($input['vehicle_id'] ?? null, FILTER_VALIDATE_INT);
+            $component = $input['component'] ?? null;
+            if ($vehicleId === false || $vehicleId < 1 || !is_string($component)
+                || trim($component) === '' || strlen($component) > 80) {
+                $this->respond(422, false, 'Select a valid vehicle and diagnostic component.');
+            }
+            $vehicle = $this->carModel->findCar($vehicleId);
+            if (!$vehicle) {
+                $this->respond(404, false, 'Vehicle not found.');
+            }
+            $maintenanceRecords = array_slice($this->maintenanceModel->getVehicleRecords($vehicleId), 0, 10);
+            $records = array_map(static function ($record) {
+                return [
+                    'type' => substr((string) ($record['maintenanceType'] ?? ''), 0, 80),
+                    'date' => $record['maintenanceDate'] ?? null,
+                    'status' => substr((string) ($record['maintenanceStatus'] ?? ''), 0, 30),
+                    'odometer_km' => $record['odometerReading'] === null ? null : (int) $record['odometerReading'],
+                    'next_service_date' => $record['nextMaintenanceDate'] ?? null,
+                    'findings' => substr((string) ($record['description'] ?? ''), 0, 500),
+                ];
+            }, $maintenanceRecords);
+            $predictions = $this->maintenanceModel->getPredictions($vehicleId);
+            $prediction = $predictions ? $predictions[0] : null;
+            $rentalContext = [
+                'viewer_scope' => 'admin_diagnostic',
+                'data_as_of' => date(DATE_ATOM),
+                'diagnostic_context' => [
+                    'vehicle' => [
+                        'make' => (string) $vehicle['make'],
+                        'model' => (string) $vehicle['model'],
+                        'year' => (int) $vehicle['year'],
+                        'plate_number' => $vehicle['plate_number'],
+                        'color' => $vehicle['color'],
+                        'fuel_type' => $vehicle['fuel_type'],
+                        'transmission' => $vehicle['transmission'],
+                        'seating_capacity' => (int) $vehicle['seating_capacity'],
+                        'current_mileage_km' => isset($vehicle['current_mileage']) ? (int) $vehicle['current_mileage'] : null,
+                        'status' => $vehicle['status'],
+                    ],
+                    'selected_component' => trim($component),
+                    'maintenance_history' => $records,
+                    'rule_based_estimate' => $prediction ? [
+                        'status' => $prediction['riskLevel'],
+                        'due_date' => $prediction['nextMaintenanceDate'],
+                        'basis' => substr((string) $prediction['predictedIssue'], 0, 500),
+                        'recommended_action' => substr((string) $prediction['recommendedAction'], 0, 500),
+                    ] : null,
+                    'measurement_policy' => 'No live sensor telemetry or component test readings are available. Do not infer condition, measurements, or faults.',
+                ],
+            ];
+        } else {
+            $carContext = $this->carModel->getChatContext($isAdmin);
+            $vehicleCount = $carContext['vehicle_count'];
+            $cars = array_map([$this, 'normalizeChatCar'], $carContext['cars']);
+            $statusCounts = $carContext['status_counts'];
+            $rentalContext = [
                 'currency' => 'PHP',
                 'data_as_of' => date(DATE_ATOM),
                 'viewer_scope' => $isAdmin ? 'admin' : 'public',
@@ -495,7 +549,15 @@ class ApiController extends Controller
                 'maintenance_history_supported' => true,
                 'mileage_and_service_interval_fields_available' => true,
                 'booking_or_transaction_records_supported' => false,
-            ]
+            ];
+        }
+
+        $payload = json_encode([
+            'message' => trim($message),
+            'provider' => 'auto',
+            'conversation_id' => $conversationId,
+            'conversation_scope' => $isAdmin ? 'admin:' . $userId : 'public',
+            'rental_context' => $rentalContext,
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($payload === false) {
             error_log('Chat request could not be encoded: ' . json_last_error_msg());

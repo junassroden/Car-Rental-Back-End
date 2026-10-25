@@ -531,6 +531,7 @@ class ApiController extends Controller
         ]);
         $responseBody = curl_exec($handle);
         $responseStatus = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        $responseContentType = (string) curl_getinfo($handle, CURLINFO_CONTENT_TYPE);
         $curlError = curl_error($handle);
         curl_close($handle);
         if ($responseBody === false) {
@@ -552,6 +553,21 @@ class ApiController extends Controller
         if ($responseStatus < 200 || $responseStatus >= 300
             || !is_array($result) || !$chatSuccess || $chatMessage === null || trim($chatMessage) === '') {
             $detail = 'The chat service is unavailable right now.';
+            $diagnostics = [];
+            if (!is_array($result)) {
+                $diagnostics[] = 'invalid JSON (' . json_last_error_msg() . ')';
+            } else {
+                $diagnostics[] = 'top-level fields: ' . implode(', ', array_keys($result));
+                if (is_array($result['data'] ?? null)) {
+                    $diagnostics[] = 'data fields: ' . implode(', ', array_keys($result['data']));
+                }
+                if (!$chatSuccess) {
+                    $diagnostics[] = 'success flag missing or false';
+                }
+                if ($chatMessage === null || trim($chatMessage) === '') {
+                    $diagnostics[] = 'message missing or empty';
+                }
+            }
             if (is_array($result) && is_string($result['error']['message'] ?? null)) {
                 $detail = $result['error']['message'];
             } elseif (is_string($result['message'] ?? null)) {
@@ -559,7 +575,12 @@ class ApiController extends Controller
             } elseif ($curlError !== '') {
                 $detail = 'The chat service is unavailable right now: ' . $curlError;
             }
-            error_log('Chat service returned an unsuccessful response (HTTP ' . $responseStatus . '): ' . $detail);
+            error_log(
+                'Chat service returned an unsuccessful response (HTTP ' . $responseStatus
+                . ', content type ' . ($responseContentType !== '' ? $responseContentType : 'unknown')
+                . ', body bytes ' . strlen($responseBody) . '): ' . $detail
+                . '; response diagnostics: ' . implode('; ', $diagnostics)
+            );
             $this->respond(503, false, $detail);
         }
         $this->respond(200, true, 'Chat response generated.', [

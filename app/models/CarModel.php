@@ -26,11 +26,6 @@ class CarModel extends Model
     ];
     protected $guarded = ['id'];
 
-    public function __construct()
-    {
-        parent::__construct();
-    }
-
     public function read($availableOnly, array $filters, $page, $perPage, $sort)
     {
         $cars = $this->carQuery($availableOnly, $filters)->get_all();
@@ -61,9 +56,11 @@ class CarModel extends Model
         $this->sortCars($cars, $sort);
         $total = count($cars);
         $cars = array_slice($cars, ($page - 1) * $perPage, $perPage);
-        $cars = array_map(function ($car) {
-            return $this->withImages($car);
-        }, $cars);
+        $imagesByCar = $this->imagesForCars(array_column($cars, 'id'));
+        foreach ($cars as &$car) {
+            $car['images'] = $imagesByCar[(int) $car['id']] ?? [];
+        }
+        unset($car);
 
         $availableCount = $this->db->table($this->table)
             ->where('status', 'available')
@@ -169,7 +166,13 @@ class CarModel extends Model
     {
         $car = $this->findCar($id);
 
-        return $car ? $this->withImages($car) : null;
+        if (!$car) {
+            return null;
+        }
+
+        $car['images'] = $this->images((int) $car['id']);
+
+        return $car;
     }
 
     public function plateNumberExists($plateNumber, $exceptId = 0)
@@ -182,21 +185,43 @@ class CarModel extends Model
 
     public function images($carId)
     {
+        $imagesByCar = $this->imagesForCars([(int) $carId]);
+
+        return $imagesByCar[(int) $carId] ?? [];
+    }
+
+    private function imagesForCars(array $carIds)
+    {
+        $carIds = array_values(array_unique(array_map('intval', $carIds)));
+        if (!$carIds) {
+            return [];
+        }
+
         $images = $this->db->table('car_images')
-            ->select('id, image_path, is_primary, created_at')
-            ->where('car_id', (int) $carId)
+            ->select('id, car_id, image_path, is_primary, created_at')
+            ->in('car_id', $carIds)
             ->order_by('id', 'ASC')
             ->get_all();
 
-        usort($images, static function ($left, $right) {
-            $primaryOrder = (int) $right['is_primary'] <=> (int) $left['is_primary'];
+        $imagesByCar = [];
+        foreach ($images as $image) {
+            $carId = (int) $image['car_id'];
+            unset($image['car_id']);
+            $imagesByCar[$carId][] = $image;
+        }
 
-            return $primaryOrder !== 0
-                ? $primaryOrder
-                : (int) $left['id'] <=> (int) $right['id'];
-        });
+        foreach ($imagesByCar as &$carImages) {
+            usort($carImages, static function ($left, $right) {
+                $primaryOrder = (int) $right['is_primary'] <=> (int) $left['is_primary'];
 
-        return $images;
+                return $primaryOrder !== 0
+                    ? $primaryOrder
+                    : (int) $left['id'] <=> (int) $right['id'];
+            });
+        }
+        unset($carImages);
+
+        return $imagesByCar;
     }
 
     public function createImage($carId, $imagePath)
@@ -321,10 +346,4 @@ class CarModel extends Model
         });
     }
 
-    private function withImages(array $car)
-    {
-        $car['images'] = $this->images((int) $car['id']);
-
-        return $car;
-    }
 }

@@ -40,12 +40,15 @@ class ApiController extends Controller
             exit;
         }
         if (session_status() !== PHP_SESSION_ACTIVE) {
+            $forwardedProto = strtolower(trim(explode(',', $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')[0]));
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || $forwardedProto === 'https';
             session_set_cookie_params([
                 'lifetime' => 0,
                 'path' => '/',
-                'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+                'secure' => $isHttps,
                 'httponly' => true,
-                'samesite' => 'Strict',
+                'samesite' => $isHttps ? 'None' : 'Strict',
             ]);
             session_start();
         }
@@ -115,7 +118,7 @@ class ApiController extends Controller
                 'domain' => $params['domain'],
                 'secure' => $params['secure'],
                 'httponly' => true,
-                'samesite' => 'Strict',
+                'samesite' => $params['samesite'] ?: 'Strict',
             ]);
         }
         session_destroy();

@@ -72,6 +72,22 @@ class DirectChatService
         if ($apiKey === '' || !preg_match('/^[A-Za-z0-9._-]+$/', $model)) {
             throw new DirectChatException(503, 'The AI service is not configured correctly.');
         }
+        $models = [$model];
+        $fallbackModels = array_map(
+            'trim',
+            explode(',', (string) (getenv('GOOGLE_AI_STUDIO_FALLBACK_MODELS') ?: 'gemini-3.6-flash'))
+        );
+        foreach ($fallbackModels as $fallbackModel) {
+            if ($fallbackModel === '') {
+                continue;
+            }
+            if (!preg_match('/^[A-Za-z0-9._-]+$/', $fallbackModel)) {
+                throw new DirectChatException(503, 'The AI service is not configured correctly.');
+            }
+            if (!in_array($fallbackModel, $models, true) && count($models) < 3) {
+                $models[] = $fallbackModel;
+            }
+        }
         if (!function_exists('curl_init')) {
             throw new DirectChatException(503, 'The AI service is unavailable right now.');
         }
@@ -105,93 +121,89 @@ class DirectChatService
         }
 
         $timeout = $this->positiveInteger(getenv('AI_REQUEST_TIMEOUT'), 60, 120);
-        $url = 'https://generativelanguage.googleapis.com/v1beta/models/'
-            . rawurlencode($model) . ':generateContent';
-        $handle = curl_init($url);
-        if ($handle === false) {
-            throw new DirectChatException(503, 'The AI service is unavailable right now.');
-        }
-
-        curl_setopt_array($handle, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $encodedPayload,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Accept: application/json',
-                'x-goog-api-key: ' . $apiKey
-            ],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
-            CURLOPT_TIMEOUT => $timeout,
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2
-        ]);
-        $rawResponse = curl_exec($handle);
-        $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($handle);
-        $curlErrorNumber = curl_errno($handle);
-        curl_close($handle);
-
-        if ($rawResponse === false || $curlErrorNumber !== 0) {
-            error_log('Google AI Studio request failed: ' . $curlError);
-            throw new DirectChatException(503, 'The AI service is unavailable right now.');
-        }
-        if ($status === 401 || $status === 403) {
-            error_log('Google AI Studio rejected the configured API key (HTTP ' . $status . ').');
-            throw new DirectChatException(503, 'The AI service is not configured correctly.');
-        }
-        if ($status === 429) {
-            error_log('Google AI Studio rate-limited the request.');
-            throw new DirectChatException(503, 'The AI service is busy. Please try again shortly.');
-        }
-        $providerError = json_decode($rawResponse, true);
-        $providerErrorMessage = is_array($providerError)
-            && is_array($providerError['error'] ?? null)
-            && is_string($providerError['error']['message'] ?? null)
-            ? trim($providerError['error']['message'])
-            : '';
-        if ($status === 404) {
-            $providerErrorMessage = str_replace($apiKey, '[redacted]', $providerErrorMessage);
-            error_log(
-                'Google AI Studio could not find configured model ' . $model . ' (HTTP 404)'
-                . ($providerErrorMessage !== '' ? ': ' . substr($providerErrorMessage, 0, 500) : '.')
-            );
-            throw new DirectChatException(
-                503,
-                'Google AI Studio could not find the configured Gemini model. Check GOOGLE_AI_STUDIO_MODEL in Render and use a model available to your account.'
-            );
-        }
-        if ($status < 200 || $status >= 300) {
-            $providerErrorMessage = str_replace($apiKey, '[redacted]', $providerErrorMessage);
-            error_log(
-                'Google AI Studio returned HTTP ' . $status
-                . ($providerErrorMessage !== '' ? ': ' . substr($providerErrorMessage, 0, 500) : '.')
-            );
-            throw new DirectChatException(503, 'The AI service could not complete the request.');
-        }
-
-        $response = $providerError;
-        if (!is_array($response)) {
-            error_log('Google AI Studio returned invalid JSON: ' . json_last_error_msg());
-            throw new DirectChatException(502, 'The AI service returned an invalid response.');
-        }
-
-        $parts = $response['candidates'][0]['content']['parts'] ?? [];
-        $textParts = [];
-        foreach ($parts as $part) {
-            if (is_array($part) && is_string($part['text'] ?? null) && empty($part['thought'])) {
-                $textParts[] = $part['text'];
+        foreach ($models as $modelIndex => $candidateModel) {
+            $url = 'https://generativelanguage.googleapis.com/v1beta/models/'
+                . rawurlencode($candidateModel) . ':generateContent';
+            $handle = curl_init($url);
+            if ($handle === false) {
+                error_log('Could not initialize Google AI Studio request for model ' . $candidateModel . '.');
+                continue;
             }
-        }
-        $reply = trim(implode('', $textParts));
-        if ($reply === '') {
-            error_log('Google AI Studio returned no text candidate.');
-            throw new DirectChatException(502, 'The AI service returned an empty response.');
+
+            curl_setopt_array($handle, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $encodedPayload,
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'Accept: application/json',
+                    'x-goog-api-key: ' . $apiKey
+                ],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
+                CURLOPT_TIMEOUT => $timeout,
+                CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2
+            ]);
+            $rawResponse = curl_exec($handle);
+            $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($handle);
+            $curlErrorNumber = curl_errno($handle);
+            curl_close($handle);
+
+            if ($rawResponse === false || $curlErrorNumber !== 0) {
+                error_log('Google AI Studio request failed for model ' . $candidateModel . ': ' . $curlError);
+                continue;
+            }
+            if ($status === 401 || $status === 403) {
+                error_log('Google AI Studio rejected the configured API key (HTTP ' . $status . ').');
+                throw new DirectChatException(503, 'The AI service is not configured correctly.');
+            }
+
+            $response = json_decode($rawResponse, true);
+            $providerErrorMessage = is_array($response)
+                && is_array($response['error'] ?? null)
+                && is_string($response['error']['message'] ?? null)
+                ? trim($response['error']['message'])
+                : '';
+            if ($status < 200 || $status >= 300) {
+                $providerErrorMessage = str_replace($apiKey, '[redacted]', $providerErrorMessage);
+                error_log(
+                    'Google AI Studio returned HTTP ' . $status . ' for model ' . $candidateModel
+                    . ($providerErrorMessage !== '' ? ': ' . substr($providerErrorMessage, 0, 500) : '.')
+                );
+                if ($status === 404 || $status === 429 || $status >= 500) {
+                    continue;
+                }
+                throw new DirectChatException(503, 'The AI service could not complete the request.');
+            }
+            if (!is_array($response)) {
+                error_log('Google AI Studio returned invalid JSON for model ' . $candidateModel . ': ' . json_last_error_msg());
+                continue;
+            }
+
+            $parts = $response['candidates'][0]['content']['parts'] ?? [];
+            $textParts = [];
+            foreach ($parts as $part) {
+                if (is_array($part) && is_string($part['text'] ?? null) && empty($part['thought'])) {
+                    $textParts[] = $part['text'];
+                }
+            }
+            $reply = trim(implode('', $textParts));
+            if ($reply !== '') {
+                if ($modelIndex > 0) {
+                    error_log('Google AI Studio fallback model succeeded: ' . $candidateModel . '.');
+                }
+                return $reply;
+            }
+            error_log('Google AI Studio returned no text candidate for model ' . $candidateModel . '.');
         }
 
-        return $reply;
+        throw new DirectChatException(
+            503,
+            'The AI service is temporarily busy. Please wait a moment and try again.'
+        );
     }
 
     private function isRentalQuestion($message, array $history, array $rentalContext)

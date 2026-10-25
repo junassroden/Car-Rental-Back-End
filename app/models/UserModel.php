@@ -63,7 +63,7 @@ class UserModel extends Model
             'full_name' => $fullName,
             'email' => $email,
             'password' => password_hash($password, PASSWORD_DEFAULT),
-            'role' => 'user',
+            'role' => 'customer',
             'is_active' => 1,
         ]);
     }

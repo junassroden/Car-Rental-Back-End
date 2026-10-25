@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
     verification_photo_filename VARCHAR(80) NULL,
     verification_consent_at DATETIME NULL,
     password VARCHAR(255) NOT NULL,
-    role ENUM('admin', 'moderator', 'user') NOT NULL DEFAULT 'user',
+    role ENUM('admin', 'customer') NOT NULL DEFAULT 'customer',
     is_active TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL,

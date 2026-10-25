@@ -522,6 +522,8 @@ class ApiController extends Controller
                 'Authorization: Bearer ' . $token,
                 'Content-Type: application/json',
                 'Accept: application/json',
+                'Accept-Encoding: identity',
+                'Connection: close',
                 'X-Chat-Client-IP: ' . (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown')
             ],
             CURLOPT_RETURNTRANSFER => true,
@@ -529,12 +531,17 @@ class ApiController extends Controller
             CURLOPT_TIMEOUT => 75,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_FORBID_REUSE => true,
             CURLOPT_HEADERFUNCTION => static function ($curl, $headerLine) use (&$chatbotResponseHeaders) {
                 $length = strlen($headerLine);
                 $parts = explode(':', $headerLine, 2);
                 if (count($parts) === 2) {
                     $name = strtolower(trim($parts[0]));
-                    if (in_array($name, ['content-type', 'content-length', 'transfer-encoding', 'server', 'location'], true)) {
+                    if (in_array($name, [
+                        'content-type', 'content-length', 'transfer-encoding', 'server', 'location',
+                        'cf-ray', 'cf-cache-status', 'x-render-origin-server'
+                    ], true)) {
                         $chatbotResponseHeaders[$name] = trim($parts[1]);
                     }
                 }
@@ -545,6 +552,7 @@ class ApiController extends Controller
         $responseStatus = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
         $responseContentType = (string) curl_getinfo($handle, CURLINFO_CONTENT_TYPE);
         $responseBytesReceived = (int) curl_getinfo($handle, CURLINFO_SIZE_DOWNLOAD);
+        $responseHttpVersion = (int) curl_getinfo($handle, CURLINFO_HTTP_VERSION);
         $effectiveUrl = (string) curl_getinfo($handle, CURLINFO_EFFECTIVE_URL);
         $curlError = curl_error($handle);
         curl_close($handle);
@@ -594,6 +602,7 @@ class ApiController extends Controller
                 . ', content type ' . ($responseContentType !== '' ? $responseContentType : 'unknown')
                 . ', body bytes ' . strlen($responseBody)
                 . ', cURL downloaded bytes ' . $responseBytesReceived
+                . ', HTTP version ' . $responseHttpVersion
                 . ', effective endpoint ' . (parse_url($effectiveUrl, PHP_URL_HOST) ?: 'unknown')
                 . (parse_url($effectiveUrl, PHP_URL_PATH) ?: '/')
                 . ', response headers ' . json_encode($chatbotResponseHeaders)

@@ -4,11 +4,23 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 class ApiController extends Controller
 {
     private const CAR_FIELDS = [
-        'make', 'model', 'year', 'category', 'plate_number', 'color',
-        'description', 'daily_rental_price', 'security_deposit',
-        'minimum_rental_duration', 'transmission', 'fuel_type',
-        'seating_capacity', 'air_conditioning', 'gps_navigation',
-        'additional_features', 'status',
+        'make',
+        'model',
+        'year',
+        'category',
+        'plate_number',
+        'color',
+        'description',
+        'daily_rental_price',
+        'security_deposit',
+        'minimum_rental_duration',
+        'transmission',
+        'fuel_type',
+        'seating_capacity',
+        'air_conditioning',
+        'gps_navigation',
+        'additional_features',
+        'status',
     ];
 
     public function before_action()
@@ -198,16 +210,20 @@ class ApiController extends Controller
         }
 
         $photoDirectory = $this->verificationPhotoDirectory();
-        if ($newFilename !== null && !is_dir($photoDirectory)
-            && !mkdir($photoDirectory, 0700, true) && !is_dir($photoDirectory)) {
+        if (
+            $newFilename !== null && !is_dir($photoDirectory)
+            && !mkdir($photoDirectory, 0700, true) && !is_dir($photoDirectory)
+        ) {
             error_log('Could not create the private profile photo directory.');
             $this->respond(500, false, 'The profile photo could not be saved. Please try again.');
         }
 
-        if ($newFilename !== null && !move_uploaded_file(
-            $uploadedPhoto['tmp_name'],
-            $photoDirectory . DIRECTORY_SEPARATOR . $newFilename
-        )) {
+        if (
+            $newFilename !== null && !move_uploaded_file(
+                $uploadedPhoto['tmp_name'],
+                $photoDirectory . DIRECTORY_SEPARATOR . $newFilename
+            )
+        ) {
             error_log('Could not save a private customer profile photo.');
             $this->respond(500, false, 'The profile photo could not be saved. Please try again.');
         }
@@ -457,16 +473,20 @@ class ApiController extends Controller
             $this->respond(422, false, 'Chat mode must be rental or diagnostic.');
         }
         $conversationId = $input['conversation_id'] ?? null;
-        if ($conversationId !== null && (!is_string($conversationId)
-            || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $conversationId))) {
+        if (
+            $conversationId !== null && (!is_string($conversationId)
+                || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $conversationId))
+        ) {
             $this->respond(400, false, 'The chat conversation is invalid.');
         }
 
         lava_instance()->config->load('api');
         $token = trim((string) config_item('chatbot_api_token'));
         $chatbotUrl = trim((string) config_item('chatbot_api_url'));
-        if ($token === '' || strlen($token) < 32 || !filter_var($chatbotUrl, FILTER_VALIDATE_URL)
-            || !in_array(strtolower((string) parse_url($chatbotUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+        if (
+            $token === '' || strlen($token) < 32 || !filter_var($chatbotUrl, FILTER_VALIDATE_URL)
+            || !in_array(strtolower((string) parse_url($chatbotUrl, PHP_URL_SCHEME)), ['http', 'https'], true)
+        ) {
             $this->respond(503, false, 'The chat service is not configured.');
         }
         if (!function_exists('curl_init')) {
@@ -483,8 +503,10 @@ class ApiController extends Controller
         if ($mode === 'diagnostic') {
             $vehicleId = filter_var($input['vehicle_id'] ?? null, FILTER_VALIDATE_INT);
             $component = $input['component'] ?? null;
-            if ($vehicleId === false || $vehicleId < 1 || !is_string($component)
-                || trim($component) === '' || strlen($component) > 80) {
+            if (
+                $vehicleId === false || $vehicleId < 1 || !is_string($component)
+                || trim($component) === '' || strlen($component) > 80
+            ) {
                 $this->respond(422, false, 'Select a valid vehicle and diagnostic component.');
             }
             $vehicle = $this->carModel->findCar($vehicleId);
@@ -593,8 +615,10 @@ class ApiController extends Controller
         }
 
         $result = json_decode($responseBody, true);
-        if ($responseStatus < 200 || $responseStatus >= 300
-            || !is_array($result) || empty($result['success']) || !is_string($result['message'] ?? null)) {
+        if (
+            $responseStatus < 200 || $responseStatus >= 300
+            || !is_array($result) || empty($result['success']) || !is_string($result['message'] ?? null)
+        ) {
             $detail = 'The chat service is unavailable right now.';
             if (is_array($result) && is_string($result['error']['message'] ?? null)) {
                 $detail = $result['error']['message'];
@@ -900,10 +924,12 @@ class ApiController extends Controller
         $startDate = $_GET['start_date'] ?? null;
         $endDate = $_GET['end_date'] ?? null;
         if ($startDate !== null || $endDate !== null) {
-            if (!$availableOnly || !$this->isValidReservationDate($startDate)
+            if (
+                !$availableOnly || !$this->isValidReservationDate($startDate)
                 || !$this->isValidReservationDate($endDate)
                 || $endDate <= $startDate
-                || $startDate < (new DateTimeImmutable('today'))->format('Y-m-d')) {
+                || $startDate < (new DateTimeImmutable('today'))->format('Y-m-d')
+            ) {
                 $this->respond(422, false, 'Provide a valid future pickup and return date range.');
             }
         }

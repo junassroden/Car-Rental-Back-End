@@ -18,10 +18,15 @@ class ApiController extends Controller
         $this->userModel = $this->call->model('UserModel');
         $this->reservationModel = $this->call->model('ReservationModel');
 
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        $allowedOrigin = getenv('FRONTEND_ORIGIN') ?: 'http://127.0.0.1:5173';
-        if ($origin === $allowedOrigin) {
-            header('Access-Control-Allow-Origin: ' . $allowedOrigin);
+        $origin = rtrim($_SERVER['HTTP_ORIGIN'] ?? '', '/');
+        $allowedOrigins = array_values(array_filter(array_map(
+            static function ($allowedOrigin) {
+                return rtrim(trim($allowedOrigin), '/');
+            },
+            explode(',', getenv('FRONTEND_ORIGIN') ?: 'http://127.0.0.1:5173')
+        )));
+        if (in_array($origin, $allowedOrigins, true)) {
+            header('Access-Control-Allow-Origin: ' . $origin);
             header('Access-Control-Allow-Credentials: true');
             header('Vary: Origin');
         } elseif ($origin !== '') {

@@ -5,11 +5,6 @@ class ReservationModel extends Model
 {
     protected $table = 'reservations';
 
-    public function __construct()
-    {
-        parent::__construct();
-    }
-
     public function getForUser(array $user)
     {
         $query = $this->db->table($this->table)

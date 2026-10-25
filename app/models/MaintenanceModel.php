@@ -3,6 +3,9 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 class MaintenanceModel extends Model
 {
+    private const BASELINE_SERVICE_DAYS = 180;
+    private const BASELINE_SERVICE_KILOMETERS = 5000;
+
     protected $table = 'tblvehicle_maintenance';
     protected $primary_key = 'maintenanceID';
     protected $fillable = [
@@ -274,12 +277,17 @@ class MaintenanceModel extends Model
             ->get_all();
     }
 
-    public function getPredictions()
+    public function getPredictions($vehicleId = null)
     {
         $this->ensureSchema();
-        return $this->db->table('tblai_maintenance_predictions')
-            ->select('tblai_maintenance_predictions.predictionID, tblai_maintenance_predictions.vehicleID, tblai_maintenance_predictions.predictedFor, tblai_maintenance_predictions.predictedMaintenanceType, tblai_maintenance_predictions.predictedIssue, tblai_maintenance_predictions.riskLevel, tblai_maintenance_predictions.recommendedAction, tblai_maintenance_predictions.predictionDate, tblai_maintenance_predictions.nextMaintenanceDate, tblai_maintenance_predictions.confidenceScore, tblai_maintenance_predictions.created_at, tblai_maintenance_predictions.updated_at, cars.make, cars.model, cars.plate_number, cars.current_mileage')
-            ->inner_join('cars', 'cars.id = tblai_maintenance_predictions.vehicleID')
+        $query = $this->db->table('tblai_maintenance_predictions')
+            ->select('tblai_maintenance_predictions.predictionID, tblai_maintenance_predictions.vehicleID, tblai_maintenance_predictions.predictedFor, tblai_maintenance_predictions.predictedMaintenanceType, tblai_maintenance_predictions.predictedIssue, tblai_maintenance_predictions.riskLevel, tblai_maintenance_predictions.recommendedAction, tblai_maintenance_predictions.predictionDate, tblai_maintenance_predictions.nextMaintenanceDate, tblai_maintenance_predictions.created_at, tblai_maintenance_predictions.updated_at, cars.make, cars.model, cars.plate_number, cars.current_mileage')
+            ->inner_join('cars', 'cars.id = tblai_maintenance_predictions.vehicleID');
+        if ($vehicleId !== null) {
+            $query->where('tblai_maintenance_predictions.vehicleID', (int) $vehicleId);
+        }
+
+        return $query
             ->order_by('predictedFor', 'ASC')
             ->order_by('predictionID', 'DESC')
             ->get_all();
@@ -434,52 +442,47 @@ class MaintenanceModel extends Model
             $lastDate = $maintenance['last_maintenance_date'] ?? null;
             $lastMileage = $maintenance['last_maintenance_odometer'] ?? null;
             $currentMileage = $vehicle['current_mileage'];
-            $maintenanceType = ($maintenance['last_maintenance_type'] ?? null) ?: 'oil-change';
+            $maintenanceType = ($maintenance['last_maintenance_type'] ?? null) ?: 'general inspection';
             $nextDueDate = $maintenance['last_next_maintenance_date'] ?? null;
 
             $nextMaintenanceDate = null;
             $estimatedMileage = null;
-            $issue = 'No maintenance concern detected.';
-            $action = 'Continue regular fleet checks and inspect the vehicle during its next scheduled service window.';
-            $riskLevel = 'low';
-            $confidence = 0.85;
+            $issue = 'Insufficient data: no completed service history is available for an interval estimate.';
+            $action = 'Record completed maintenance and odometer readings before relying on a service estimate.';
+            $riskLevel = 'insufficient';
 
             if ($lastDate !== null) {
                 $dueDate = new DateTimeImmutable($lastDate);
-                $dueDate = $dueDate->modify('+180 days');
+                $dueDate = $dueDate->modify('+' . self::BASELINE_SERVICE_DAYS . ' days');
                 $nextMaintenanceDate = $dueDate->format('Y-m-d');
-                $estimatedMileage = ($lastMileage !== null ? (int) $lastMileage + 5000 : null);
-                $issue = 'Service interval is approaching based on the last recorded maintenance.';
-                $action = 'Schedule maintenance review and verify fluid, filter, and brake condition.';
+                $estimatedMileage = ($lastMileage !== null ? (int) $lastMileage + self::BASELINE_SERVICE_KILOMETERS : null);
+                $issue = 'No baseline service threshold has been reached based on the recorded service history. This is not a mechanical health assessment.';
+                $action = 'Check the vehicle manufacturer schedule and continue recording completed service and mileage.';
                 $riskLevel = 'low';
-                $confidence = 0.9;
 
                 if ($currentMileage !== null && $estimatedMileage !== null && $currentMileage >= $estimatedMileage) {
                     $riskLevel = 'high';
-                    $issue = 'The vehicle has exceeded the recommended service interval based on recorded mileage.';
-                    $action = 'Schedule an inspection immediately and record the exact maintenance work performed.';
-                    $confidence = 0.96;
-                } elseif ($today->diff(new DateTimeImmutable($nextMaintenanceDate))->days <= 30) {
-                    $riskLevel = 'medium';
-                    $issue = 'The next maintenance window is within 30 days.';
-                    $action = 'Plan the next maintenance service within the current inspection cycle.';
-                    $confidence = 0.88;
+                    $issue = 'Recorded mileage has reached the system baseline service interval since the last completed service. This is a maintenance schedule status, not a confirmed mechanical fault.';
+                    $action = 'Review the manufacturer service schedule and record the service outcome.';
                 } elseif ($nextDueDate !== null && $today > new DateTimeImmutable($nextDueDate)) {
                     $riskLevel = 'high';
-                    $issue = 'The scheduled maintenance date has already passed.';
-                    $action = 'Review overdue service tasks and complete the next maintenance check without delay.';
-                    $confidence = 0.94;
+                    $issue = 'A recorded scheduled maintenance date has passed. This is not a confirmed mechanical fault.';
+                    $action = 'Review the scheduled task and record its completion or revised due date.';
+                } elseif ($today > new DateTimeImmutable($nextMaintenanceDate)) {
+                    $riskLevel = 'high';
+                    $issue = 'The system baseline date interval has passed. Check the vehicle manufacturer schedule before deciding service.';
+                    $action = 'Review the manufacturer schedule and record the service outcome.';
+                } elseif ($today->diff(new DateTimeImmutable($nextMaintenanceDate))->days <= 30) {
+                    $riskLevel = 'medium';
+                    $issue = 'The system baseline service date is within 30 days.';
+                    $action = 'Review the manufacturer schedule and plan the next service.';
                 }
             } elseif ($currentMileage !== null) {
-                $riskLevel = 'medium';
-                $issue = 'No maintenance history exists, so a reliable service estimate cannot be calculated yet.';
-                $action = 'Record the vehicle’s last maintenance date and odometer reading to produce a service estimate.';
-                $confidence = 0.65;
+                $issue = 'Current mileage is recorded, but no completed service history is available for an interval estimate.';
+                $action = 'Record the date and odometer reading from the latest completed service.';
             } else {
-                $riskLevel = 'insufficient';
                 $issue = 'Maintenance history and current mileage are missing.';
                 $action = 'Add the last service date and mileage before generating maintenance forecasts.';
-                $confidence = 0.4;
             }
 
             $predictedFor = $nextMaintenanceDate ?? $today->format('Y-m-d');
@@ -492,7 +495,7 @@ class MaintenanceModel extends Model
                 'recommendedAction' => $action,
                 'predictionDate' => $today->format('Y-m-d H:i:s'),
                 'nextMaintenanceDate' => $nextMaintenanceDate,
-                'confidenceScore' => number_format($confidence, 2, '.', ''),
+                'confidenceScore' => null,
             ]);
 
             $rows[] = [
@@ -506,7 +509,6 @@ class MaintenanceModel extends Model
                 'riskLevel' => $riskLevel,
                 'recommendedAction' => $action,
                 'nextMaintenanceDate' => $nextMaintenanceDate,
-                'confidenceScore' => $confidence,
                 'current_mileage' => $currentMileage,
             ];
         }

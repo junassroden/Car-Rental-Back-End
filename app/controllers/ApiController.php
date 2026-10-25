@@ -539,8 +539,18 @@ class ApiController extends Controller
         }
 
         $result = json_decode($responseBody, true);
+        $chatResult = is_array($result) && is_array($result['data'] ?? null)
+            ? $result['data']
+            : $result;
+        $chatMessage = is_array($chatResult) && is_string($chatResult['message'] ?? null)
+            ? $chatResult['message']
+            : (is_array($result) && is_string($result['message'] ?? null) ? $result['message'] : null);
+        $chatSuccess = is_array($result) && !empty($result['success']);
+        if (!$chatSuccess && is_array($chatResult)) {
+            $chatSuccess = !empty($chatResult['success']);
+        }
         if ($responseStatus < 200 || $responseStatus >= 300
-            || !is_array($result) || empty($result['success']) || !is_string($result['message'] ?? null)) {
+            || !is_array($result) || !$chatSuccess || $chatMessage === null || trim($chatMessage) === '') {
             $detail = 'The chat service is unavailable right now.';
             if (is_array($result) && is_string($result['error']['message'] ?? null)) {
                 $detail = $result['error']['message'];
@@ -553,8 +563,8 @@ class ApiController extends Controller
             $this->respond(503, false, $detail);
         }
         $this->respond(200, true, 'Chat response generated.', [
-            'message' => $result['message'],
-            'conversation_id' => $result['conversation_id'] ?? null
+            'message' => $chatMessage,
+            'conversation_id' => $chatResult['conversation_id'] ?? $result['conversation_id'] ?? null
         ]);
     }
 

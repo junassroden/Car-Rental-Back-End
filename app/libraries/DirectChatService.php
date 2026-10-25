@@ -146,12 +146,33 @@ class DirectChatService
             error_log('Google AI Studio rate-limited the request.');
             throw new DirectChatException(503, 'The AI service is busy. Please try again shortly.');
         }
+        $providerError = json_decode($rawResponse, true);
+        $providerErrorMessage = is_array($providerError)
+            && is_array($providerError['error'] ?? null)
+            && is_string($providerError['error']['message'] ?? null)
+            ? trim($providerError['error']['message'])
+            : '';
+        if ($status === 404) {
+            $providerErrorMessage = str_replace($apiKey, '[redacted]', $providerErrorMessage);
+            error_log(
+                'Google AI Studio could not find configured model ' . $model . ' (HTTP 404)'
+                . ($providerErrorMessage !== '' ? ': ' . substr($providerErrorMessage, 0, 500) : '.')
+            );
+            throw new DirectChatException(
+                503,
+                'Google could not find the configured Gemini model. Check GOOGLE_AI_STUDIO_MODEL in Render and enter only its model ID, such as gemini-2.5-flash.'
+            );
+        }
         if ($status < 200 || $status >= 300) {
-            error_log('Google AI Studio returned HTTP ' . $status . '.');
+            $providerErrorMessage = str_replace($apiKey, '[redacted]', $providerErrorMessage);
+            error_log(
+                'Google AI Studio returned HTTP ' . $status
+                . ($providerErrorMessage !== '' ? ': ' . substr($providerErrorMessage, 0, 500) : '.')
+            );
             throw new DirectChatException(503, 'The AI service could not complete the request.');
         }
 
-        $response = json_decode($rawResponse, true);
+        $response = $providerError;
         if (!is_array($response)) {
             error_log('Google AI Studio returned invalid JSON: ' . json_last_error_msg());
             throw new DirectChatException(502, 'The AI service returned an invalid response.');

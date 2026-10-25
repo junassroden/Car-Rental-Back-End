@@ -466,17 +466,6 @@ class ApiController extends Controller
             $this->respond(400, false, 'The chat conversation is invalid.');
         }
 
-        lava_instance()->config->load('api');
-        $token = trim((string) config_item('chatbot_api_token'));
-        $chatbotUrl = trim((string) config_item('chatbot_api_url'));
-        if ($token === '' || strlen($token) < 32 || !filter_var($chatbotUrl, FILTER_VALIDATE_URL)
-            || !in_array(strtolower((string) parse_url($chatbotUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
-            $this->respond(503, false, 'The chat service is not configured.');
-        }
-        if (!function_exists('curl_init')) {
-            $this->respond(503, false, 'The chat service is unavailable right now.');
-        }
-
         $userId = (int) ($_SESSION['user_id'] ?? 0);
         $user = $userId ? $this->userModel->activeRole($userId) : false;
         $isAdmin = $user && $user['role'] === 'admin';
@@ -485,134 +474,45 @@ class ApiController extends Controller
         $cars = array_map([$this, 'normalizeChatCar'], $carContext['cars']);
         $statusCounts = $carContext['status_counts'];
 
-        $payload = json_encode([
-            'message' => trim($message),
-            'provider' => 'auto',
-            'conversation_id' => $conversationId,
-            'conversation_scope' => $isAdmin ? 'admin:' . $userId : 'public',
-            'rental_context' => [
-                'currency' => 'PHP',
-                'data_as_of' => date(DATE_ATOM),
-                'viewer_scope' => $isAdmin ? 'admin' : 'public',
-                'vehicle_count' => $vehicleCount,
-                'vehicle_list_truncated' => $vehicleCount > count($cars),
-                'vehicles' => $cars,
-                'vehicle_counts_by_status' => $isAdmin ? $statusCounts : null,
-                'vehicle_status_field_available' => true,
-                'vehicle_status_authorized' => $isAdmin,
-                'maintenance_history_supported' => true,
-                'mileage_and_service_interval_fields_available' => true,
-                'booking_or_transaction_records_supported' => false,
-            ]
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($payload === false) {
-            error_log('Chat request could not be encoded: ' . json_last_error_msg());
-            $this->respond(500, false, 'The chat request could not be completed.');
-        }
-
-        $handle = curl_init($chatbotUrl);
-        if ($handle === false) {
-            $this->respond(503, false, 'The chat service is unavailable right now.');
-        }
-        $chatbotResponseHeaders = [];
-        curl_setopt_array($handle, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $payload,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $token,
-                'Content-Type: application/json',
-                'Accept: application/json',
-                'Accept-Encoding: identity',
-                'X-Chat-Client-IP: ' . (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown')
-            ],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 75,
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2TLS,
-            CURLOPT_FORBID_REUSE => true,
-            CURLOPT_HEADERFUNCTION => static function ($curl, $headerLine) use (&$chatbotResponseHeaders) {
-                $length = strlen($headerLine);
-                $parts = explode(':', $headerLine, 2);
-                if (count($parts) === 2) {
-                    $name = strtolower(trim($parts[0]));
-                    if (in_array($name, [
-                        'content-type', 'content-length', 'transfer-encoding', 'server', 'location',
-                        'cf-ray', 'cf-cache-status', 'x-render-origin-server'
-                    ], true)) {
-                        $chatbotResponseHeaders[$name] = trim($parts[1]);
-                    }
-                }
-                return $length;
-            }
-        ]);
-        $responseBody = curl_exec($handle);
-        $responseStatus = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
-        $responseContentType = (string) curl_getinfo($handle, CURLINFO_CONTENT_TYPE);
-        $responseBytesReceived = (int) curl_getinfo($handle, CURLINFO_SIZE_DOWNLOAD);
-        $responseHttpVersion = (int) curl_getinfo($handle, CURLINFO_HTTP_VERSION);
-        $effectiveUrl = (string) curl_getinfo($handle, CURLINFO_EFFECTIVE_URL);
-        $curlError = curl_error($handle);
-        curl_close($handle);
-        if ($responseBody === false) {
-            error_log('Chat service request failed: ' . $curlError);
-            $this->respond(503, false, 'The chat service is unavailable right now.');
-        }
-
-        $result = json_decode($responseBody, true);
-        $chatResult = is_array($result) && is_array($result['data'] ?? null)
-            ? $result['data']
-            : $result;
-        $chatMessage = is_array($chatResult) && is_string($chatResult['message'] ?? null)
-            ? $chatResult['message']
-            : (is_array($result) && is_string($result['message'] ?? null) ? $result['message'] : null);
-        $chatSuccess = is_array($result) && !empty($result['success']);
-        if (!$chatSuccess && is_array($chatResult)) {
-            $chatSuccess = !empty($chatResult['success']);
-        }
-        if ($responseStatus < 200 || $responseStatus >= 300
-            || !is_array($result) || !$chatSuccess || $chatMessage === null || trim($chatMessage) === '') {
-            $detail = 'The chat service is unavailable right now.';
-            $diagnostics = [];
-            if (!is_array($result)) {
-                $diagnostics[] = 'invalid JSON (' . json_last_error_msg() . ')';
-            } else {
-                $diagnostics[] = 'top-level fields: ' . implode(', ', array_keys($result));
-                if (is_array($result['data'] ?? null)) {
-                    $diagnostics[] = 'data fields: ' . implode(', ', array_keys($result['data']));
-                }
-                if (!$chatSuccess) {
-                    $diagnostics[] = 'success flag missing or false';
-                }
-                if ($chatMessage === null || trim($chatMessage) === '') {
-                    $diagnostics[] = 'message missing or empty';
-                }
-            }
-            if (is_array($result) && is_string($result['error']['message'] ?? null)) {
-                $detail = $result['error']['message'];
-            } elseif (is_string($result['message'] ?? null)) {
-                $detail = $result['message'];
-            } elseif ($curlError !== '') {
-                $detail = 'The chat service is unavailable right now: ' . $curlError;
-            }
-            error_log(
-                'Chat service returned an unsuccessful response (HTTP ' . $responseStatus
-                . ', content type ' . ($responseContentType !== '' ? $responseContentType : 'unknown')
-                . ', body bytes ' . strlen($responseBody)
-                . ', cURL downloaded bytes ' . $responseBytesReceived
-                . ', HTTP version ' . $responseHttpVersion
-                . ', effective endpoint ' . (parse_url($effectiveUrl, PHP_URL_HOST) ?: 'unknown')
-                . (parse_url($effectiveUrl, PHP_URL_PATH) ?: '/')
-                . ', response headers ' . json_encode($chatbotResponseHeaders)
-                . '): ' . $detail
-                . '; response diagnostics: ' . implode('; ', $diagnostics)
+        $rentalContext = [
+            'currency' => 'PHP',
+            'data_as_of' => date(DATE_ATOM),
+            'viewer_scope' => $isAdmin ? 'admin' : 'public',
+            'vehicle_count' => $vehicleCount,
+            'vehicle_list_truncated' => $vehicleCount > count($cars),
+            'vehicles' => $cars,
+            'vehicle_counts_by_status' => $isAdmin ? $statusCounts : null,
+            'vehicle_status_field_available' => true,
+            'vehicle_status_authorized' => $isAdmin,
+            'maintenance_history_supported' => true,
+            'mileage_and_service_interval_fields_available' => true,
+            'booking_or_transaction_records_supported' => false,
+        ];
+        $conversationScope = $isAdmin ? 'admin:' . $userId : 'customer:' . $userId;
+        try {
+            $chatService = $this->call->library('DirectChatService');
+            $chatResult = $chatService->chat(
+                trim($message),
+                $conversationId,
+                $rentalContext,
+                $conversationScope,
+                $userId
             );
-            $this->respond(503, false, $detail);
+        } catch (DirectChatException $exception) {
+            if ($exception->getHttpStatus() >= 500) {
+                error_log('Direct chat request failed: ' . $exception->getMessage());
+            }
+            if ($exception->getRetryAfter() !== null) {
+                header('Retry-After: ' . $exception->getRetryAfter());
+            }
+            $this->respond($exception->getHttpStatus(), false, $exception->getMessage());
+        } catch (RuntimeException $exception) {
+            error_log('Direct chat request failed: ' . $exception->getMessage());
+            $this->respond(503, false, 'The chat request could not be completed right now.');
         }
         $this->respond(200, true, 'Chat response generated.', [
-            'message' => $chatMessage,
-            'conversation_id' => $chatResult['conversation_id'] ?? $result['conversation_id'] ?? null
+            'message' => $chatResult['message'],
+            'conversation_id' => $chatResult['conversation_id']
         ]);
     }
 

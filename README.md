@@ -304,19 +304,21 @@ represented as completed features.
 
 ### Chatbot integration
 
-The browser sends chat requests to this API, which forwards them to the
-Chatbot service at `CHATBOT_API_URL` (default
-`http://127.0.0.1:3001/api/chat`). Keep `AI_ROUTER_TOKEN` identical in
-`Back-End/.env` and `Chatbot/.env`; do not expose or commit this token.
-Start the Chatbot service from `..\chatbot` with:
+The browser sends chat requests to this API. The backend calls Google AI
+Studio directly, so a separate Chatbot web service is not required. Set these
+variables in the backend's local `.env` or Render environment:
 
-```powershell
-cd ..\chatbot
-php lava serve --port=3001
+```dotenv
+GOOGLE_AI_STUDIO_API_KEY=your_google_ai_studio_key
+GOOGLE_AI_STUDIO_MODEL=gemini-2.5-flash
 ```
 
-The React app loads its widget from `..\chatbot\frontend`. Configure at least
-one provider in `Chatbot/.env` or make the configured Ollama service available.
+Create the key in Google AI Studio and keep it only in the backend environment;
+never add it to the React/Vercel environment or commit it to source control.
+The backend preserves the rental-only scope filter, per-user request limits,
+conversation history, and current authorized vehicle snapshot when it calls
+the provider. The separate ChatBot Render service can be stopped after this
+backend version is deployed and verified.
 
 ---
 

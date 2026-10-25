@@ -193,15 +193,3 @@ $config['rate_limit_requests'] = 60;
 |
 */
 $config['rate_limit_seconds'] = 60;
-
-/*
-|--------------------------------------------------------------------------
-| Chatbot Service
-|--------------------------------------------------------------------------
-|
-| The LavaLust API forwards chat requests to the separate chatbot service.
-| Keep the endpoint and shared service token in the environment.
-|
-*/
-$config['chatbot_api_url'] = getenv('CHATBOT_API_URL') ?: 'http://127.0.0.1:3001/api/chat';
-$config['chatbot_api_token'] = getenv('AI_ROUTER_TOKEN') ?: '';

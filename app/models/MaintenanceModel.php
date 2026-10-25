@@ -129,10 +129,16 @@ class MaintenanceModel extends Model
                 ]);
             }
         }
-        $riskLevel = $this->db->raw(
-            'SELECT COLUMN_TYPE AS column_type FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?',
-            ['tblai_maintenance_predictions', 'riskLevel']
-        )->fetch(PDO::FETCH_ASSOC);
+        $databaseName = getenv('DB_NAME') ?: 'car_rental_db';
+        $riskLevel = $this->db->table('information_schema.columns')
+            ->select('column_type')
+            ->where([
+                'table_schema' => $databaseName,
+                'table_name' => 'tblai_maintenance_predictions',
+                'column_name' => 'riskLevel',
+            ])
+            ->limit(1)
+            ->get();
         if ($riskLevel && strtolower($riskLevel['column_type']) !== 'varchar(20)') {
             $forge->modify_column('tblai_maintenance_predictions', [
                 'riskLevel' => [
@@ -143,56 +149,6 @@ class MaintenanceModel extends Model
                 ],
             ]);
         }
-
-        $this->ensureVehicleForeignKey($this->table, 'tblvehicle_maintenance_car_fk');
-        $this->ensureVehicleForeignKey('tblai_maintenance_predictions', 'tblai_maintenance_predictions_car_fk');
-    }
-
-    private function ensureVehicleForeignKey($table, $constraintName)
-    {
-        $foreignKeys = $this->db->raw(
-            'SELECT CONSTRAINT_NAME AS constraint_name, REFERENCED_TABLE_NAME AS referenced_table FROM information_schema.key_column_usage WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? AND referenced_table_name IS NOT NULL',
-            [$table, 'vehicleID']
-        )->fetchAll(PDO::FETCH_ASSOC);
-        $hasCarsForeignKey = false;
-
-        foreach ($foreignKeys as $foreignKey) {
-            if ($foreignKey['referenced_table'] === 'cars') {
-                $hasCarsForeignKey = true;
-            }
-        }
-
-        if (!$hasCarsForeignKey) {
-            $orphanCount = $this->db->raw(
-                "SELECT COUNT(*) FROM `{$table}` AS records LEFT JOIN cars ON cars.id = records.vehicleID WHERE cars.id IS NULL"
-            )->fetchColumn();
-            if ((int) $orphanCount > 0) {
-                throw new RuntimeException('Maintenance data references vehicles that do not exist in the cars table.');
-            }
-        }
-
-        foreach ($foreignKeys as $foreignKey) {
-            if ($foreignKey['referenced_table'] !== 'cars') {
-                $existingConstraint = str_replace('`', '``', $foreignKey['constraint_name']);
-                $this->db->raw("ALTER TABLE `{$table}` DROP FOREIGN KEY `{$existingConstraint}`");
-            }
-        }
-
-        if ($hasCarsForeignKey) {
-            return;
-        }
-
-        $vehicleColumn = $this->db->raw(
-            'SELECT COLUMN_TYPE AS column_type FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?',
-            [$table, 'vehicleID']
-        )->fetch(PDO::FETCH_ASSOC);
-        if ($vehicleColumn && strpos(strtolower($vehicleColumn['column_type']), 'unsigned') === false) {
-            $this->db->raw("ALTER TABLE `{$table}` MODIFY COLUMN `vehicleID` INT UNSIGNED NOT NULL");
-        }
-
-        $this->db->raw(
-            "ALTER TABLE `{$table}` ADD CONSTRAINT `{$constraintName}` FOREIGN KEY (`vehicleID`) REFERENCES `cars` (`id`) ON DELETE CASCADE ON UPDATE CASCADE"
-        );
     }
 
     public function getVehicleRecords($vehicleId = null)

@@ -68,7 +68,7 @@ class DirectChatService
     private function generateReply(array $messages)
     {
         $apiKey = trim((string) getenv('GOOGLE_AI_STUDIO_API_KEY'));
-        $model = trim((string) (getenv('GOOGLE_AI_STUDIO_MODEL') ?: 'gemini-2.5-flash'));
+        $model = trim((string) (getenv('GOOGLE_AI_STUDIO_MODEL') ?: 'gemini-3.8-flash'));
         if ($apiKey === '' || !preg_match('/^[A-Za-z0-9._-]+$/', $model)) {
             throw new DirectChatException(503, 'The AI service is not configured correctly.');
         }
@@ -160,7 +160,7 @@ class DirectChatService
             );
             throw new DirectChatException(
                 503,
-                'Google could not find the configured Gemini model. Check GOOGLE_AI_STUDIO_MODEL in Render and enter only its model ID, such as gemini-2.5-flash.'
+                'Google AI Studio could not find the configured Gemini model. Check GOOGLE_AI_STUDIO_MODEL in Render and use a model available to your account.'
             );
         }
         if ($status < 200 || $status >= 300) {

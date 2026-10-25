@@ -310,7 +310,7 @@ variables in the backend's local `.env` or Render environment:
 
 ```dotenv
 GOOGLE_AI_STUDIO_API_KEY=your_google_ai_studio_key
-GOOGLE_AI_STUDIO_MODEL=gemini-2.5-flash
+GOOGLE_AI_STUDIO_MODEL=gemini-3.8-flash
 ```
 
 Create the key in Google AI Studio and keep it only in the backend environment;

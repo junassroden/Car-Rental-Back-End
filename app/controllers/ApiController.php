@@ -31,16 +31,24 @@ class ApiController extends Controller
         $this->reservationModel = $this->call->model('ReservationModel');
 
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        $allowedOrigin = getenv('FRONTEND_ORIGIN') ?: 'http://127.0.0.1:5173';
-        if ($origin === $allowedOrigin) {
-            header('Access-Control-Allow-Origin: ' . $allowedOrigin);
+        $allowedOrigins = array_values(array_unique(array_filter(array_map(static function ($value) {
+            return trim((string) $value);
+        }, preg_split('/\s*,\s*/', (string) (getenv('FRONTEND_ORIGIN') ?: 'http://localhost:5173,http://127.0.0.1:5173'))), static function ($value) {
+            return $value !== '';
+        })));
+        if ($allowedOrigins === []) {
+            $allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+        }
+        if (in_array($origin, $allowedOrigins, true)) {
+            header('Access-Control-Allow-Origin: ' . $origin);
             header('Access-Control-Allow-Credentials: true');
             header('Vary: Origin');
         } elseif ($origin !== '') {
-            $this->respond(403, false, 'Origin is not allowed.');
+            $this->response->send_json(['success' => false, 'message' => 'Origin is not allowed.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type, Accept');
+        header('Access-Control-Allow-Headers: Content-Type, Accept, Authorization, X-Requested-With');
         header('Access-Control-Max-Age: 600');
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
             http_response_code(204);
@@ -50,9 +58,9 @@ class ApiController extends Controller
             session_set_cookie_params([
                 'lifetime' => 0,
                 'path' => '/',
-                'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+                'secure' => false,
                 'httponly' => true,
-                'samesite' => 'Strict',
+                'samesite' => 'Lax',
             ]);
             session_start();
         }
@@ -64,17 +72,20 @@ class ApiController extends Controller
         $identity = trim((string) ($input['email'] ?? $input['username'] ?? ''));
         $password = (string) ($input['password'] ?? '');
         if ($identity === '' || $password === '') {
-            $this->respond(422, false, 'Email/username and password are required.');
+            $this->response->send_json(['success' => false, 'message' => 'Email/username and password are required.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $user = $this->userModel->findByIdentity($identity);
         if (!$user || (int) $user['is_active'] !== 1 || !password_verify($password, $user['password'])) {
-            $this->respond(401, false, 'Invalid login credentials.');
+            $this->response->send_json(['success' => false, 'message' => 'Invalid login credentials.'], 401, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         session_regenerate_id(true);
         $_SESSION['user_id'] = (int) $user['id'];
-        $this->respond(200, true, 'Login successful.', $this->publicUser($user));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Login successful.', 'data' => $this->publicUser($user)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function register()
@@ -85,30 +96,37 @@ class ApiController extends Controller
         $password = is_string($input['password'] ?? null) ? $input['password'] : '';
 
         if ($fullName === '' || strlen($fullName) > 150) {
-            $this->respond(422, false, 'Full name is required and must be no longer than 150 characters.');
+            $this->response->send_json(['success' => false, 'message' => 'Full name is required and must be no longer than 150 characters.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 255) {
-            $this->respond(422, false, 'Enter a valid email address.');
+            $this->response->send_json(['success' => false, 'message' => 'Enter a valid email address.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (strlen($password) < 8 || strlen($password) > 72) {
-            $this->respond(422, false, 'Password must be between 8 and 72 characters.');
+            $this->response->send_json(['success' => false, 'message' => 'Password must be between 8 and 72 characters.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         if ($this->userModel->emailExists($email)) {
-            $this->respond(409, false, 'An account with that email address already exists.');
+            $this->response->send_json(['success' => false, 'message' => 'An account with that email address already exists.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         try {
             $this->userModel->createCustomer($fullName, $email, $password);
         } catch (Exception $exception) {
             if ($exception->getCode() === '23000') {
-                $this->respond(409, false, 'An account could not be created because the email address or username is already in use.');
+                $this->response->send_json(['success' => false, 'message' => 'An account could not be created because the email address or username is already in use.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             error_log('Account registration failed: ' . $exception->getMessage());
-            $this->respond(500, false, 'The account could not be created. Please try again.');
+            $this->response->send_json(['success' => false, 'message' => 'The account could not be created. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
-        $this->respond(201, true, 'Account created successfully.');
+        $this->response->send_json(['success' => true, 'message' => 'Account created successfully.'], 201, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function logout()
@@ -126,12 +144,14 @@ class ApiController extends Controller
             ]);
         }
         session_destroy();
-        $this->respond(200, true, 'Logged out successfully.');
+        $this->response->send_json(['success' => true, 'message' => 'Logged out successfully.'], 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function me()
     {
-        $this->respond(200, true, 'Authenticated user retrieved.', $this->authenticatedUser());
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Authenticated user retrieved.', 'data' => $this->authenticatedUser()], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function profile()
@@ -139,20 +159,24 @@ class ApiController extends Controller
         header('Cache-Control: private, no-store, max-age=0');
         header('Pragma: no-cache');
         $user = $this->authenticatedUserRecord();
-        if ($user['role'] === 'admin') {
-            $this->respond(403, false, 'Customer profile access is required.');
+        if ($this->isAdminRole($user['role'] ?? null)) {
+            $this->response->send_json(['success' => false, 'message' => 'Customer profile access is required.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method === 'GET') {
-            $this->respond(200, true, 'Profile retrieved successfully.', $this->profileData($user));
+            $this->response->send_json(array_filter(['success' => true, 'message' => 'Profile retrieved successfully.', 'data' => $this->profileData($user)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if ($method !== 'POST') {
-            $this->respond(405, false, 'Only GET and POST requests are allowed.');
+            $this->response->send_json(['success' => false, 'message' => 'Only GET and POST requests are allowed.'], 405, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         if ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 6 * 1024 * 1024) {
-            $this->respond(413, false, 'The profile photo must be no larger than 5 MB.');
+            $this->response->send_json(['success' => false, 'message' => 'The profile photo must be no larger than 5 MB.'], 413, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $input = $this->input();
@@ -171,40 +195,48 @@ class ApiController extends Controller
         foreach ($fields as $field => $rules) {
             $value = is_string($input[$field] ?? null) ? trim($input[$field]) : '';
             if ($value === '' || strlen($value) > $rules['max']) {
-                $this->respond(422, false, $rules['label'] . ' is required and must be no longer than ' . $rules['max'] . ' characters.');
+                $this->response->send_json(['success' => false, 'message' => $rules['label'] . ' is required and must be no longer than ' . $rules['max'] . ' characters.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $values[$field] = $value;
         }
 
         if (!preg_match('/^[+0-9().\-\s]{7,30}$/', $values['phone'])) {
-            $this->respond(422, false, 'Enter a valid phone number.');
+            $this->response->send_json(['success' => false, 'message' => 'Enter a valid phone number.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $expiry = DateTimeImmutable::createFromFormat('!Y-m-d', $values['driver_license_expiry']);
         if (!$expiry || $expiry->format('Y-m-d') !== $values['driver_license_expiry']) {
-            $this->respond(422, false, 'Enter a valid driver’s licence expiry date.');
+            $this->response->send_json(['success' => false, 'message' => 'Enter a valid driver’s licence expiry date.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if ($expiry < new DateTimeImmutable('today')) {
-            $this->respond(422, false, 'The driver’s licence must not be expired.');
+            $this->response->send_json(['success' => false, 'message' => 'The driver’s licence must not be expired.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (($input['verification_consent'] ?? '') !== 'yes') {
-            $this->respond(422, false, 'Confirm that the photo shows you holding your driver’s licence before saving.');
+            $this->response->send_json(['success' => false, 'message' => 'Confirm that the photo shows you holding your driver’s licence before saving.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $uploadedPhoto = $_FILES['verification_photo'] ?? null;
         $hasExistingPhoto = $this->hasVerificationPhoto($user);
         if (!$hasExistingPhoto && (!$uploadedPhoto || $uploadedPhoto['error'] !== UPLOAD_ERR_OK)) {
-            $this->respond(422, false, 'Upload a photo of yourself holding your driver’s licence.');
+            $this->response->send_json(['success' => false, 'message' => 'Upload a photo of yourself holding your driver’s licence.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $newFilename = null;
         if ($uploadedPhoto && $uploadedPhoto['error'] !== UPLOAD_ERR_NO_FILE) {
             if ($uploadedPhoto['error'] !== UPLOAD_ERR_OK || $uploadedPhoto['size'] > 5 * 1024 * 1024) {
-                $this->respond(422, false, 'The profile photo must be a valid image no larger than 5 MB.');
+                $this->response->send_json(['success' => false, 'message' => 'The profile photo must be a valid image no larger than 5 MB.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $mime = (new finfo(FILEINFO_MIME_TYPE))->file($uploadedPhoto['tmp_name']);
             $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
             if (!isset($extensions[$mime]) || @getimagesize($uploadedPhoto['tmp_name']) === false) {
-                $this->respond(422, false, 'Only valid JPEG, PNG, and WebP profile photos are accepted.');
+                $this->response->send_json(['success' => false, 'message' => 'Only valid JPEG, PNG, and WebP profile photos are accepted.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $newFilename = bin2hex(random_bytes(24)) . '.' . $extensions[$mime];
         }
@@ -215,7 +247,8 @@ class ApiController extends Controller
             && !mkdir($photoDirectory, 0700, true) && !is_dir($photoDirectory)
         ) {
             error_log('Could not create the private profile photo directory.');
-            $this->respond(500, false, 'The profile photo could not be saved. Please try again.');
+            $this->response->send_json(['success' => false, 'message' => 'The profile photo could not be saved. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         if (
@@ -225,7 +258,8 @@ class ApiController extends Controller
             )
         ) {
             error_log('Could not save a private customer profile photo.');
-            $this->respond(500, false, 'The profile photo could not be saved. Please try again.');
+            $this->response->send_json(['success' => false, 'message' => 'The profile photo could not be saved. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         try {
@@ -235,7 +269,8 @@ class ApiController extends Controller
                 $this->deleteVerificationPhoto($newFilename);
             }
             error_log('Customer profile update failed: ' . $exception->getMessage());
-            $this->respond(500, false, 'The profile could not be saved. Please try again.');
+            $this->response->send_json(['success' => false, 'message' => 'The profile could not be saved. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         if ($newFilename !== null && !empty($user['verification_photo_filename'])) {
@@ -243,30 +278,35 @@ class ApiController extends Controller
         }
         if (!$updatedUser) {
             error_log('Updated customer profile could not be reloaded.');
-            $this->respond(500, false, 'The profile was saved but could not be reloaded. Please refresh and try again.');
+            $this->response->send_json(['success' => false, 'message' => 'The profile was saved but could not be reloaded. Please refresh and try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
-        $this->respond(200, true, 'Profile saved successfully.', $this->profileData($updatedUser));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Profile saved successfully.', 'data' => $this->profileData($updatedUser)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function verificationPhoto()
     {
         header('Cache-Control: private, no-store, max-age=0');
         $user = $this->authenticatedUserRecord();
-        if ($user['role'] === 'admin') {
-            $this->respond(403, false, 'Customer profile access is required.');
+        if ($this->isAdminRole($user['role'] ?? null)) {
+            $this->response->send_json(['success' => false, 'message' => 'Customer profile access is required.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $filename = basename((string) ($user['verification_photo_filename'] ?? ''));
         $path = $filename !== ''
             ? $this->verificationPhotoDirectory() . DIRECTORY_SEPARATOR . $filename
             : '';
         if ($path === '' || !is_file($path)) {
-            $this->respond(404, false, 'No profile verification photo was found.');
+            $this->response->send_json(['success' => false, 'message' => 'No profile verification photo was found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $mime = (new finfo(FILEINFO_MIME_TYPE))->file($path);
         if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
             error_log('Stored customer verification photo has an unsupported content type.');
-            $this->respond(415, false, 'The profile verification photo cannot be displayed.');
+            $this->response->send_json(['success' => false, 'message' => 'The profile verification photo cannot be displayed.'], 415, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         header('Content-Type: ' . $mime);
         header('Content-Length: ' . filesize($path));
@@ -313,11 +353,12 @@ class ApiController extends Controller
             }
         }
 
-        $this->respond(200, true, 'Maintenance records retrieved successfully.', [
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Maintenance records retrieved successfully.', 'data' => [
             'summary' => $summary,
             'vehicles' => $vehicles,
             'records' => $records,
-        ]);
+        ]], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function maintenancePredictions()
@@ -365,18 +406,20 @@ class ApiController extends Controller
             }
         }
 
-        $this->respond(200, true, 'Maintenance predictions retrieved successfully.', [
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Maintenance predictions retrieved successfully.', 'data' => [
             'summary' => $summary,
             'vehicles' => $vehicles,
             'predictions' => $predictions,
-        ]);
+        ]], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function generateMaintenancePredictions()
     {
         $this->requireAdmin();
         $predictions = $this->maintenanceModel->generatePredictions();
-        $this->respond(200, true, 'Maintenance predictions were recalculated successfully.', $predictions);
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Maintenance predictions were recalculated successfully.', 'data' => $predictions], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function createMaintenanceRecord()
@@ -387,22 +430,27 @@ class ApiController extends Controller
         $required = ['vehicleID', 'maintenanceType'];
         foreach ($required as $field) {
             if (!array_key_exists($field, $input) || trim((string) $input[$field]) === '') {
-                $this->respond(422, false, 'Vehicle and maintenance type are required.');
+                $this->response->send_json(['success' => false, 'message' => 'Vehicle and maintenance type are required.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
 
         if (!$this->carModel->findCar((int) $input['vehicleID'])) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         try {
             $record = $this->maintenanceModel->createRecord($input);
-            $this->respond(201, true, 'Maintenance record saved successfully.', $record);
+            $this->response->send_json(array_filter(['success' => true, 'message' => 'Maintenance record saved successfully.', 'data' => $record], function ($value) { return $value !== null; }), 201, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         } catch (InvalidArgumentException $exception) {
-            $this->respond(422, false, $exception->getMessage());
+            $this->response->send_json(['success' => false, 'message' => $exception->getMessage()], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         } catch (Exception $exception) {
             error_log('Maintenance record creation failed: ' . $exception->getMessage());
-            $this->respond(500, false, 'The maintenance record could not be saved.');
+            $this->response->send_json(['success' => false, 'message' => 'The maintenance record could not be saved.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
     }
 
@@ -411,18 +459,22 @@ class ApiController extends Controller
         $this->requireAdmin();
 
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respond(404, false, 'Maintenance record not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Maintenance record not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $input = $this->input();
         $result = $this->maintenanceModel->updateRecord((int) $id, $input);
         if ($result === null) {
-            $this->respond(404, false, 'Maintenance record not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Maintenance record not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (!$result['updated']) {
-            $this->respond(422, false, 'No fields were provided to update.');
+            $this->response->send_json(['success' => false, 'message' => 'No fields were provided to update.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
-        $this->respond(200, true, 'Maintenance record updated successfully.', $result['record']);
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Maintenance record updated successfully.', 'data' => $result['record']], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function updateVehicleMileage()
@@ -433,51 +485,66 @@ class ApiController extends Controller
         $vehicleId = (int) ($input['vehicleID'] ?? $input['car_id'] ?? 0);
         $mileage = isset($input['current_mileage']) ? (int) $input['current_mileage'] : (isset($input['mileage']) ? (int) $input['mileage'] : 0);
         if ($vehicleId < 1 || $mileage < 0) {
-            $this->respond(422, false, 'A valid vehicle and mileage are required.');
+            $this->response->send_json(['success' => false, 'message' => 'A valid vehicle and mileage are required.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (!$this->carModel->findCar((int) $vehicleId)) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         try {
             $updated = $this->maintenanceModel->updateMileage($vehicleId, $mileage);
-            $this->respond(200, true, 'Vehicle mileage updated successfully.', $updated);
+            $this->response->send_json(array_filter(['success' => true, 'message' => 'Vehicle mileage updated successfully.', 'data' => $updated], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         } catch (InvalidArgumentException $exception) {
-            $this->respond(422, false, $exception->getMessage());
+            $this->response->send_json(['success' => false, 'message' => $exception->getMessage()], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
     }
 
     public function chat()
     {
+        $this->handleChatRequest();
+    }
+
+    protected function handleChatRequest()
+    {
         if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-            $this->respond(405, false, 'Only POST requests are allowed.');
+            $this->response->send_json(['success' => false, 'message' => 'Only POST requests are allowed.'], 405, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $sessionUser = $this->authenticatedUserRecord();
-        if (!isset($sessionUser['role']) || !in_array($sessionUser['role'], ['admin', 'customer'], true)) {
-            $this->respond(403, false, 'Authenticated customer or administrator access is required.');
+        if (!isset($sessionUser['role']) || (!$this->isAdminRole($sessionUser['role']) && !$this->isCustomerRole($sessionUser['role']))) {
+            $this->response->send_json(['success' => false, 'message' => 'Authenticated customer or administrator access is required.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
         if ($contentLength > 8192) {
-            $this->respond(413, false, 'The chat message is too large.');
+            $this->response->send_json(['success' => false, 'message' => 'The chat message is too large.'], 413, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $input = $this->input();
         $message = $input['message'] ?? null;
         if (!is_string($message) || trim($message) === '' || strlen($message) > 4000) {
-            $this->respond(422, false, 'Enter a message of up to 4,000 characters.');
+            $this->response->send_json(['success' => false, 'message' => 'Enter a message of up to 4,000 characters.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $mode = $input['mode'] ?? 'rental';
         if (!is_string($mode) || !in_array($mode, ['rental', 'diagnostic'], true)) {
-            $this->respond(422, false, 'Chat mode must be rental or diagnostic.');
+            $this->response->send_json(['success' => false, 'message' => 'Chat mode must be rental or diagnostic.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $conversationId = $input['conversation_id'] ?? null;
         if (
             $conversationId !== null && (!is_string($conversationId)
                 || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $conversationId))
         ) {
-            $this->respond(400, false, 'The chat conversation is invalid.');
+            $this->response->send_json(['success' => false, 'message' => 'The chat conversation is invalid.'], 400, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         lava_instance()->config->load('api');
@@ -487,17 +554,20 @@ class ApiController extends Controller
             $token === '' || strlen($token) < 32 || !filter_var($chatbotUrl, FILTER_VALIDATE_URL)
             || !in_array(strtolower((string) parse_url($chatbotUrl, PHP_URL_SCHEME)), ['http', 'https'], true)
         ) {
-            $this->respond(503, false, 'The chat service is not configured.');
+            $this->response->send_json(['success' => false, 'message' => 'The chat service is not configured.'], 503, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (!function_exists('curl_init')) {
-            $this->respond(503, false, 'The chat service is unavailable right now.');
+            $this->response->send_json(['success' => false, 'message' => 'The chat service is unavailable right now.'], 503, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $userId = (int) ($_SESSION['user_id'] ?? 0);
         $user = $userId ? $this->userModel->activeRole($userId) : false;
         $isAdmin = $user && $user['role'] === 'admin';
         if ($mode === 'diagnostic' && !$isAdmin) {
-            $this->respond(403, false, 'Administrator access is required for vehicle diagnostics.');
+            $this->response->send_json(['success' => false, 'message' => 'Administrator access is required for vehicle diagnostics.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         if ($mode === 'diagnostic') {
@@ -507,11 +577,13 @@ class ApiController extends Controller
                 $vehicleId === false || $vehicleId < 1 || !is_string($component)
                 || trim($component) === '' || strlen($component) > 80
             ) {
-                $this->respond(422, false, 'Select a valid vehicle and diagnostic component.');
+                $this->response->send_json(['success' => false, 'message' => 'Select a valid vehicle and diagnostic component.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $vehicle = $this->carModel->findCar($vehicleId);
             if (!$vehicle) {
-                $this->respond(404, false, 'Vehicle not found.');
+                $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $maintenanceRecords = array_slice($this->maintenanceModel->getVehicleRecords($vehicleId), 0, 10);
             $records = array_map(static function ($record) {
@@ -583,12 +655,14 @@ class ApiController extends Controller
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($payload === false) {
             error_log('Chat request could not be encoded: ' . json_last_error_msg());
-            $this->respond(500, false, 'The chat request could not be completed.');
+            $this->response->send_json(['success' => false, 'message' => 'The chat request could not be completed.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $handle = curl_init($chatbotUrl);
         if ($handle === false) {
-            $this->respond(503, false, 'The chat service is unavailable right now.');
+            $this->response->send_json(['success' => false, 'message' => 'The chat service is unavailable right now.'], 503, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         curl_setopt_array($handle, [
             CURLOPT_POST => true,
@@ -611,7 +685,8 @@ class ApiController extends Controller
         curl_close($handle);
         if ($responseBody === false) {
             error_log('Chat service request failed: ' . $curlError);
-            $this->respond(503, false, 'The chat service is unavailable right now.');
+            $this->response->send_json(['success' => false, 'message' => 'The chat service is unavailable right now.'], 503, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $result = json_decode($responseBody, true);
@@ -628,12 +703,14 @@ class ApiController extends Controller
                 $detail = 'The chat service is unavailable right now: ' . $curlError;
             }
             error_log('Chat service returned an unsuccessful response (HTTP ' . $responseStatus . '): ' . $detail);
-            $this->respond(503, false, $detail);
+            $this->response->send_json(['success' => false, 'message' => $detail], 503, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
-        $this->respond(200, true, 'Chat response generated.', [
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Chat response generated.', 'data' => [
             'message' => $result['message'],
             'conversation_id' => $result['conversation_id'] ?? null
-        ]);
+        ]], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     private function normalizeChatCar(array $car)
@@ -659,27 +736,32 @@ class ApiController extends Controller
     {
         $user = $this->authenticatedUser();
         $reservations = $this->reservationModel->getForUser($user);
-        $this->respond(200, true, 'Reservations retrieved successfully.', $reservations);
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservations retrieved successfully.', 'data' => $reservations], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function reservation($id)
     {
         $user = $this->authenticatedUser();
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respond(404, false, 'Reservation not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $reservation = $this->findReservation((int) $id);
         if (!$reservation || ($user['role'] !== 'admin' && (int) $reservation['user_id'] !== $user['id'])) {
-            $this->respond(404, false, 'Reservation not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
-        $this->respond(200, true, 'Reservation retrieved successfully.', $reservation);
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservation retrieved successfully.', 'data' => $reservation], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function createReservation()
     {
         $user = $this->authenticatedUser();
-        if ($user['role'] !== 'customer') {
-            $this->respond(403, false, 'Only customer accounts can create reservations.');
+        if (!$this->isCustomerRole($user['role'])) {
+            $this->response->send_json(['success' => false, 'message' => 'Only customer accounts can create reservations.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $input = $this->input();
@@ -687,10 +769,12 @@ class ApiController extends Controller
         $startDate = $input['start_date'] ?? null;
         $endDate = $input['end_date'] ?? null;
         if (!$carId || $carId < 1) {
-            $this->respond(422, false, 'Select a valid vehicle.');
+            $this->response->send_json(['success' => false, 'message' => 'Select a valid vehicle.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (!$this->isValidReservationDate($startDate) || !$this->isValidReservationDate($endDate)) {
-            $this->respond(422, false, 'Enter valid rental dates.');
+            $this->response->send_json(['success' => false, 'message' => 'Enter valid rental dates.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $start = new DateTimeImmutable($startDate);
@@ -698,10 +782,12 @@ class ApiController extends Controller
         $today = new DateTimeImmutable('today');
         $rentalDays = (int) $start->diff($end)->format('%a');
         if ($start < $today) {
-            $this->respond(422, false, 'The rental start date cannot be in the past.');
+            $this->response->send_json(['success' => false, 'message' => 'The rental start date cannot be in the past.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if ($end <= $start || $rentalDays < 1 || $rentalDays > 65535) {
-            $this->respond(422, false, 'The return date must be after the pickup date.');
+            $this->response->send_json(['success' => false, 'message' => 'The return date must be after the pickup date.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         try {
@@ -714,76 +800,97 @@ class ApiController extends Controller
             );
         } catch (Exception $exception) {
             error_log('Reservation creation failed: ' . $exception->getMessage());
-            $this->respond(500, false, 'The reservation could not be created. Please try again.');
+            $this->response->send_json(['success' => false, 'message' => 'The reservation could not be created. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         switch ($result['status']) {
             case 'vehicle_not_found':
-                $this->respond(404, false, 'Vehicle not found.');
+                $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'vehicle_unavailable':
-                $this->respond(409, false, 'This vehicle is not currently available for reservations.');
+                $this->response->send_json(['success' => false, 'message' => 'This vehicle is not currently available for reservations.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'duration_too_short':
-                $this->respond(422, false, 'The selected dates do not meet this vehicle’s minimum rental duration.');
+                $this->response->send_json(['success' => false, 'message' => 'The selected dates do not meet this vehicle’s minimum rental duration.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'date_conflict':
-                $this->respond(409, false, 'This vehicle is already reserved for part or all of those dates.');
+                $this->response->send_json(['success' => false, 'message' => 'This vehicle is already reserved for part or all of those dates.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'amount_too_large':
-                $this->respond(422, false, 'The selected rental period exceeds the maximum supported amount.');
+                $this->response->send_json(['success' => false, 'message' => 'The selected rental period exceeds the maximum supported amount.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'start_failed':
-                $this->respond(500, false, 'The reservation could not be started. Please try again.');
+                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be started. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'commit_failed':
-                $this->respond(500, false, 'The reservation could not be committed. Please try again.');
+                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be committed. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'created':
                 break;
             default:
                 error_log('Reservation creation returned an unexpected result.');
-                $this->respond(500, false, 'The reservation could not be created. Please try again.');
+                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be created. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
         }
 
-        $this->respond(201, true, 'Reservation created successfully and is awaiting confirmation.', $this->findReservation($result['id']));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservation created successfully and is awaiting confirmation.', 'data' => $this->findReservation($result['id'])], function ($value) { return $value !== null; }), 201, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function updateReservation($id)
     {
         $user = $this->authenticatedUser();
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respond(404, false, 'Reservation not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $input = $this->input();
         $status = $input['status'] ?? null;
         if (!is_string($status)) {
-            $this->respond(422, false, 'A valid reservation status is required.');
+            $this->response->send_json(['success' => false, 'message' => 'A valid reservation status is required.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         try {
             $result = $this->reservationModel->updateStatus((int) $id, $user, $status);
         } catch (Exception $exception) {
             error_log('Reservation update failed: ' . $exception->getMessage());
-            $this->respond(500, false, 'The reservation could not be updated. Please try again.');
+            $this->response->send_json(['success' => false, 'message' => 'The reservation could not be updated. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         switch ($result) {
             case 'not_found':
-                $this->respond(404, false, 'Reservation not found.');
+                $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'invalid_transition':
-                $this->respond(409, false, 'That reservation status change is not allowed.');
+                $this->response->send_json(['success' => false, 'message' => 'That reservation status change is not allowed.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'customer_forbidden':
-                $this->respond(403, false, 'You may only cancel your own pending or confirmed reservations.');
+                $this->response->send_json(['success' => false, 'message' => 'You may only cancel your own pending or confirmed reservations.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'vehicle_unavailable':
-                $this->respond(409, false, 'This vehicle is no longer available for those dates.');
+                $this->response->send_json(['success' => false, 'message' => 'This vehicle is no longer available for those dates.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'start_failed':
-                $this->respond(500, false, 'The reservation update could not be started. Please try again.');
+                $this->response->send_json(['success' => false, 'message' => 'The reservation update could not be started. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'commit_failed':
-                $this->respond(500, false, 'The reservation update could not be committed. Please try again.');
+                $this->response->send_json(['success' => false, 'message' => 'The reservation update could not be committed. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             case 'updated':
                 break;
             default:
                 error_log('Reservation update returned an unexpected result.');
-                $this->respond(500, false, 'The reservation could not be updated. Please try again.');
+                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be updated. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
         }
-        $this->respond(200, true, 'Reservation status updated successfully.', $this->findReservation((int) $id));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservation status updated successfully.', 'data' => $this->findReservation((int) $id)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
-    private function findReservation($id)
+    protected function findReservation($id)
     {
         return $this->reservationModel->findWithDetails($id);
     }
@@ -814,20 +921,24 @@ class ApiController extends Controller
     public function car($id)
     {
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $car = $this->carModel->findCar((int) $id);
         if (!$car) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if ($car['status'] !== 'available') {
             $userId = (int) ($_SESSION['user_id'] ?? 0);
             $user = $userId ? $this->userModel->activeRole($userId) : false;
             if (!$user || $user['role'] !== 'admin') {
-                $this->respond(404, false, 'Vehicle not found.');
+                $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
-        $this->respond(200, true, 'Vehicle retrieved successfully.', $this->carModel->findWithImages((int) $id));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Vehicle retrieved successfully.', 'data' => $this->carModel->findWithImages((int) $id)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function createCar()
@@ -835,77 +946,92 @@ class ApiController extends Controller
         $this->requireAdmin();
         $values = $this->validateCar($this->input());
         $id = $this->carModel->create($values);
-        $this->respond(201, true, 'Vehicle created successfully.', $this->carModel->findWithImages($id));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Vehicle created successfully.', 'data' => $this->carModel->findWithImages($id)], function ($value) { return $value !== null; }), 201, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function updateCar($id)
     {
         $this->requireAdmin();
         if (!ctype_digit((string) $id) || (int) $id < 1 || !$this->carModel->findCar((int) $id)) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $values = $this->validateCar($this->input(), true, (int) $id);
         if (!$values) {
-            $this->respond(422, false, 'No valid vehicle fields were provided.');
+            $this->response->send_json(['success' => false, 'message' => 'No valid vehicle fields were provided.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $this->carModel->update((int) $id, $values);
-        $this->respond(200, true, 'Vehicle updated successfully.', $this->carModel->findWithImages((int) $id));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Vehicle updated successfully.', 'data' => $this->carModel->findWithImages((int) $id)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function deleteCar($id)
     {
         $this->requireAdmin();
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (!$this->carModel->findCar((int) $id)) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         try {
             $images = $this->carModel->delete((int) $id);
         } catch (Exception $exception) {
             error_log('Vehicle deletion failed: ' . $exception->getMessage());
-            $this->respond(409, false, 'This vehicle cannot be deleted while it is referenced by other records.');
+            $this->response->send_json(['success' => false, 'message' => 'This vehicle cannot be deleted while it is referenced by other records.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         foreach ($images as $image) {
             $this->deleteImageFile($image['image_path']);
         }
-        $this->respond(200, true, 'Vehicle deleted successfully.');
+        $this->response->send_json(['success' => true, 'message' => 'Vehicle deleted successfully.'], 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function uploadImages($id)
     {
         $this->requireAdmin();
         if (!ctype_digit((string) $id) || (int) $id < 1 || !$this->carModel->findCar((int) $id)) {
-            $this->respond(404, false, 'Vehicle not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $files = $this->uploadedFiles();
         if (!$files) {
-            $this->respond(422, false, 'Select at least one vehicle image.');
+            $this->response->send_json(['success' => false, 'message' => 'Select at least one vehicle image.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
 
         $directory = ROOT_DIR . 'public' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'cars';
         if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
-            $this->respond(500, false, 'The vehicle image directory could not be created.');
+            $this->response->send_json(['success' => false, 'message' => 'The vehicle image directory could not be created.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $saved = [];
         foreach ($files as $file) {
             if ($file['error'] !== UPLOAD_ERR_OK || $file['size'] > 5 * 1024 * 1024) {
-                $this->respond(422, false, 'Images must be valid uploads no larger than 5 MB each.');
+                $this->response->send_json(['success' => false, 'message' => 'Images must be valid uploads no larger than 5 MB each.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
             $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
             if (!isset($extensions[$mime]) || @getimagesize($file['tmp_name']) === false) {
-                $this->respond(422, false, 'Only valid JPEG, PNG, and WebP images are accepted.');
+                $this->response->send_json(['success' => false, 'message' => 'Only valid JPEG, PNG, and WebP images are accepted.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $filename = bin2hex(random_bytes(16)) . '.' . $extensions[$mime];
             $relativePath = '/uploads/cars/' . $filename;
             if (!move_uploaded_file($file['tmp_name'], $directory . DIRECTORY_SEPARATOR . $filename)) {
-                $this->respond(500, false, 'The vehicle image could not be saved.');
+                $this->response->send_json(['success' => false, 'message' => 'The vehicle image could not be saved.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             $saved[] = $this->carModel->createImage((int) $id, $relativePath);
         }
-        $this->respond(201, true, 'Vehicle images uploaded successfully.', $saved);
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Vehicle images uploaded successfully.', 'data' => $saved], function ($value) { return $value !== null; }), 201, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
     public function deleteImage($id, $imageId)
@@ -913,13 +1039,15 @@ class ApiController extends Controller
         $this->requireAdmin();
         $image = $this->carModel->deleteImage((int) $imageId, (int) $id);
         if (!$image) {
-            $this->respond(404, false, 'Vehicle image not found.');
+            $this->response->send_json(['success' => false, 'message' => 'Vehicle image not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $this->deleteImageFile($image['image_path']);
-        $this->respond(200, true, 'Vehicle image deleted successfully.', $this->carModel->findWithImages((int) $id));
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Vehicle image deleted successfully.', 'data' => $this->carModel->findWithImages((int) $id)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
-    private function listCars($availableOnly)
+    protected function listCars($availableOnly)
     {
         $startDate = $_GET['start_date'] ?? null;
         $endDate = $_GET['end_date'] ?? null;
@@ -930,7 +1058,8 @@ class ApiController extends Controller
                 || $endDate <= $startDate
                 || $startDate < (new DateTimeImmutable('today'))->format('Y-m-d')
             ) {
-                $this->respond(422, false, 'Provide a valid future pickup and return date range.');
+                $this->response->send_json(['success' => false, 'message' => 'Provide a valid future pickup and return date range.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
         $page = max(1, filter_var($_GET['page'] ?? 1, FILTER_VALIDATE_INT) ?: 1);
@@ -953,16 +1082,11 @@ class ApiController extends Controller
             $perPage,
             is_string($_GET['sort'] ?? null) ? $_GET['sort'] : 'newest'
         );
-        $this->respond(
-            200,
-            true,
-            'Vehicles retrieved successfully.',
-            $result['cars'],
-            $result['meta']
-        );
+        $this->response->send_json(array_filter(['success' => true, 'message' => 'Vehicles retrieved successfully.', 'data' => $result['cars'], 'meta' => $result['meta']], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 
-    private function validateCar(array $input, $partial = false, $currentId = 0)
+    protected function validateCar(array $input, $partial = false, $currentId = 0)
     {
         if (isset($input['daily_rate']) && !isset($input['daily_rental_price'])) {
             $input['daily_rental_price'] = $input['daily_rate'];
@@ -981,13 +1105,15 @@ class ApiController extends Controller
         }
         foreach ($values as $field => $value) {
             if ($field !== 'additional_features' && $value !== null && !is_scalar($value)) {
-                $this->respond(422, false, "The {$field} field has an invalid value.");
+                $this->response->send_json(['success' => false, 'message' => "The {$field} field has an invalid value."], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
         if (!$partial) {
             foreach (['make', 'model', 'year', 'category', 'daily_rental_price'] as $field) {
                 if (!isset($values[$field]) || trim((string) $values[$field]) === '') {
-                    $this->respond(422, false, "The {$field} field is required.");
+                    $this->response->send_json(['success' => false, 'message' => "The {$field} field is required."], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                    exit;
                 }
             }
             $values += [
@@ -1012,25 +1138,30 @@ class ApiController extends Controller
         }
         if (!empty($values['plate_number'])) {
             if ($this->carModel->plateNumberExists($values['plate_number'], $currentId)) {
-                $this->respond(409, false, 'That plate number is already assigned to another vehicle.');
+                $this->response->send_json(['success' => false, 'message' => 'That plate number is already assigned to another vehicle.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
         foreach (['make' => 100, 'model' => 100, 'category' => 50, 'plate_number' => 40, 'color' => 50] as $field => $max) {
             if (isset($values[$field]) && (strlen((string) $values[$field]) > $max || trim((string) $values[$field]) === '')) {
-                $this->respond(422, false, "The {$field} field is invalid.");
+                $this->response->send_json(['success' => false, 'message' => "The {$field} field is invalid."], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
         if (isset($values['year']) && (!filter_var($values['year'], FILTER_VALIDATE_INT) || $values['year'] < 1900 || $values['year'] > (int) date('Y') + 1)) {
-            $this->respond(422, false, 'Year must be a valid vehicle year.');
+            $this->response->send_json(['success' => false, 'message' => 'Year must be a valid vehicle year.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         foreach (['daily_rental_price', 'security_deposit'] as $field) {
             if (isset($values[$field]) && (!is_numeric($values[$field]) || $values[$field] < 0)) {
-                $this->respond(422, false, "{$field} must be a non-negative amount.");
+                $this->response->send_json(['success' => false, 'message' => "{$field} must be a non-negative amount."], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
         foreach (['minimum_rental_duration', 'seating_capacity'] as $field) {
             if (isset($values[$field]) && (!filter_var($values[$field], FILTER_VALIDATE_INT) || $values[$field] < 1)) {
-                $this->respond(422, false, "{$field} must be a positive whole number.");
+                $this->response->send_json(['success' => false, 'message' => "{$field} must be a positive whole number."], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
         foreach (['air_conditioning', 'gps_navigation'] as $field) {
@@ -1039,7 +1170,8 @@ class ApiController extends Controller
             }
         }
         if (isset($values['status']) && !in_array($values['status'], ['available', 'rented', 'maintenance', 'unavailable'], true)) {
-            $this->respond(422, false, 'Status must be available, rented, maintenance, or unavailable.');
+            $this->response->send_json(['success' => false, 'message' => 'Status must be available, rented, maintenance, or unavailable.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         if (isset($values['additional_features'])) {
             $features = $values['additional_features'];
@@ -1050,7 +1182,8 @@ class ApiController extends Controller
                 $decoded = json_decode($features, true);
                 if (json_last_error() === JSON_ERROR_NONE) {
                     if (!is_array($decoded)) {
-                        $this->respond(422, false, 'Additional features must be a list of text values.');
+                        $this->response->send_json(['success' => false, 'message' => 'Additional features must be a list of text values.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                        exit;
                     }
                     $values['additional_features'] = json_encode(array_values(array_filter($decoded, 'is_string')));
                 } else {
@@ -1058,16 +1191,18 @@ class ApiController extends Controller
                     $values['additional_features'] = json_encode($features);
                 }
             } else {
-                $this->respond(422, false, 'Additional features must be a list of text values.');
+                $this->response->send_json(['success' => false, 'message' => 'Additional features must be a list of text values.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
         }
         if (isset($values['description']) && strlen((string) $values['description']) > 5000) {
-            $this->respond(422, false, 'Description must be 5,000 characters or fewer.');
+            $this->response->send_json(['success' => false, 'message' => 'Description must be 5,000 characters or fewer.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         return $values;
     }
 
-    private function uploadedFiles()
+    protected function uploadedFiles()
     {
         $input = $_FILES['images'] ?? $_FILES['image'] ?? null;
         if (!$input) {
@@ -1091,7 +1226,7 @@ class ApiController extends Controller
         return $files;
     }
 
-    private function deleteImageFile($relativePath)
+    protected function deleteImageFile($relativePath)
     {
         $filename = basename((string) $relativePath);
         $path = ROOT_DIR . 'public' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'cars' . DIRECTORY_SEPARATOR . $filename;
@@ -1100,40 +1235,43 @@ class ApiController extends Controller
         }
     }
 
-    private function input()
+    protected function input()
     {
         if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
             $body = file_get_contents('php://input');
             $input = json_decode($body, true);
             if (!is_array($input)) {
-                $this->respond(400, false, 'Request body must contain valid JSON.');
+                $this->response->send_json(['success' => false, 'message' => 'Request body must contain valid JSON.'], 400, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                exit;
             }
             return $input;
         }
         return $_POST;
     }
 
-    private function authenticatedUser()
+    protected function authenticatedUser()
     {
         $user = $this->authenticatedUserRecord();
         return $this->publicUser($user);
     }
 
-    private function authenticatedUserRecord()
+    protected function authenticatedUserRecord()
     {
         $id = (int) ($_SESSION['user_id'] ?? 0);
         if (!$id) {
-            $this->respond(401, false, 'Authentication is required.');
+            $this->response->send_json(['success' => false, 'message' => 'Authentication is required.'], 401, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         $user = $this->userModel->findById($id);
         if (!$user || (int) $user['is_active'] !== 1) {
             unset($_SESSION['user_id']);
-            $this->respond(401, false, 'Authentication is required.');
+            $this->response->send_json(['success' => false, 'message' => 'Authentication is required.'], 401, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
         return $user;
     }
 
-    private function profileData(array $user)
+    protected function profileData(array $user)
     {
         return [
             'id' => (int) $user['id'],
@@ -1150,16 +1288,16 @@ class ApiController extends Controller
             'driver_license_expiry' => $user['driver_license_expiry'] ?? '',
             'has_verification_photo' => $this->hasVerificationPhoto($user),
             'verification_consent_given' => !empty($user['verification_consent_at']),
-            'role' => $user['role'] === 'admin' ? 'admin' : 'customer',
+            'role' => $this->publicRole($user['role'] ?? null),
         ];
     }
 
-    private function verificationPhotoDirectory()
+    protected function verificationPhotoDirectory()
     {
         return ROOT_DIR . 'storage' . DIRECTORY_SEPARATOR . 'private' . DIRECTORY_SEPARATOR . 'user-verification';
     }
 
-    private function hasVerificationPhoto(array $user)
+    protected function hasVerificationPhoto(array $user)
     {
         $filename = basename((string) ($user['verification_photo_filename'] ?? ''));
         return $filename !== '' && is_file(
@@ -1167,7 +1305,7 @@ class ApiController extends Controller
         );
     }
 
-    private function deleteVerificationPhoto($filename)
+    protected function deleteVerificationPhoto($filename)
     {
         $safeFilename = basename((string) $filename);
         $path = $this->verificationPhotoDirectory() . DIRECTORY_SEPARATOR . $safeFilename;
@@ -1176,37 +1314,41 @@ class ApiController extends Controller
         }
     }
 
-    private function publicUser(array $user)
+    protected function publicUser(array $user)
     {
         return [
             'id' => (int) $user['id'],
             'username' => $user['username'],
             'full_name' => $user['full_name'] ?? $user['username'],
             'email' => $user['email'],
-            'role' => $user['role'] === 'admin' ? 'admin' : 'customer',
+            'role' => $this->publicRole($user['role'] ?? null),
         ];
     }
 
-    private function requireAdmin()
+    protected function publicRole($role)
+    {
+        $role = strtolower((string) ($role ?? ''));
+        return $role === 'admin' ? 'admin' : 'customer';
+    }
+
+    protected function isAdminRole($role)
+    {
+        return strtolower((string) ($role ?? '')) === 'admin';
+    }
+
+    protected function isCustomerRole($role)
+    {
+        $role = strtolower((string) ($role ?? ''));
+        return in_array($role, ['user', 'customer'], true);
+    }
+
+    protected function requireAdmin()
     {
         $user = $this->authenticatedUser();
         if ($user['role'] !== 'admin') {
-            $this->respond(403, false, 'Administrator access is required.');
+            $this->response->send_json(['success' => false, 'message' => 'Administrator access is required.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
         }
     }
 
-    private function respond($status, $success, $message, $data = null, $meta = null)
-    {
-        http_response_code($status);
-        header('Content-Type: application/json; charset=utf-8');
-        $response = ['success' => $success, 'message' => $message];
-        if ($data !== null) {
-            $response['data'] = $data;
-        }
-        if ($meta !== null) {
-            $response['meta'] = $meta;
-        }
-        echo json_encode($response, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        exit;
-    }
 }

@@ -141,7 +141,13 @@ class MaintenanceModel extends Model
             ])
             ->limit(1)
             ->get();
-        if ($riskLevel && strtolower($riskLevel['column_type']) !== 'varchar(20)') {
+        if ($riskLevel) {
+            $riskLevel = array_change_key_case($riskLevel, CASE_LOWER);
+        }
+        if (!$riskLevel || !isset($riskLevel['column_type']) || !is_string($riskLevel['column_type'])) {
+            throw new RuntimeException('Unable to determine the maintenance prediction risk level column type.');
+        }
+        if (strtolower($riskLevel['column_type']) !== 'varchar(20)') {
             $forge->modify_column('tblai_maintenance_predictions', [
                 'riskLevel' => [
                     'type' => 'VARCHAR',

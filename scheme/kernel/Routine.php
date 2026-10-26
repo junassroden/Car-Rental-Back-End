@@ -92,12 +92,13 @@ if ( ! function_exists('load_class'))
 					$match = $my_class;
 				}
 
-				// Register loaded class
-				loaded_class($class, $object_name);
-
-				// Instantiate the class
+				// Instantiate the class before registering it so a new controller instance
+				// does not recurse back into itself via Controller::__construct().
 				$instance = isset($params) ? new $match($params) : new $match();
 				$LAVA->store_object($object_name, $instance);
+
+				// Register the real class name so later lookups keep the correct case.
+				loaded_class($match, $object_name);
 
 				return $LAVA->get_object($object_name);
 			}
@@ -121,7 +122,7 @@ if ( ! function_exists('loaded_class'))
 
 		if ($class !== '')
 		{
-			$_is_loaded[$object_name] = ucfirst(strtolower($class));
+			$_is_loaded[$object_name] = $class;
 		}
 
 		return $_is_loaded;

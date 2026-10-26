@@ -5,9 +5,7 @@ class Migration
 {
 
     public static $command = 'migration';
-
     public static $description = 'Run database migrations';
-
     public static $arguments = [
         '[action]' => 'Action: run, create-migration, rollback, rollback-all, refresh, status',
         '[name]' => 'Migration class name for create-migration',

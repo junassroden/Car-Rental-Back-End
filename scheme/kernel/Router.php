@@ -341,6 +341,10 @@ class Router
                 throw new RuntimeException("Controller {$controller} does not exist.");
             }
 
+            if (strtolower($controller) !== 'apicontroller' && file_exists(APP_DIR . 'controllers/ApiController.php') && !class_exists('ApiController', false)) {
+                load_class('ApiController', 'controllers');
+            }
+
             require_once($controller_file);
 
             $instance = new $controller();
@@ -371,6 +375,10 @@ class Router
 
             if (!file_exists($controller_file)) {
                 throw new RuntimeException("Controller {$controller} does not exist.");
+            }
+
+            if (strtolower($controller) !== 'apicontroller' && file_exists(APP_DIR . 'controllers/ApiController.php') && !class_exists('ApiController', false)) {
+                load_class('ApiController', 'controllers');
             }
 
             require_once($controller_file);

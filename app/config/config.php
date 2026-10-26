@@ -265,7 +265,7 @@ $config['cookie_path']             = '/';
 $config['cookie_secure']           = FALSE;
 $config['cookie_expiration']       = 86400;
 $config['cookie_httponly']         = FALSE;
-$config['cookie_samesite']         = 'Strict';
+$config['cookie_samesite']         = 'Lax';
 
 /*
 |--------------------------------------------------------------------------
@@ -399,7 +399,7 @@ $config['security_headers'] = [
     // ── API ──
     'api_max_body' => 1048576,
     'cors' => [
-        'allowed_origins' => ['http://127.0.0.1:5173'],
+        'allowed_origins' => ['http://localhost:5173', 'http://127.0.0.1:5173'],
         'credentials'     => true,
         'methods'         => 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
         'headers'         => 'Accept, Authorization, Content-Type, X-Requested-With',

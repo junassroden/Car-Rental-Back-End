@@ -43,9 +43,9 @@ class Create_users_table {
                 ],
                 'role' => [
                     'type'       => 'ENUM',
-                    'constraint' => "'admin','moderator','user'",
+                    'constraint' => "'admin','customer'",
                     'null'       => FALSE,
-                    'default'    => 'user',
+                    'default'    => 'customer',
                 ],
                 'is_active' => [
                     'type'       => 'TINYINT',

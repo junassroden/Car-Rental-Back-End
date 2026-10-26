@@ -30,9 +30,9 @@ class ApiController extends Controller
         $this->userModel = $this->call->model('UserModel');
         $this->reservationModel = $this->call->model('ReservationModel');
 
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+        $origin = rtrim($_SERVER['HTTP_ORIGIN'] ?? '', '/');
         $allowedOrigins = array_values(array_unique(array_filter(array_map(static function ($value) {
-            return trim((string) $value);
+            return rtrim(trim((string) $value), '/');
         }, preg_split('/\s*,\s*/', (string) (getenv('FRONTEND_ORIGIN') ?: 'http://localhost:5173,http://127.0.0.1:5173'))), static function ($value) {
             return $value !== '';
         })));
@@ -58,9 +58,9 @@ class ApiController extends Controller
             session_set_cookie_params([
                 'lifetime' => 0,
                 'path' => '/',
-                'secure' => false,
+                'secure' => $isHttps,
                 'httponly' => true,
-                'samesite' => 'Lax',
+                'samesite' => $isHttps ? 'None' : 'Lax',
             ]);
             session_start();
         }

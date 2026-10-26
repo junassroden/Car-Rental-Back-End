@@ -193,3 +193,14 @@ $config['rate_limit_requests'] = 60;
 |
 */
 $config['rate_limit_seconds'] = 60;
+
+/*
+|--------------------------------------------------------------------------
+| Chatbot Service
+|--------------------------------------------------------------------------
+| The authenticated API forwards chat requests to the separate ChatBot app.
+| The shared token must also be configured in the ChatBot environment.
+|
+*/
+$config['chatbot_api_url'] = getenv('CHATBOT_API_URL') ?: 'http://127.0.0.1:3001/api/chat';
+$config['chatbot_api_token'] = getenv('AI_ROUTER_TOKEN') ?: '';

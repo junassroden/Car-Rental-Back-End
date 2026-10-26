@@ -299,9 +299,13 @@ represented as completed features.
 
 ### Chatbot integration
 
-The browser sends chat requests to this API. The backend calls Google AI
-Studio directly, so a separate Chatbot web service is not required. Set these
-variables in the backend's local `.env` or Render environment:
+The browser sends authenticated chat requests to the backend API, which
+forwards them to the separate ChatBot service. Set `CHATBOT_API_URL` to the
+service's `/api/chat` endpoint and set `AI_ROUTER_TOKEN` in both the backend
+and ChatBot environments to the same random secret (at least 32 characters).
+For local development, the ChatBot service defaults to
+`http://127.0.0.1:3001/api/chat`. Configure AI provider settings in the
+ChatBot service's `.env` or hosting environment:
 
 ```dotenv
 GOOGLE_AI_STUDIO_API_KEY=your_google_ai_studio_key
@@ -309,16 +313,17 @@ GOOGLE_AI_STUDIO_MODEL=gemini-3.8-flash
 GOOGLE_AI_STUDIO_FALLBACK_MODELS=gemini-3.6-flash,gemini-3.5-flash-lite
 ```
 
-Create the key in Google AI Studio and keep it only in the backend environment;
+Create the key in Google AI Studio and keep it only in the ChatBot environment;
 never add it to the React/Vercel environment or commit it to source control.
-The backend preserves the rental-only scope filter, per-user request limits,
-conversation history, and current authorized vehicle snapshot when it calls
-the provider. If Google reports an unavailable model, rate limit, or temporary
-provider outage, the backend tries up to two models from
+The backend enforces user access and sends the current authorized vehicle
+context to the service. The ChatBot service applies the rental scope filter,
+per-user request limits, conversation history, and provider fallbacks. If
+Google reports an unavailable model, rate limit, or temporary provider outage,
+the service tries up to two models from
 `GOOGLE_AI_STUDIO_FALLBACK_MODELS` in order. This can improve availability but
 cannot guarantee a response, and the models still share the API project's
-quota and usage limits. The separate ChatBot Render service can be stopped
-after this backend version is deployed and verified.
+quota and usage limits. The ChatBot service must be deployed and reachable for
+chat requests to work.
 
 ---
 

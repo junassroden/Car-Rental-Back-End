@@ -196,11 +196,26 @@ $config['rate_limit_seconds'] = 60;
 
 /*
 |--------------------------------------------------------------------------
-| Chatbot Service
+| Local AI Chat Service
 |--------------------------------------------------------------------------
-| The authenticated API forwards chat requests to the separate ChatBot app.
-| The shared token must also be configured in the ChatBot environment.
+| The authenticated API forwards chat requests to the Django AI service.
+| Set AI_SERVICE_API_KEY in both applications when API-key protection is used.
 |
 */
-$config['chatbot_api_url'] = getenv('CHATBOT_API_URL') ?: 'http://127.0.0.1:3001/api/chat';
-$config['chatbot_api_token'] = getenv('AI_ROUTER_TOKEN') ?: '';
+$config['ai_service_api_url'] = getenv('AI_SERVICE_API_URL') ?: 'http://127.0.0.1:8001/api/chat/';
+$config['ai_service_api_key'] = getenv('AI_SERVICE_API_KEY') ?: '';
+
+/*
+|--------------------------------------------------------------------------
+| Component Maintenance (3D Predictive Maintenance page)
+|--------------------------------------------------------------------------
+| ai_service_capabilities_url: Django endpoint that reports which maintenance
+|   models are validated. Predictions are shown only when it lists a model
+|   eligible for inference whose targets include the component.
+| component_condition_valid_days: how long a "good" inspection result counts
+|   as current evidence. Older results are reported as Unknown. This is a
+|   fleet evidence policy, not a manufacturer interval.
+|
+*/
+$config['ai_service_capabilities_url'] = getenv('AI_SERVICE_CAPABILITIES_URL') ?: 'http://127.0.0.1:8001/api/capabilities/';
+$config['component_condition_valid_days'] = (int) (getenv('COMPONENT_CONDITION_VALID_DAYS') ?: 90);

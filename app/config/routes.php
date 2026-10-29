@@ -46,53 +46,62 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 $router->get('/', 'Welcome::index');
 
-$router->get('/api/cars', 'CarController::cars');
-$router->get('/api/cars/available', 'CarController::availableCars');
-$router->get('/api/cars/{id}', 'CarController::car');
-$router->get('/api/reservations', 'ReservationController::reservations');
-$router->get('/api/reservations/{id}', 'ReservationController::reservation');
-$router->post('/api/reservations', 'ReservationController::createReservation');
-$router->patch('/api/reservations/{id}', 'ReservationController::updateReservation');
-$router->post('/api/cars', 'CarController::createCar');
-$router->put('/api/cars/{id}', 'CarController::updateCar');
-$router->patch('/api/cars/{id}', 'CarController::updateCar');
-$router->delete('/api/cars/{id}', 'CarController::deleteCar');
-$router->post('/api/cars/{id}/images', 'CarController::uploadImages');
-$router->delete('/api/cars/{id}/images/{imageId}', 'CarController::deleteImage');
-$router->post('/api/login', 'AuthController::login');
-$router->post('/api/register', 'AuthController::register');
-$router->post('/api/logout', 'AuthController::logout');
-$router->post('/api/refresh', 'AuthController::refresh');
-$router->get('/api/me', 'AuthController::me');
-$router->get('/api/profile', 'ApiController::profile');
-$router->post('/api/profile', 'ApiController::profile');
-$router->get('/api/profile/verification-photo', 'ApiController::verificationPhoto');
-$router->get('/api/maintenance', 'MaintenanceController::maintenanceRecords');
-$router->get('/api/maintenance/predictions', 'MaintenanceController::maintenancePredictions');
-$router->post('/api/maintenance/records', 'MaintenanceController::createMaintenanceRecord');
-$router->patch('/api/maintenance/records/{id}', 'MaintenanceController::updateMaintenanceRecord');
-$router->patch('/api/maintenance/mileage', 'MaintenanceController::updateVehicleMileage');
-$router->post('/api/maintenance/predictions/generate', 'MaintenanceController::generateMaintenancePredictions');
-$router->post('/api/chat', 'ChatController::chat');
+// JSON API. CORS preflight (OPTIONS) requests are answered by the router itself.
+$router->group(['prefix' => '/api'], function ($router) {
+    // Authentication
+    $router->post('/login', 'AuthController::login');
+    $router->post('/register', 'AuthController::register');
+    $router->post('/logout', 'AuthController::logout');
+    $router->post('/refresh', 'AuthController::refresh');
+    $router->get('/me', 'AuthController::me');
 
-$router->options('/api/cars', 'CarController::cars');
-$router->options('/api/cars/available', 'CarController::availableCars');
-$router->options('/api/cars/{id}', 'CarController::car');
-$router->options('/api/reservations', 'ReservationController::reservations');
-$router->options('/api/reservations/{id}', 'ReservationController::reservation');
-$router->options('/api/cars/{id}/images', 'CarController::uploadImages');
-$router->options('/api/cars/{id}/images/{imageId}', 'CarController::deleteImage');
-$router->options('/api/login', 'AuthController::login');
-$router->options('/api/register', 'AuthController::register');
-$router->options('/api/logout', 'AuthController::logout');
-$router->options('/api/refresh', 'AuthController::refresh');
-$router->options('/api/me', 'AuthController::me');
-$router->options('/api/profile', 'ApiController::profile');
-$router->options('/api/profile/verification-photo', 'ApiController::verificationPhoto');
-$router->options('/api/maintenance', 'MaintenanceController::maintenanceRecords');
-$router->options('/api/maintenance/predictions', 'MaintenanceController::maintenancePredictions');
-$router->options('/api/maintenance/records', 'MaintenanceController::createMaintenanceRecord');
-$router->options('/api/maintenance/records/{id}', 'MaintenanceController::updateMaintenanceRecord');
-$router->options('/api/maintenance/mileage', 'MaintenanceController::updateVehicleMileage');
-$router->options('/api/maintenance/predictions/generate', 'MaintenanceController::generateMaintenancePredictions');
-$router->options('/api/chat', 'ChatController::chat');
+    // Customer profile
+    $router->get('/profile', 'ProfileController::show');
+    $router->post('/profile', 'ProfileController::update');
+    $router->get('/profile/verification-photo', 'ProfileController::verificationPhoto');
+
+    // Vehicles ("available" must come before "{id}")
+    $router->get('/cars', 'CarController::cars');
+    $router->get('/cars/available', 'CarController::availableCars');
+    $router->get('/cars/{id}', 'CarController::car');
+    $router->post('/cars', 'CarController::createCar');
+    $router->put('/cars/{id}', 'CarController::updateCar');
+    $router->patch('/cars/{id}', 'CarController::updateCar');
+    $router->delete('/cars/{id}', 'CarController::deleteCar');
+    $router->post('/cars/{id}/images', 'CarController::uploadImages');
+    $router->delete('/cars/{id}/images/{imageId}', 'CarController::deleteImage');
+
+    // Reservations
+    $router->get('/reservations', 'ReservationController::reservations');
+    $router->get('/reservations/{id}', 'ReservationController::reservation');
+    $router->post('/reservations', 'ReservationController::createReservation');
+    $router->patch('/reservations/{id}', 'ReservationController::updateReservation');
+
+    // Maintenance (admin only)
+    $router->get('/maintenance', 'MaintenanceController::maintenanceRecords');
+    $router->get('/maintenance/predictions', 'MaintenanceController::maintenancePredictions');
+    $router->post('/maintenance/predictions/generate', 'MaintenanceController::generateMaintenancePredictions');
+    $router->post('/maintenance/records', 'MaintenanceController::createMaintenanceRecord');
+    $router->patch('/maintenance/records/{id}', 'MaintenanceController::updateMaintenanceRecord');
+    $router->patch('/maintenance/mileage', 'MaintenanceController::updateVehicleMileage');
+
+    // Evidence-backed maintenance data (active administrators only).
+    $router->get('/maintenance/data-records/export', 'MaintenanceDataController::export');
+    $router->get('/maintenance/data-records', 'MaintenanceDataController::records');
+    $router->post('/maintenance/data-records', 'MaintenanceDataController::create');
+    $router->get('/maintenance/data-records/{id}', 'MaintenanceDataController::detail');
+    $router->patch('/maintenance/data-records/{id}', 'MaintenanceDataController::update');
+    $router->post('/maintenance/data-records/{id}/submit', 'MaintenanceDataController::submit');
+    $router->post('/maintenance/data-records/{id}/verify', 'MaintenanceDataController::verify');
+    $router->post('/maintenance/data-records/{id}/supersede', 'MaintenanceDataController::supersede');
+
+    // Component-level inspection and schedules for the 3D view (active administrators only).
+    $router->get('/maintenance/vehicles/{id}/components', 'ComponentMaintenanceController::components');
+    $router->get('/maintenance/vehicles/{id}/components/{key}/history', 'ComponentMaintenanceController::history');
+    $router->post('/maintenance/vehicles/{id}/components/{key}/inspections', 'ComponentMaintenanceController::createInspection');
+    $router->put('/maintenance/vehicles/{id}/components/{key}/schedule', 'ComponentMaintenanceController::saveSchedule');
+    $router->delete('/maintenance/vehicles/{id}/components/{key}/schedule', 'ComponentMaintenanceController::deleteSchedule');
+
+    // AI chatbot (forwards to the Python AI service)
+    $router->post('/chat', 'ChatController::chat');
+});

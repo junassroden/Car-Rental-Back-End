@@ -299,31 +299,24 @@ represented as completed features.
 
 ### Chatbot integration
 
-The browser sends authenticated chat requests to the backend API, which
-forwards them to the separate ChatBot service. Set `CHATBOT_API_URL` to the
-service's `/api/chat` endpoint and set `AI_ROUTER_TOKEN` in both the backend
-and ChatBot environments to the same random secret (at least 32 characters).
-For local development, the ChatBot service defaults to
-`http://127.0.0.1:3001/api/chat`. Configure AI provider settings in the
-ChatBot service's `.env` or hosting environment:
+The browser sends authenticated messages to `POST /api/chat`; LavaLust
+validates the active session and forwards supported questions to the Django AI
+service. Configure `AI_SERVICE_API_URL` in the backend environment if the
+service is not at its local default,
+`http://127.0.0.1:8001/api/chat/`. If `AI_SERVICE_API_KEY` is configured, set
+the same strong secret in both applications; the backend sends it using the
+`X-AI-Service-Key` header. Keep the key server-side.
 
-```dotenv
-GOOGLE_AI_STUDIO_API_KEY=your_google_ai_studio_key
-GOOGLE_AI_STUDIO_MODEL=gemini-3.8-flash
-GOOGLE_AI_STUDIO_FALLBACK_MODELS=gemini-3.6-flash,gemini-3.5-flash-lite
-```
-
-Create the key in Google AI Studio and keep it only in the ChatBot environment;
-never add it to the React/Vercel environment or commit it to source control.
-The backend enforces user access and sends the current authorized vehicle
-context to the service. The ChatBot service applies the rental scope filter,
-per-user request limits, conversation history, and provider fallbacks. If
-Google reports an unavailable model, rate limit, or temporary provider outage,
-the service tries up to two models from
-`GOOGLE_AI_STUDIO_FALLBACK_MODELS` in order. This can improve availability but
-cannot guarantee a response, and the models still share the API project's
-quota and usage limits. The ChatBot service must be deployed and reachable for
-chat requests to work.
+LavaLust is the only component that queries MySQL for chat context. It sends
+public vehicle listings and current stored daily rates for rental questions,
+checks pending and confirmed reservation overlaps when ISO pickup and return
+dates are provided, scopes customer reservation queries to the signed-in
+account, and limits fleet and maintenance context to administrators. It does
+not send customer contact details. Maintenance entries are not automatically
+treated as confirmed faults, and chatbot responses do not create or change
+reservations. The Django service remains independent of the database; for
+live-data answers, it formats only the authorized context supplied by the
+backend.
 
 ---
 

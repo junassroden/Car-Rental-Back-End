@@ -3,97 +3,74 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 class UserModel extends Model
 {
-    protected $table = 'users';
+    protected $table       = 'users';
+    protected $primary_key = 'id';
+    protected $fillable    = [
+        'username', 'full_name', 'email', 'password', 'role', 'is_active',
+        'phone', 'address_line', 'city', 'province', 'postal_code', 'country',
+        'driver_license_number', 'driver_license_expiry',
+        'verification_consent_at', 'verification_photo_filename', 'updated_at',
+    ];
 
-    public function findByIdentity($identity)
+    // created_at uses the column default and updated_at is set in update_profile().
+    protected $timestamps = false;
+
+    /** A user matched by email or username (for login), or NULL. */
+    public function find_by_identity($identity)
     {
         return $this->db->table($this->table)
             ->grouped(static function ($query) use ($identity) {
                 $query->where('email', $identity)
-                    ->or_where('username', $identity);
+                      ->or_where('username', $identity);
             })
             ->limit(1)
-            ->get();
+            ->row_array();
     }
 
-    public function findById($id)
+    public function email_exists($email)
     {
-        return $this->db->table($this->table)
-            ->where('id', (int) $id)
-            ->limit(1)
-            ->get();
+        return (bool) $this->exists(['email' => $email]);
     }
 
-    public function emailExists($email)
+    /** Creates a customer with a unique username taken from the email address. Returns the new ID. */
+    public function create_customer($full_name, $email, $password)
     {
-        return (bool) $this->db->table($this->table)
-            ->select('id')
-            ->where('email', $email)
-            ->limit(1)
-            ->get();
-    }
+        $base     = trim((string) preg_replace('/[^a-z0-9._-]+/i', '-', strstr($email, '@', true)), '.-_');
+        $base     = substr($base !== '' ? $base : 'driver', 0, 100);
+        $username = $base;
 
-    public function usernameExists($username)
-    {
-        return (bool) $this->db->table($this->table)
-            ->select('id')
-            ->where('username', $username)
-            ->limit(1)
-            ->get();
-    }
-
-    public function createCustomer($fullName, $email, $password)
-    {
-        $localPart = strstr($email, '@', true);
-        $baseUsername = trim((string) preg_replace('/[^a-z0-9._-]+/i', '-', $localPart), '.-_');
-        $baseUsername = substr($baseUsername !== '' ? $baseUsername : 'driver', 0, 100);
-        $username = $baseUsername;
-        for ($suffix = 2; $this->usernameExists($username); $suffix++) {
-            $suffixText = '-' . $suffix;
-            $username = substr($baseUsername, 0, 100 - strlen($suffixText)) . $suffixText;
+        for ($suffix = 2; $this->exists(['username' => $username]); $suffix++) {
+            $username = substr($base, 0, 100 - strlen('-' . $suffix)) . '-' . $suffix;
         }
 
-        return $this->db->table($this->table)->insert([
-            'username' => $username,
-            'full_name' => $fullName,
-            'email' => $email,
-            'password' => password_hash($password, PASSWORD_DEFAULT),
-            'role' => 'customer',
+        return $this->insert([
+            'username'  => $username,
+            'full_name' => $full_name,
+            'email'     => $email,
+            'password'  => password_hash($password, PASSWORD_DEFAULT),
+            'role'      => 'customer',
             'is_active' => 1,
         ]);
     }
 
-    public function updateProfile($id, array $values, $filename)
+    /**
+     * Saves the profile fields in $values (and the new photo filename, if any)
+     * and returns the fresh user row.
+     */
+    public function update_profile($id, array $values, $photo_filename = null)
     {
-        $data = [
-            'full_name' => $values['full_name'],
-            'phone' => $values['phone'],
-            'address_line' => $values['address_line'],
-            'city' => $values['city'],
-            'province' => $values['province'],
-            'postal_code' => $values['postal_code'],
-            'country' => $values['country'],
-            'driver_license_number' => $values['driver_license_number'],
-            'driver_license_expiry' => $values['driver_license_expiry'],
-            'verification_consent_at' => date('Y-m-d H:i:s'),
-            'updated_at' => date('Y-m-d H:i:s'),
+        $now  = date('Y-m-d H:i:s');
+        $data = $values + [
+            'verification_consent_at' => $now,
+            'updated_at'              => $now,
         ];
-        if ($filename !== null) {
-            $data['verification_photo_filename'] = $filename;
+
+        if ($photo_filename !== null) {
+            $data['verification_photo_filename'] = $photo_filename;
         }
-        $this->db->table($this->table)
-            ->where('id', (int) $id)
-            ->update($data);
 
-        return $this->findById($id);
-    }
+        $this->update((int) $id, $data);
 
-    public function activeRole($id)
-    {
-        return $this->db->table($this->table)
-            ->select('role')
-            ->where(['id' => (int) $id, 'is_active' => 1])
-            ->limit(1)
-            ->get();
+        return $this->find((int) $id);
     }
 }

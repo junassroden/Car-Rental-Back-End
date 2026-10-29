@@ -341,10 +341,6 @@ class Router
                 throw new RuntimeException("Controller {$controller} does not exist.");
             }
 
-            if (strtolower($controller) !== 'apicontroller' && file_exists(APP_DIR . 'controllers/ApiController.php') && !class_exists('ApiController', false)) {
-                load_class('ApiController', 'controllers');
-            }
-
             require_once($controller_file);
 
             $instance = new $controller();
@@ -375,10 +371,6 @@ class Router
 
             if (!file_exists($controller_file)) {
                 throw new RuntimeException("Controller {$controller} does not exist.");
-            }
-
-            if (strtolower($controller) !== 'apicontroller' && file_exists(APP_DIR . 'controllers/ApiController.php') && !class_exists('ApiController', false)) {
-                load_class('ApiController', 'controllers');
             }
 
             require_once($controller_file);
@@ -445,12 +437,6 @@ class Router
             $url = '/' . $url;
         }
 
-        if ($method === 'OPTIONS') {
-            handle_cors();
-            http_response_code(204);
-            exit;
-        }
-
         // Security check for permitted characters
         $url_segments = explode('/', $url);
         array_shift($url_segments);
@@ -470,6 +456,15 @@ class Router
             if (strtoupper($route['method']) === strtoupper($method) && $this->url_matches_route($url, $route)) {
                 $this->execute_callback($url, $route);
                 return;
+            }
+        }
+        // Answer CORS preflight for any URL that has a route under another method.
+        if (strtoupper($method) === 'OPTIONS') {
+            foreach ($this->routes as $route) {
+                if ($this->url_matches_route($url, $route)) {
+                    lava_instance()->security_headers->cors();
+                    break;
+                }
             }
         }
         empty(config_item('404_override')) ? show_404() : show_404('', '', config_item('404_override'));

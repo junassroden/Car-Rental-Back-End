@@ -1,168 +1,172 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
-class ReservationController extends ApiController
+class ReservationController extends Controller
 {
+    // Longest rental the SMALLINT UNSIGNED rental_days column can store.
+    const MAX_RENTAL_DAYS = 65535;
+
+    // Failure results from ReservationModel, mapped to [message, HTTP status].
+    const ERRORS = [
+        'not_found'           => ['Reservation not found.', 404],
+        'vehicle_not_found'   => ['Vehicle not found.', 404],
+        'vehicle_unavailable' => ['This vehicle is not available for those dates.', 409],
+        'date_conflict'       => ['This vehicle is already reserved for part or all of those dates.', 409],
+        'invalid_transition'  => ['That reservation status change is not allowed.', 409],
+        'customer_forbidden'  => ['You may only cancel your own pending or confirmed reservations.', 403],
+        'duration_too_short'  => ['The selected dates do not meet this vehicle’s minimum rental duration.', 422],
+        'amount_too_large'    => ['The selected rental period exceeds the maximum supported amount.', 422],
+    ];
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->security_headers->apply_api();
+        $this->call->model('ReservationModel');
+    }
+
     public function reservations()
     {
-        $user = $this->authenticatedUser();
-        $reservations = $this->reservationModel->getForUser($user);
-        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservations retrieved successfully.', 'data' => $reservations], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        exit;
+        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        if (!$user || (int) $user['is_active'] !== 1) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            return;
+        }
+
+        $this->response->send_json_success(
+            $this->ReservationModel->for_user($user['id'], $user['role'] === 'admin'),
+            'Reservations retrieved successfully.'
+        );
     }
 
     public function reservation($id)
     {
-        $user = $this->authenticatedUser();
-        if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        if (!$user || (int) $user['is_active'] !== 1) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            return;
         }
-        $reservation = $this->findReservation((int) $id);
-        if (!$reservation || ($user['role'] !== 'admin' && (int) $reservation['user_id'] !== $user['id'])) {
-            $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+
+        $reservation = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
+            ? $this->ReservationModel->find_with_details((int) $id)
+            : null;
+
+        // Customers only see their own reservations; anything else is reported as missing.
+        if (!$reservation || ($user['role'] !== 'admin' && (int) $reservation['user_id'] !== (int) $user['id'])) {
+            $this->response->send_json_error('Reservation not found.', 404);
+            return;
         }
-        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservation retrieved successfully.', 'data' => $reservation], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        exit;
+
+        $this->response->send_json_success($reservation, 'Reservation retrieved successfully.');
     }
 
     public function createReservation()
     {
-        $user = $this->authenticatedUser();
-        if (!$this->isCustomerRole($user['role'])) {
-            $this->response->send_json(['success' => false, 'message' => 'Only customer accounts can create reservations.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        if (!$user || (int) $user['is_active'] !== 1) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            return;
+        }
+        if ($user['role'] === 'admin') {
+            $this->response->send_json_error('Customer access is required.', 403);
+            return;
         }
 
-        $input = $this->input();
-        $carId = filter_var($input['car_id'] ?? null, FILTER_VALIDATE_INT);
-        $startDate = $input['start_date'] ?? null;
-        $endDate = $input['end_date'] ?? null;
-        if (!$carId || $carId < 1) {
-            $this->response->send_json(['success' => false, 'message' => 'Select a valid vehicle.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
-        }
-        if (!$this->isValidReservationDate($startDate) || !$this->isValidReservationDate($endDate)) {
-            $this->response->send_json(['success' => false, 'message' => 'Enter valid rental dates.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+        // Form_validation reads $_POST, so a JSON body is placed there first.
+        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $_POST = is_array($input) ? $input : [];
+        $this->call->library('form_validation');
+        if (!$this->form_validation->validate([
+            'car_id|Vehicle'         => 'required|pattern[int]|greater_than_equal_to[1]',
+            'start_date|Pickup date' => 'required|pattern[date_ymd]',
+            'end_date|Return date'   => 'required|pattern[date_ymd]',
+        ])) {
+            $errors = $this->form_validation->get_errors();
+            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
+            return;
         }
 
-        $start = new DateTimeImmutable($startDate);
-        $end = new DateTimeImmutable($endDate);
-        $today = new DateTimeImmutable('today');
-        $rentalDays = (int) $start->diff($end)->format('%a');
-        if ($start < $today) {
-            $this->response->send_json(['success' => false, 'message' => 'The rental start date cannot be in the past.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+        $startDate = $this->request->post('start_date');
+        $endDate   = $this->request->post('end_date');
+        $start     = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
+        $end       = DateTimeImmutable::createFromFormat('!Y-m-d', $endDate);
+
+        // Rejects impossible dates such as 2026-02-31.
+        if (!$start || !$end || $start->format('Y-m-d') !== $startDate || $end->format('Y-m-d') !== $endDate) {
+            $this->response->send_json_error('Enter valid rental dates.', 422);
+            return;
         }
-        if ($end <= $start || $rentalDays < 1 || $rentalDays > 65535) {
-            $this->response->send_json(['success' => false, 'message' => 'The return date must be after the pickup date.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+        if ($startDate < date('Y-m-d')) {
+            $this->response->send_json_error('The rental start date cannot be in the past.', 422);
+            return;
+        }
+
+        $rentalDays = (int) $start->diff($end)->format('%r%a');
+        if ($rentalDays < 1 || $rentalDays > self::MAX_RENTAL_DAYS) {
+            $this->response->send_json_error('The return date must be after the pickup date.', 422);
+            return;
         }
 
         try {
-            $result = $this->reservationModel->createReservation(
+            $result = $this->ReservationModel->create_reservation(
                 $user['id'],
-                $carId,
+                (int) $this->request->post('car_id'),
                 $startDate,
                 $endDate,
                 $rentalDays
             );
         } catch (Exception $exception) {
             error_log('Reservation creation failed: ' . $exception->getMessage());
-            $this->response->send_json(['success' => false, 'message' => 'The reservation could not be created. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+            $result = ['status' => 'error'];
         }
 
-        switch ($result['status']) {
-            case 'vehicle_not_found':
-                $this->response->send_json(['success' => false, 'message' => 'Vehicle not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'vehicle_unavailable':
-                $this->response->send_json(['success' => false, 'message' => 'This vehicle is not currently available for reservations.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'duration_too_short':
-                $this->response->send_json(['success' => false, 'message' => 'The selected dates do not meet this vehicle’s minimum rental duration.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'date_conflict':
-                $this->response->send_json(['success' => false, 'message' => 'This vehicle is already reserved for part or all of those dates.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'amount_too_large':
-                $this->response->send_json(['success' => false, 'message' => 'The selected rental period exceeds the maximum supported amount.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'start_failed':
-                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be started. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'commit_failed':
-                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be committed. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'created':
-                break;
-            default:
-                error_log('Reservation creation returned an unexpected result.');
-                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be created. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
+        if ($result['status'] !== 'created') {
+            error_log('Reservation request ended with: ' . $result['status']);
+            [$message, $status] = self::ERRORS[$result['status']] ?? ['The reservation could not be created. Please try again.', 500];
+            $this->response->send_json_error($message, $status);
+            return;
         }
 
-        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservation created successfully and is awaiting confirmation.', 'data' => $this->findReservation($result['id'])], function ($value) { return $value !== null; }), 201, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        exit;
+        $this->response->send_json_success(
+            $this->ReservationModel->find_with_details($result['id']),
+            'Reservation created successfully and is awaiting confirmation.',
+            201
+        );
     }
 
     public function updateReservation($id)
     {
-        $user = $this->authenticatedUser();
-        if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        if (!$user || (int) $user['is_active'] !== 1) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            return;
         }
-        $input = $this->input();
+        if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
+            $this->response->send_json_error('Reservation not found.', 404);
+            return;
+        }
+
+        $input  = $this->request->is_json() ? $this->request->json() : $this->request->post();
         $status = $input['status'] ?? null;
-        if (!is_string($status)) {
-            $this->response->send_json(['success' => false, 'message' => 'A valid reservation status is required.'], 422, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+        if (!in_array($status, ReservationModel::STATUSES, true)) {
+            $this->response->send_json_error('A valid reservation status is required.', 422);
+            return;
         }
 
         try {
-            $result = $this->reservationModel->updateStatus((int) $id, $user, $status);
+            $result = $this->ReservationModel->update_status((int) $id, $user['id'], $user['role'] === 'admin', $status);
         } catch (Exception $exception) {
             error_log('Reservation update failed: ' . $exception->getMessage());
-            $this->response->send_json(['success' => false, 'message' => 'The reservation could not be updated. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            exit;
+            $result = 'error';
         }
 
-        switch ($result) {
-            case 'not_found':
-                $this->response->send_json(['success' => false, 'message' => 'Reservation not found.'], 404, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'invalid_transition':
-                $this->response->send_json(['success' => false, 'message' => 'That reservation status change is not allowed.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'customer_forbidden':
-                $this->response->send_json(['success' => false, 'message' => 'You may only cancel your own pending or confirmed reservations.'], 403, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'vehicle_unavailable':
-                $this->response->send_json(['success' => false, 'message' => 'This vehicle is no longer available for those dates.'], 409, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'start_failed':
-                $this->response->send_json(['success' => false, 'message' => 'The reservation update could not be started. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'commit_failed':
-                $this->response->send_json(['success' => false, 'message' => 'The reservation update could not be committed. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
-            case 'updated':
-                break;
-            default:
-                error_log('Reservation update returned an unexpected result.');
-                $this->response->send_json(['success' => false, 'message' => 'The reservation could not be updated. Please try again.'], 500, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                exit;
+        if ($result !== 'updated') {
+            error_log('Reservation request ended with: ' . $result);
+            [$message, $code] = self::ERRORS[$result] ?? ['The reservation could not be updated. Please try again.', 500];
+            $this->response->send_json_error($message, $code);
+            return;
         }
-        $this->response->send_json(array_filter(['success' => true, 'message' => 'Reservation status updated successfully.', 'data' => $this->findReservation((int) $id)], function ($value) { return $value !== null; }), 200, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        exit;
-    }
 
-    protected function findReservation($id)
-    {
-        return $this->reservationModel->findWithDetails($id);
+        $this->response->send_json_success($this->ReservationModel->find_with_details((int) $id), 'Reservation status updated successfully.');
     }
 }

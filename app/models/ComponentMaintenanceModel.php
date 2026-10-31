@@ -20,7 +20,7 @@ class ComponentMaintenanceModel extends Model
     public function vehicle($vehicle_id)
     {
         return $this->db->table('cars')
-            ->select('id, make, model, year, category, plate_number, color, status, current_mileage, primary_image')
+            ->select('id, make, model, year, category, fuel_type, plate_number, color, status, current_mileage, primary_image')
             ->where('id', (int) $vehicle_id)
             ->limit(1)
             ->get() ?: null;
@@ -59,6 +59,23 @@ class ComponentMaintenanceModel extends Model
             ->where('is_active', 1)
             ->limit(1)
             ->get() ?: null;
+    }
+
+    /** Latest component inspections across the fleet (or one car) for the administrator chat. Read-only. */
+    public function chat_inspections($vehicle_id = null, $limit = 40)
+    {
+        $query = $this->db->table(self::INSPECTIONS)
+            ->select('vehicle_component_inspections.id, vehicle_component_inspections.vehicle_id, vehicle_component_inspections.component_key, maintenance_component_types.display_name AS component, vehicle_component_inspections.inspected_on, vehicle_component_inspections.odometer_km, vehicle_component_inspections.condition_rating, vehicle_component_inspections.reported_symptoms, vehicle_component_inspections.dtc_codes, vehicle_component_inspections.findings, vehicle_component_inspections.confirmed_fault, vehicle_component_inspections.recommended_action, vehicle_component_inspections.next_due_date, cars.make, cars.model')
+            ->inner_join('cars', 'cars.id = vehicle_component_inspections.vehicle_id')
+            ->left_join('maintenance_component_types', 'maintenance_component_types.component_key = vehicle_component_inspections.component_key');
+        if ($vehicle_id !== null) {
+            $query->where('vehicle_component_inspections.vehicle_id', (int) $vehicle_id);
+        }
+
+        return $query->order_by('vehicle_component_inspections.inspected_on', 'DESC')
+            ->order_by('vehicle_component_inspections.id', 'DESC')
+            ->pagination(max(1, min((int) $limit, 40)), 1)
+            ->get_all();
     }
 
     /** Inspections for one vehicle, grouped by component key, newest first. */

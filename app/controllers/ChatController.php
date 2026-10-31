@@ -2,22 +2,31 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /**
- * Forwards chat messages to the Python AI service (config: ai_service_api_url / ai_service_api_key)
- * together with rental or diagnostic context from the database.
+ * Forwards chat messages to the Python AI service (config: ai_service_api_url / ai_service_api_key).
+ *
+ * Rental mode is a two-step exchange. The AI service first reads the message and replies
+ * with a retrieval plan made only of ChatRetrieval's read-only tools; this controller runs
+ * the plan for the signed-in user (role and user id from the session) and sends the
+ * results back, and the AI service answers from them. Diagnostic mode sends one
+ * administrator-selected vehicle's records, as before.
  */
 class ChatController extends Controller
 {
     const MAX_BODY_BYTES   = 8192;
     const MAX_MESSAGE_LEN  = 4000;
-    const MAX_RENTAL_DAYS  = 65535;
     const UUID_PATTERN     = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
     const UNAVAILABLE      = 'The local AI chat service is unavailable right now.';
+    // Each message makes up to two AI-service calls and several read queries.
+    const RATE_PER_USER    = 20;
+    const RATE_PER_IP      = 60;
+    const RATE_WINDOW      = 60;
 
     public function __construct()
     {
         parent::__construct();
         $this->security_headers->apply_api();
         $this->call->model(['CarModel', 'MaintenanceModel', 'ReservationModel', 'ComponentMaintenanceModel']);
+        $this->call->library(['AiServiceClient', 'ComponentMaintenanceRules', 'ChatRetrieval']);
     }
 
     public function chat()
@@ -28,6 +37,11 @@ class ChatController extends Controller
             $this->response->send_json_error('Authentication is required.', 401);
             return;
         }
+
+        // LavaLust's built-in limiter (config: rate_limit_enabled in api.php): per signed-in user and per IP.
+        $this->call->library('api');
+        $this->api->rate_limit('chat_user_' . (int) $user['id'], self::RATE_PER_USER, self::RATE_WINDOW);
+        $this->api->rate_limit('chat_ip_' . (string) $this->request->server('REMOTE_ADDR'), self::RATE_PER_IP, self::RATE_WINDOW);
 
         if ((int) $this->request->server('CONTENT_LENGTH') > self::MAX_BODY_BYTES) {
             $this->response->send_json_error('The chat message is too large.', 413);
@@ -74,21 +88,19 @@ class ChatController extends Controller
             exit;
         }
 
-        $payload = json_encode([
+        // Without an id the browser could never continue a conversation, so follow-up questions need one.
+        $conversationId = $conversationId ?? self::new_uuid();
+        $request = [
             'message'            => trim($message),
             'conversation_id'    => $conversationId,
-            'conversation_scope' => $isAdmin ? 'admin:' . (int) $user['id'] : 'public',
-            'rental_context'     => $mode === 'diagnostic'
-                ? $this->diagnosticContext($input)
-                : $this->rentalContext($isAdmin, (int) $user['id'], trim($message)),
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($payload === false) {
-            error_log('Chat request could not be encoded: ' . json_last_error_msg());
-            $this->response->send_json_error('The chat request could not be completed.', 500);
-            exit;
-        }
+            // Role and scope come from the authenticated session, never from the message.
+            'viewer_role'        => $isAdmin ? 'admin' : 'customer',
+            'conversation_scope' => ($isAdmin ? 'admin:' : 'customer:') . (int) $user['id'],
+        ];
 
-        $result = $this->sendToAiService($url, $token, $payload);
+        $result = $mode === 'diagnostic'
+            ? $this->sendToAiService($url, $token, $request + ['rental_context' => $this->diagnosticContext($input)])
+            : $this->answerFromDatabase($url, $token, $request, $isAdmin, (int) $user['id']);
 
         $this->response->send_json_success([
             'message'         => $result['answer'],
@@ -100,195 +112,46 @@ class ChatController extends Controller
     }
 
     /* ---------------------------------------------------------------
-     * Context sent to the AI service
+     * Database-grounded answers
      * ------------------------------------------------------------- */
 
-    private function rentalContext($isAdmin, $userId, $message)
+    /** Plan with the AI service, run the plan's authorised read-only retrievals, then get the answer. */
+    private function answerFromDatabase($url, $token, array $request, $isAdmin, $userId)
     {
-        $kind = $this->databaseQuestionKind($isAdmin, $message);
-        if ($kind === null) {
-            return null;
+        $source = $this->call->library('ChatDatabaseSource', [
+            'cars'         => $this->CarModel,
+            'reservations' => $this->ReservationModel,
+            'maintenance'  => $this->MaintenanceModel,
+            'components'   => $this->ComponentMaintenanceModel,
+        ]);
+        try {
+            // Names in this database, so the AI service recognises makes and models it has never seen.
+            $vocabulary = ChatRetrieval::vocabulary($source->vehicles($isAdmin));
+        } catch (Exception $exception) {
+            error_log('Chat vocabulary query failed: ' . $exception->getMessage());
+            $vocabulary = ChatRetrieval::vocabulary([]);
         }
 
-        if ($kind === 'bookings') {
-            return [
-                'database_context' => [
-                    'kind'         => 'customer_bookings',
-                    'data_as_of'   => date(DATE_ATOM),
-                    'booking_data' => $this->ReservationModel->chat_context_for_user($userId),
-                ],
-            ];
+        $request += ['retrieval_protocol' => 1, 'vocabulary' => $vocabulary];
+        $first = $this->sendToAiService($url, $token, $request, true);
+        if (($first['status'] ?? null) !== 'needs_data') {
+            return $first;
         }
 
-        if ($kind === 'maintenance') {
-            $vehicleId = $this->messageVehicleId($message);
-            return [
-                'database_context' => [
-                    'kind'          => 'admin_maintenance',
-                    'data_as_of'    => date(DATE_ATOM),
-                    'vehicle_id'    => $vehicleId,
-                    'records'       => $this->MaintenanceModel->chat_context($vehicleId, 10),
-                    'data_meaning'  => 'Legacy rows are service-log entries, not verified fault labels. Evidence rows are included only when their verification status is verified.',
-                ],
-            ];
-        }
+        $results = ChatRetrieval::execute(
+            $first['plan'],
+            ['role' => $isAdmin ? 'admin' : 'customer', 'user_id' => $userId],
+            $source
+        );
 
-        $availability = $kind === 'fleet' || $this->messageRequestsAvailability($message);
-        $period = $availability ? $this->availabilityPeriod($message) : null;
-        $excludeIds = [];
-        if ($period !== null && $period['status'] === 'checked') {
-            $excludeIds = $this->ReservationModel->booked_car_ids(
-                $period['start_date'],
-                $period['end_date']
-            );
-        }
-
-        $vehicleId = $this->messageVehicleId($message);
-        $context = $this->CarModel->chat_context($isAdmin, 100, $excludeIds, $vehicleId);
-        $cars = array_map(function ($car) use ($isAdmin, $availability, $period, $excludeIds) {
-            $car = $this->chatCar($car);
-            $vehicleStatus = $car['status'] ?? null;
-            unset($car['plate_number']);
-
-            if (!$isAdmin) {
-                unset($car['status']);
-            }
-
-            if ($availability) {
-                $car['is_available'] = $vehicleStatus === 'available'
-                    && !in_array((int) $car['id'], $excludeIds, true);
-                if ($period !== null && $period['status'] === 'checked') {
-                    $duration = (int) ((new DateTimeImmutable($period['start_date']))
-                        ->diff(new DateTimeImmutable($period['end_date']))->format('%a'));
-                    $car['minimum_duration_satisfied'] = $duration >= (int) $car['minimum_rental_duration'];
-                    $car['is_available'] = $car['is_available'] && $car['minimum_duration_satisfied'];
-                }
-            }
-            return $car;
-        }, $context['cars']);
-
-        $result = [
-            'currency'                                      => 'PHP',
-            'data_as_of'                                    => date(DATE_ATOM),
-            'viewer_scope'                                  => $isAdmin ? 'admin' : 'public',
-            'vehicle_count'                                 => $context['vehicle_count'],
-            'vehicle_list_truncated'                        => $context['vehicle_count'] > count($cars),
-            'vehicles'                                      => $cars,
-            'vehicle_status_authorized'                     => true,
-            'availability_period'                            => $period,
-            'requested_vehicle_id'                            => $vehicleId,
-        ];
-        if ($this->messageRequestsPrice($message)
-            && preg_match('/\bfor\s+(\d{1,4})\s+days?\b/i', $message, $durationMatch)) {
-            $result['rental_duration_days'] = (int) $durationMatch[1];
-        }
-
-        if ($isAdmin) {
-            $result['vehicle_counts_by_status'] = $this->CarModel->chat_status_counts();
-        }
-
-        if ($kind === 'fleet') {
-            $result['database_context'] = ['kind' => 'admin_fleet'];
-        } else {
-            $result['database_context'] = [
-                'kind'    => 'vehicle_inventory',
-                'purpose' => $availability
-                    ? 'availability'
-                    : ($this->messageRequestsPrice($message) ? 'pricing' : 'details'),
-            ];
-        }
-
-        return $result;
+        return $this->sendToAiService($url, $token, $request + [
+            'retrieval' => ['plan' => $first['plan'], 'results' => $results, 'data_as_of' => date(DATE_ATOM)],
+        ]);
     }
 
-    /** Decide whether a question needs database facts; general automotive chat stays on the knowledge path. */
-    private function databaseQuestionKind($isAdmin, $message)
-    {
-        if (!$isAdmin && preg_match('/\bmy\s+(?:booking|reservation|rental|pickup|return)\b|\b(?:my booking|my reservation)\b/i', $message)) {
-            return 'bookings';
-        }
-
-        if ($isAdmin && preg_match('/\b(?:maintenance|service|inspection|repair|fault|dtc)\b/i', $message)
-            && preg_match('/\b(?:history|record|latest|recent|performed|serviced|inspected|confirmed|status|fleet|vehicle\s*#?\s*\d+|car\s*#?\s*\d+)\b/i', $message)) {
-            return 'maintenance';
-        }
-
-        if ($isAdmin && preg_match('/\b(?:fleet|all vehicles|all cars|vehicle status|rental status|fleet status)\b/i', $message)) {
-            return 'fleet';
-        }
-
-        if (preg_match('/\b(?:cars?|vehicles?|rental|rent|availability|available|price|pricing|rate|cheapest|booking|reserve)\b/i', $message)) {
-            return 'inventory';
-        }
-
-        return null;
-    }
-
-    private function messageRequestsAvailability($message)
-    {
-        return (bool) preg_match('/\b(?:available|availability|book|reserve|rental period)\b/i', $message);
-    }
-
-    private function messageRequestsPrice($message)
-    {
-        return (bool) preg_match('/\b(?:price|pricing|rate|cost|cheapest|how much|afford)\b/i', $message);
-    }
-
-    /** Availability windows use the same half-open [start, end) dates as reservations. */
-    private function availabilityPeriod($message)
-    {
-        preg_match_all('/\b\d{4}-\d{2}-\d{2}\b/', $message, $matches);
-        $dates = array_values(array_unique($matches[0]));
-        preg_match('/\bfor\s+(\d{1,4})\s+days?\b/i', $message, $durationMatch);
-
-        if (!$dates && !$durationMatch) {
-            return ['status' => 'listing_status_only'];
-        }
-        if (count($dates) === 1 && !$durationMatch) {
-            return ['status' => 'needs_details', 'missing' => 'rental duration or return date'];
-        }
-        if (!$dates) {
-            return ['status' => 'needs_details', 'missing' => 'pickup date'];
-        }
-
-        $start = DateTimeImmutable::createFromFormat('!Y-m-d', $dates[0]);
-        if (!$start || $start->format('Y-m-d') !== $dates[0]) {
-            return ['status' => 'invalid_dates'];
-        }
-
-        if (count($dates) > 1) {
-            $end = DateTimeImmutable::createFromFormat('!Y-m-d', $dates[1]);
-            if (!$end || $end->format('Y-m-d') !== $dates[1]) {
-                return ['status' => 'invalid_dates'];
-            }
-        } else {
-            $days = (int) $durationMatch[1];
-            if ($days < 1 || $days > self::MAX_RENTAL_DAYS) {
-                return ['status' => 'invalid_dates'];
-            }
-            $end = $start->modify('+' . $days . ' days');
-        }
-
-        if ($end <= $start || $start->format('Y-m-d') < date('Y-m-d')) {
-            return ['status' => 'invalid_dates'];
-        }
-
-        return [
-            'status'     => 'checked',
-            'start_date' => $start->format('Y-m-d'),
-            'end_date'   => $end->format('Y-m-d'),
-        ];
-    }
-
-    private function messageVehicleId($message)
-    {
-        if (preg_match('/\b(?:vehicle|car)\s*(?:id)?\s*#?\s*(\d+)\b/i', $message, $match)) {
-            $id = filter_var($match[1], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-            return $id === false ? null : (int) $id;
-        }
-
-        return null;
-    }
+    /* ---------------------------------------------------------------
+     * Context sent to the AI service
+     * ------------------------------------------------------------- */
 
     private function diagnosticContext(array $input)
     {
@@ -348,6 +211,7 @@ class ChatController extends Controller
                     'make'               => (string) $vehicle['make'],
                     'model'              => (string) $vehicle['model'],
                     'year'               => (int) $vehicle['year'],
+                    'body_type'          => ComponentMaintenanceRules::body_type($vehicle['category']),
                     'plate_number'       => $vehicle['plate_number'],
                     'color'              => $vehicle['color'],
                     'fuel_type'          => $vehicle['fuel_type'],
@@ -370,33 +234,31 @@ class ChatController extends Controller
         ];
     }
 
-    /** Typed car fields, with long text trimmed to keep the chat context small. */
-    private function chatCar(array $car)
+    private static function new_uuid()
     {
-        $car['daily_rental_price']      = (float) $car['daily_rental_price'];
-        $car['security_deposit']        = (float) $car['security_deposit'];
-        $car['minimum_rental_duration'] = (int) $car['minimum_rental_duration'];
-        $car['seating_capacity']        = (int) $car['seating_capacity'];
-        $car['air_conditioning']        = (bool) $car['air_conditioning'];
-        $car['gps_navigation']          = (bool) $car['gps_navigation'];
-        $car['description']             = substr((string) ($car['description'] ?? ''), 0, 240);
-
-        $features = is_string($car['additional_features']) ? json_decode($car['additional_features'], true) : $car['additional_features'];
-        $encoded  = json_encode($features);
-        $car['additional_features'] = $encoded !== false && strlen($encoded) > 1000
-            ? 'Feature details omitted because they exceed the chat context limit.'
-            : $features;
-
-        return $car;
+        $bytes = random_bytes(16);
+        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
     }
 
     /* ---------------------------------------------------------------
      * HTTP call to the AI service
      * ------------------------------------------------------------- */
 
-    /** POSTs the payload and returns the decoded answer, or sends a 503. */
-    private function sendToAiService($url, $token, $payload)
+    /**
+     * POSTs the request and returns the decoded answer, or sends a 503. With $allowPlan,
+     * a {"status": "needs_data", "plan": {...}} reply is also accepted.
+     */
+    private function sendToAiService($url, $token, array $request, $allowPlan = false)
     {
+        $payload = json_encode($request, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($payload === false) {
+            error_log('Chat request could not be encoded: ' . json_last_error_msg());
+            $this->response->send_json_error('The chat request could not be completed.', 500);
+            exit;
+        }
+
         $headers = ['Content-Type: application/json', 'Accept: application/json'];
         if ($token !== '') {
             $headers[] = 'X-AI-Service-Key: ' . $token;
@@ -428,12 +290,13 @@ class ChatController extends Controller
         }
 
         $result = json_decode($body, true);
-        if (
-            $status >= 200 && $status < 300
-            && is_array($result) && ($result['status'] ?? null) === 'success'
-            && is_string($result['answer'] ?? null) && trim($result['answer']) !== ''
-        ) {
-            return $result;
+        if ($status >= 200 && $status < 300 && is_array($result)) {
+            if ($allowPlan && ($result['status'] ?? null) === 'needs_data' && is_array($result['plan'] ?? null)) {
+                return $result;
+            }
+            if (($result['status'] ?? null) === 'success' && is_string($result['answer'] ?? null) && trim($result['answer']) !== '') {
+                return $result;
+            }
         }
 
         $detail = self::UNAVAILABLE;
@@ -441,11 +304,9 @@ class ChatController extends Controller
             $detail = $result['error'];
         } elseif (is_array($result) && is_string($result['message'] ?? null)) {
             $detail = $result['message'];
-        } elseif ($curlError !== '') {
-            $detail = 'The local AI chat service is unavailable right now: ' . $curlError;
         }
-        error_log('Local AI chat service returned an unsuccessful response (HTTP ' . $status . '): ' . $detail);
+        error_log('Local AI chat service returned an unsuccessful response (HTTP ' . $status . '): ' . $detail . ($curlError !== '' ? ' (' . $curlError . ')' : ''));
         $this->response->send_json_error($detail, 503);
-            exit;
+        exit;
     }
 }

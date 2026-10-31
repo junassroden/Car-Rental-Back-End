@@ -1,5 +1,7 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
+require_once APP_DIR . 'libraries/AiServiceClient.php';
+require_once APP_DIR . 'libraries/ComponentMaintenanceRules.php';
 
 /** Admin-only vehicle maintenance records and service-interval estimates. */
 class MaintenanceController extends Controller
@@ -39,10 +41,45 @@ class MaintenanceController extends Controller
         $predictions = $this->MaintenanceModel->predictions() ?: $this->MaintenanceModel->generate_predictions();
 
         $this->response->send_json_success([
-            'summary'     => $this->MaintenanceModel->prediction_summary($predictions, count($vehicles)),
-            'vehicles'    => $vehicles,
-            'predictions' => $predictions,
+            'summary'           => $this->MaintenanceModel->prediction_summary($predictions, count($vehicles)),
+            'vehicles'          => $vehicles,
+            'predictions'       => $predictions,
+            'model_predictions' => $this->modelPredictions(),
         ], 'Maintenance predictions retrieved successfully.');
+    }
+
+    /**
+     * Service-need predictions from the registered model for every vehicle the
+     * model can score. Rule-based 'predictions' above are unchanged; this block
+     * is separate so the two are never mixed.
+     */
+    private function modelPredictions()
+    {
+        $this->config->load('api');
+        $vehicles = array_map(static function ($vehicle) {
+            return AiServiceClient::model_vehicle($vehicle, ComponentMaintenanceRules::body_type($vehicle['category']));
+        }, $this->MaintenanceModel->model_feature_vehicles());
+        if (!$vehicles) {
+            return ['status' => 'not_run', 'reason' => 'There are no vehicles in the fleet.'];
+        }
+
+        $result = AiServiceClient::request('POST', AiServiceClient::endpoint('fleet/analyze'), ['vehicles' => $vehicles], 20);
+        if (!is_array($result)) {
+            return ['status' => 'unavailable', 'reason' => 'The AI service could not be reached.'];
+        }
+        if (($result['status'] ?? null) !== 'success') {
+            return ['status' => 'unavailable', 'reason' => (string) ($result['error'] ?? 'The maintenance model is not available.')];
+        }
+
+        return [
+            'status'        => 'available',
+            'model_version' => $result['model_version'] ?? null,
+            'generated_at'  => date(DATE_ATOM),
+            'summary'       => $result['fleet_summary'] ?? null,
+            'vehicles'      => $result['prioritized_vehicles'] ?? [],
+            'not_scored'    => $result['rejected_vehicles'] ?? [],
+            'meaning'       => 'Probability that each service item would be performed at a workshop visit at the current odometer. Not a detected fault or a failure date.',
+        ];
     }
 
     public function generateMaintenancePredictions()

@@ -56,7 +56,7 @@ class MaintenanceModel extends Model
     public function chat_context($vehicle_id = null, $limit = 40)
     {
         $query = $this->db->table($this->table)
-            ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.maintenanceType, tblvehicle_maintenance.description, tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.odometerReading, cars.make, cars.model')
+            ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.maintenanceType, tblvehicle_maintenance.description, tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.cost, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.nextMaintenanceDate, tblvehicle_maintenance.odometerReading, cars.make, cars.model')
             ->inner_join('cars', 'cars.id = tblvehicle_maintenance.vehicleID');
 
         if ($vehicle_id !== null) {
@@ -216,6 +216,15 @@ class MaintenanceModel extends Model
             ->get_all();
     }
 
+    /** Cars with the fields the AI maintenance model needs. */
+    public function model_feature_vehicles()
+    {
+        return $this->db->table('cars')
+            ->select('id, make, model, year, category, fuel_type, current_mileage')
+            ->order_by('id', 'ASC')
+            ->get_all();
+    }
+
     /** Every car with its latest-service details. */
     public function vehicle_overview()
     {
@@ -311,34 +320,10 @@ class MaintenanceModel extends Model
         foreach ($this->vehicles() as $vehicle) {
             $vehicleId      = (int) $vehicle['id'];
             $service        = $history[$vehicleId] ?? self::empty_history();
-            $lastDate       = $service['last_maintenance_date'];
-            $lastMileage    = $service['last_maintenance_odometer'];
             $currentMileage = $vehicle['current_mileage'];
             $type           = $service['last_maintenance_type'] ?: 'general inspection';
-            $nextDueDate    = $service['next_scheduled_date'];
 
-            $nextMaintenanceDate = null;
-
-            if ($lastDate !== null) {
-                $nextMaintenanceDate = (new DateTimeImmutable($lastDate))->modify('+' . self::BASELINE_SERVICE_DAYS . ' days')->format('Y-m-d');
-                $estimatedMileage    = $lastMileage !== null ? (int) $lastMileage + self::BASELINE_SERVICE_KILOMETERS : null;
-
-                if ($currentMileage !== null && $estimatedMileage !== null && $currentMileage >= $estimatedMileage) {
-                    list($risk, $issue, $action) = ['high', 'Recorded mileage has reached the system baseline service interval since the last completed service. This is a maintenance schedule status, not a confirmed mechanical fault.', 'Review the manufacturer service schedule and record the service outcome.'];
-                } elseif ($nextDueDate !== null && $today > new DateTimeImmutable($nextDueDate)) {
-                    list($risk, $issue, $action) = ['high', 'A recorded scheduled maintenance date has passed. This is not a confirmed mechanical fault.', 'Review the scheduled task and record its completion or revised due date.'];
-                } elseif ($today > new DateTimeImmutable($nextMaintenanceDate)) {
-                    list($risk, $issue, $action) = ['high', 'The system baseline date interval has passed. Check the vehicle manufacturer schedule before deciding service.', 'Review the manufacturer schedule and record the service outcome.'];
-                } elseif ($today->diff(new DateTimeImmutable($nextMaintenanceDate))->days <= self::WARNING_DAYS) {
-                    list($risk, $issue, $action) = ['medium', 'The system baseline service date is within 30 days.', 'Review the manufacturer schedule and plan the next service.'];
-                } else {
-                    list($risk, $issue, $action) = ['low', 'No baseline service threshold has been reached based on the recorded service history. This is not a mechanical health assessment.', 'Check the vehicle manufacturer schedule and continue recording completed service and mileage.'];
-                }
-            } elseif ($currentMileage !== null) {
-                list($risk, $issue, $action) = ['insufficient', 'Current mileage is recorded, but no completed service history is available for an interval estimate.', 'Record the date and odometer reading from the latest completed service.'];
-            } else {
-                list($risk, $issue, $action) = ['insufficient', 'Maintenance history and current mileage are missing.', 'Add the last service date and mileage before generating maintenance forecasts.'];
-            }
+            list($risk, $issue, $action, $nextMaintenanceDate) = self::estimate($service, $currentMileage, $today);
 
             $prediction = [
                 'vehicleID'                => $vehicleId,
@@ -373,6 +358,69 @@ class MaintenanceModel extends Model
         }
 
         return $rows;
+    }
+
+    /**
+     * Read-only service status for every car, computed now with the same rule as
+     * generate_predictions() (nothing is stored). Used by the chat assistant.
+     */
+    public function chat_due_overview()
+    {
+        $today = new DateTimeImmutable('today');
+        return array_map(static function ($vehicle) use ($today) {
+            $mileage = $vehicle['current_mileage'] === null ? null : (int) $vehicle['current_mileage'];
+            list($risk, $issue, $action, $next) = self::estimate($vehicle, $mileage, $today);
+            return [
+                'id'                    => (int) $vehicle['id'],
+                'make'                  => $vehicle['make'],
+                'model'                 => $vehicle['model'],
+                'plate_number'          => $vehicle['plate_number'],
+                'status'                => $vehicle['status'],
+                'current_mileage'       => $mileage,
+                'last_service_date'     => $vehicle['last_maintenance_date'],
+                'last_service_type'     => $vehicle['last_maintenance_type'],
+                'last_service_odometer' => $vehicle['last_maintenance_odometer'] === null ? null : (int) $vehicle['last_maintenance_odometer'],
+                'next_scheduled_date'   => $vehicle['next_scheduled_date'],
+                'estimated_due_date'    => $next,
+                'service_status'        => ['high' => 'overdue', 'medium' => 'approaching', 'low' => 'not_due', 'insufficient' => 'insufficient_history'][$risk],
+                'basis'                 => $issue,
+                'recommended_action'    => $action,
+            ];
+        }, $this->vehicle_overview());
+    }
+
+    /**
+     * Baseline interval estimate for one car's service history.
+     * Returns [risk, issue, recommended action, next maintenance date or NULL].
+     */
+    private static function estimate(array $service, $currentMileage, DateTimeImmutable $today)
+    {
+        $lastDate    = $service['last_maintenance_date'];
+        $lastMileage = $service['last_maintenance_odometer'];
+        $nextDueDate = $service['next_scheduled_date'];
+
+        if ($lastDate === null) {
+            return $currentMileage !== null
+                ? ['insufficient', 'Current mileage is recorded, but no completed service history is available for an interval estimate.', 'Record the date and odometer reading from the latest completed service.', null]
+                : ['insufficient', 'Maintenance history and current mileage are missing.', 'Add the last service date and mileage before generating maintenance forecasts.', null];
+        }
+
+        $nextMaintenanceDate = (new DateTimeImmutable($lastDate))->modify('+' . self::BASELINE_SERVICE_DAYS . ' days')->format('Y-m-d');
+        $estimatedMileage    = $lastMileage !== null ? (int) $lastMileage + self::BASELINE_SERVICE_KILOMETERS : null;
+
+        if ($currentMileage !== null && $estimatedMileage !== null && $currentMileage >= $estimatedMileage) {
+            return ['high', 'Recorded mileage has reached the system baseline service interval since the last completed service. This is a maintenance schedule status, not a confirmed mechanical fault.', 'Review the manufacturer service schedule and record the service outcome.', $nextMaintenanceDate];
+        }
+        if ($nextDueDate !== null && $today > new DateTimeImmutable($nextDueDate)) {
+            return ['high', 'A recorded scheduled maintenance date has passed. This is not a confirmed mechanical fault.', 'Review the scheduled task and record its completion or revised due date.', $nextMaintenanceDate];
+        }
+        if ($today > new DateTimeImmutable($nextMaintenanceDate)) {
+            return ['high', 'The system baseline date interval has passed. Check the vehicle manufacturer schedule before deciding service.', 'Review the manufacturer schedule and record the service outcome.', $nextMaintenanceDate];
+        }
+        if ($today->diff(new DateTimeImmutable($nextMaintenanceDate))->days <= self::WARNING_DAYS) {
+            return ['medium', 'The system baseline service date is within 30 days.', 'Review the manufacturer schedule and plan the next service.', $nextMaintenanceDate];
+        }
+        return ['low', 'No baseline service threshold has been reached based on the recorded service history. This is not a mechanical health assessment.', 'Check the vehicle manufacturer schedule and continue recording completed service and mileage.', $nextMaintenanceDate];
     }
 
     /* ---------------------------------------------------------------

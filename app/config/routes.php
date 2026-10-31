@@ -46,6 +46,13 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 $router->get('/', 'Welcome::index');
 
+// `php lava migration run|status` reaches these through public/index.php on the command line only;
+// they are never registered for web requests. Rollback actions are deliberately not exposed.
+if (PHP_SAPI === 'cli') {
+    $router->get('/migrate', 'MigrationController::migrate');
+    $router->get('/status', 'MigrationController::status');
+}
+
 // JSON API. CORS preflight (OPTIONS) requests are answered by the router itself.
 $router->group(['prefix' => '/api'], function ($router) {
     // Authentication

@@ -2,6 +2,7 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 require_once APP_DIR . 'libraries/ComponentMaintenanceRules.php';
 require_once APP_DIR . 'libraries/MaintenanceDataPolicy.php';
+require_once APP_DIR . 'libraries/AiServiceClient.php';
 
 /**
  * Admin-only component maintenance for the 3D Predictive Maintenance page:
@@ -248,84 +249,82 @@ class ComponentMaintenanceController extends Controller
             return ['service' => $service, 'default' => $unavailable($reason), 'components' => []];
         }
 
-        $targets = array_keys(is_array($model['target_definitions'] ?? null) ? $model['target_definitions'] : []);
+        // Targets are service items; each lists the 3D component keys it belongs to.
+        $definitions = is_array($model['target_definitions'] ?? null) ? $model['target_definitions'] : [];
+        $byComponent = [];
+        foreach ($definitions as $target => $definition) {
+            $keys = is_array($definition['component_keys'] ?? null) ? $definition['component_keys'] : [$target];
+            foreach ($keys as $key) {
+                $byComponent[$key][] = $target;
+            }
+        }
         $default = $unavailable('The validated maintenance model does not cover this component.');
-        if (!$targets) {
+        if (!$byComponent) {
             return ['service' => $service, 'default' => $default, 'components' => []];
         }
 
-        $result = $this->ai_request('POST', preg_replace('#/capabilities/?$#', '/predict/', (string) config_item('ai_service_capabilities_url')), [
-            'vehicle' => [
-                'id'           => (int) $vehicle['id'],
-                'brand'        => $vehicle['make'],
-                'model'        => $vehicle['model'],
-                'vehicle_type' => $bodyType,
-                'make_year'    => (int) $vehicle['year'],
-                'mileage'      => $vehicle['current_mileage'] === null ? null : (int) $vehicle['current_mileage'],
-            ],
+        $result = $this->ai_request('POST', AiServiceClient::endpoint('predict'), [
+            'vehicle' => AiServiceClient::model_vehicle($vehicle, $bodyType),
         ]);
-
-        $components = [];
-        foreach ($targets as $target) {
-            $components[$target] = $unavailable(
-                is_array($result) && is_string($result['error'] ?? null)
-                    ? 'The validated model could not score this vehicle: ' . $result['error']
-                    : 'The validated model returned no score for this component.'
-            );
-        }
+        $scores = [];
         if (is_array($result) && ($result['status'] ?? null) === 'success' && is_array($result['all_categories'] ?? null)) {
             foreach ($result['all_categories'] as $item) {
-                $target = $item['component'] ?? null;
-                if (isset($components[$target]) && is_numeric($item['score'] ?? null)) {
-                    $components[$target] = [
-                        'status'         => 'available',
-                        'score'          => (float) $item['score'],
-                        'threshold'      => is_numeric($item['threshold'] ?? null) ? (float) $item['threshold'] : null,
-                        'recommendation' => $item['recommendation'] ?? null,
-                        'reason'         => (string) ($item['reason'] ?? ''),
-                        'model_status'   => $service['model_status'],
-                    ];
+                if (isset($item['component']) && is_numeric($item['score'] ?? null)) {
+                    $scores[$item['component']] = $item;
                 }
             }
         }
 
-        return ['service' => $service, 'default' => $default, 'components' => $components];
+        $components = [];
+        foreach ($byComponent as $key => $targets) {
+            $items = [];
+            foreach ($targets as $target) {
+                if (!isset($scores[$target])) {
+                    continue;
+                }
+                $item = $scores[$target];
+                $items[] = [
+                    'target'              => $target,
+                    'label'               => (string) ($item['label'] ?? $target),
+                    'score'               => (float) $item['score'],
+                    'threshold'           => is_numeric($item['threshold'] ?? null) ? (float) $item['threshold'] : null,
+                    'recommendation'      => $item['recommendation'] ?? null,
+                    'risk_category'       => $item['risk_category'] ?? null,
+                    'recommended_action'  => $item['recommended_action'] ?? null,
+                    'supporting_evidence' => $item['supporting_evidence'] ?? null,
+                ];
+            }
+            if (!$items) {
+                $components[$key] = $unavailable(
+                    is_array($result) && is_string($result['error'] ?? null)
+                        ? 'The validated model could not score this vehicle: ' . $result['error']
+                        : 'The validated model returned no score for this component.'
+                );
+                continue;
+            }
+            usort($items, static function ($a, $b) { return $b['score'] <=> $a['score']; });
+            $top = $items[0];
+            $components[$key] = [
+                'status'               => 'available',
+                'score'                => $top['score'],
+                'threshold'            => $top['threshold'],
+                'recommendation'       => $top['recommendation'],
+                'risk_category'        => $top['risk_category'],
+                'reason'               => $top['label'] . ': ' . ($top['supporting_evidence'] ?? ''),
+                'items'                => $items,
+                'prediction_type'      => $result['prediction_type'] ?? null,
+                'model_version'        => $result['model_version'] ?? null,
+                'prediction_timestamp' => $result['prediction_timestamp'] ?? null,
+                'model_status'         => $service['model_status'],
+            ];
+        }
+
+        return ['service' => $service + ['model_version' => $model['model_version'] ?? null], 'default' => $default, 'components' => $components];
     }
 
     /** JSON request to the AI service; returns the decoded body, or NULL on transport failure. */
     private function ai_request($method, $url, $body = null)
     {
-        if (!function_exists('curl_init') || !filter_var($url, FILTER_VALIDATE_URL)) {
-            return null;
-        }
-        $headers = ['Accept: application/json'];
-        $token   = trim((string) config_item('ai_service_api_key'));
-        if ($token !== '') {
-            $headers[] = 'X-AI-Service-Key: ' . $token;
-        }
-
-        $handle  = curl_init($url);
-        $options = [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 2,
-            CURLOPT_TIMEOUT        => 8,
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-        ];
-        if ($method === 'POST') {
-            $headers[]                   = 'Content-Type: application/json';
-            $options[CURLOPT_POST]       = true;
-            $options[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        }
-        $options[CURLOPT_HTTPHEADER] = $headers;
-        curl_setopt_array($handle, $options);
-
-        $response = curl_exec($handle);
-        if ($response === false) {
-            error_log('AI service request failed: ' . curl_error($handle));
-            return null;
-        }
-        $decoded = json_decode($response, true);
-        return is_array($decoded) ? $decoded : null;
+        return AiServiceClient::request($method, $url, $body);
     }
 }

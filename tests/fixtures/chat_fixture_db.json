@@ -1,0 +1,78 @@
+{
+  "purpose": "Controlled rows shaped like the MySQL query results ChatDatabaseSource returns. Used by tests/chat_retrieval_test.php and automotive_ai_service/scripts/evaluate_chatbot.py. Not real customer data.",
+  "users": [
+    {"id": 1, "full_name": "Fleet Admin", "role": "admin"},
+    {"id": 2, "full_name": "Ana Santos", "role": "customer"},
+    {"id": 3, "full_name": "Ben Cruz", "role": "customer"}
+  ],
+  "cars": [
+    {"id": 1, "make": "Toyota", "model": "Vios", "year": 2022, "category": "Sedan", "plate_number": "NAB 1234", "color": "White",
+     "description": "", "daily_rental_price": "1500.00", "security_deposit": "3000.00", "minimum_rental_duration": 1,
+     "transmission": "Automatic", "fuel_type": "Gasoline", "seating_capacity": 5, "air_conditioning": 1, "gps_navigation": 0,
+     "additional_features": "[]", "status": "available", "current_mileage": 59800},
+    {"id": 2, "make": "Toyota", "model": "Fortuner", "year": 2021, "category": "SUV", "plate_number": "NCD 5678", "color": "Black",
+     "description": "", "daily_rental_price": "3500.00", "security_deposit": "6000.00", "minimum_rental_duration": 1,
+     "transmission": "Automatic", "fuel_type": "Diesel", "seating_capacity": 7, "air_conditioning": 1, "gps_navigation": 1,
+     "additional_features": "[\"Dash camera\"]", "status": "available", "current_mileage": 72100},
+    {"id": 3, "make": "Honda", "model": "City", "year": 2020, "category": "Sedan", "plate_number": "NEF 9012", "color": "Silver",
+     "description": "", "daily_rental_price": "1700.00", "security_deposit": "3000.00", "minimum_rental_duration": 1,
+     "transmission": "CVT", "fuel_type": "Gasoline", "seating_capacity": 5, "air_conditioning": 1, "gps_navigation": 0,
+     "additional_features": "[]", "status": "rented", "current_mileage": 46500},
+    {"id": 4, "make": "Toyota", "model": "Hiace", "year": 2019, "category": "Van", "plate_number": "NGH 3456", "color": "White",
+     "description": "", "daily_rental_price": "4200.00", "security_deposit": "8000.00", "minimum_rental_duration": 2,
+     "transmission": "Manual", "fuel_type": "Diesel", "seating_capacity": 12, "air_conditioning": 1, "gps_navigation": 0,
+     "additional_features": "[]", "status": "maintenance", "current_mileage": 120400}
+  ],
+  "reservations": [
+    {"id": 52, "user_id": 3, "car_id": 2, "start_date": "2026-11-20", "end_date": "2026-11-23", "rental_days": 3,
+     "daily_rate": "3500.00", "total_amount": "10500.00", "status": "confirmed"},
+    {"id": 41, "user_id": 2, "car_id": 1, "start_date": "2026-11-05", "end_date": "2026-11-08", "rental_days": 3,
+     "daily_rate": "1500.00", "total_amount": "4500.00", "status": "pending"},
+    {"id": 17, "user_id": 2, "car_id": 3, "start_date": "2026-09-01", "end_date": "2026-09-03", "rental_days": 2,
+     "daily_rate": "1700.00", "total_amount": "3400.00", "status": "completed"}
+  ],
+  "maintenance_records": [
+    {"maintenanceID": 91, "vehicleID": 4, "maintenanceType": "Brake pad replacement", "description": "Front pads worn to 2 mm",
+     "maintenanceDate": "2026-10-20", "cost": "6800.00", "maintenanceStatus": "In Progress", "nextMaintenanceDate": null,
+     "odometerReading": 120400, "make": "Toyota", "model": "Hiace"},
+    {"maintenanceID": 88, "vehicleID": 3, "maintenanceType": "Oil change", "description": "Replaced engine oil and filter",
+     "maintenanceDate": "2026-08-14", "cost": "2500.00", "maintenanceStatus": "Completed", "nextMaintenanceDate": null,
+     "odometerReading": 41200, "make": "Honda", "model": "City"},
+    {"maintenanceID": 70, "vehicleID": 3, "maintenanceType": "Oil change", "description": "Replaced engine oil",
+     "maintenanceDate": "2026-02-10", "cost": "2400.00", "maintenanceStatus": "Completed", "nextMaintenanceDate": null,
+     "odometerReading": 36000, "make": "Honda", "model": "City"}
+  ],
+  "verified_evidence_records": [
+    {"id": 5, "vehicle_id": 3, "record_type": "repair", "recorded_at": "2026-09-20", "component": "Catalytic converter",
+     "symptoms": "Check engine light", "inspection_findings": "Rear O2 sensor signal mirrors front", "dtc_codes": "P0420",
+     "confirmed_cause": "Catalyst efficiency low", "repair_action": "Replaced catalytic converter", "repair_outcome": "Code cleared",
+     "source": "Workshop invoice", "make": "Honda", "model": "City"}
+  ],
+  "maintenance_due": [
+    {"id": 1, "make": "Toyota", "model": "Vios", "plate_number": "NAB 1234", "status": "available", "current_mileage": 59800,
+     "last_service_date": "2026-09-30", "last_service_type": "Oil change", "last_service_odometer": 58000, "next_scheduled_date": null,
+     "estimated_due_date": "2027-03-29", "service_status": "not_due",
+     "basis": "No baseline service threshold has been reached based on the recorded service history. This is not a mechanical health assessment.",
+     "recommended_action": "Check the vehicle manufacturer schedule and continue recording completed service and mileage."},
+    {"id": 2, "make": "Toyota", "model": "Fortuner", "plate_number": "NCD 5678", "status": "available", "current_mileage": 72100,
+     "last_service_date": "2026-05-20", "last_service_type": "General inspection", "last_service_odometer": 70500, "next_scheduled_date": null,
+     "estimated_due_date": "2026-11-16", "service_status": "approaching",
+     "basis": "The system baseline service date is within 30 days.", "recommended_action": "Review the manufacturer schedule and plan the next service."},
+    {"id": 3, "make": "Honda", "model": "City", "plate_number": "NEF 9012", "status": "rented", "current_mileage": 46500,
+     "last_service_date": "2026-08-14", "last_service_type": "Oil change", "last_service_odometer": 41200, "next_scheduled_date": null,
+     "estimated_due_date": "2027-02-10", "service_status": "overdue",
+     "basis": "Recorded mileage has reached the system baseline service interval since the last completed service. This is a maintenance schedule status, not a confirmed mechanical fault.",
+     "recommended_action": "Review the manufacturer service schedule and record the service outcome."},
+    {"id": 4, "make": "Toyota", "model": "Hiace", "plate_number": "NGH 3456", "status": "maintenance", "current_mileage": 120400,
+     "last_service_date": null, "last_service_type": "Brake pad replacement", "last_service_odometer": 120400, "next_scheduled_date": null,
+     "estimated_due_date": null, "service_status": "insufficient_history",
+     "basis": "Current mileage is recorded, but no completed service history is available for an interval estimate.",
+     "recommended_action": "Record the date and odometer reading from the latest completed service."}
+  ],
+  "inspections": [
+    {"id": 7, "vehicle_id": 4, "component_key": "brakes", "component": "Brakes", "inspected_on": "2026-10-18", "odometer_km": 120350,
+     "condition_rating": "poor", "reported_symptoms": "Grinding when braking", "dtc_codes": "C0035", "findings": "Front pads at 2 mm",
+     "confirmed_fault": "Worn front brake pads", "recommended_action": "Replace front pads and inspect rotors", "next_due_date": null,
+     "make": "Toyota", "model": "Hiace"}
+  ]
+}

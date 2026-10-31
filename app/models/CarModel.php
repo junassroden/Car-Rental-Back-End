@@ -54,6 +54,7 @@ class CarModel extends Model
 
     /**
      * Cars the chatbot may describe: every car for an admin, only available ones otherwise.
+     * $vehicle_id narrows the list to one id or an array of ids.
      * Returns ['cars' => up to $limit newest rows, 'vehicle_count' => total matching].
      */
     public function chat_context($is_admin, $limit = 50, array $exclude_ids = [], $vehicle_id = null)
@@ -65,7 +66,9 @@ class CarModel extends Model
             if ($exclude_ids) {
                 $query->not_in('id', array_map('intval', $exclude_ids));
             }
-            if ($vehicle_id !== null) {
+            if (is_array($vehicle_id) && $vehicle_id) {
+                $query->in('id', array_map('intval', $vehicle_id));
+            } elseif ($vehicle_id !== null && !is_array($vehicle_id)) {
                 $query->where('id', (int) $vehicle_id);
             }
             return $query;
@@ -78,6 +81,21 @@ class CarModel extends Model
                 ->pagination(max(1, min((int) $limit, 100)), 1)
                 ->result_array(),
         ];
+    }
+
+    /**
+     * Cars the chat assistant may answer about: every car for an admin, only available
+     * ones otherwise (the same rule as the public vehicle pages). Read-only.
+     */
+    public function chat_vehicles($is_admin)
+    {
+        $query = $this->db->table($this->table)
+            ->select('id, make, model, year, category, plate_number, color, description, daily_rental_price, security_deposit, minimum_rental_duration, transmission, fuel_type, seating_capacity, air_conditioning, gps_navigation, additional_features, status, current_mileage');
+        if (!$is_admin) {
+            $query->where('status', 'available');
+        }
+
+        return $query->order_by('id', 'DESC')->limit(500)->get_all();
     }
 
     /** Vehicle status totals for the administrator fleet view. */

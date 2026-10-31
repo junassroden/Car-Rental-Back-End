@@ -84,6 +84,26 @@ class ReservationModel extends Model
     }
 
     /**
+     * Every customer's reservations for the administrator chat, newest first. Only the
+     * customer's name is included, never contact details.
+     */
+    public function chat_context_all($limit = 200)
+    {
+        $columns = 'reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, cars.make, cars.model, users.full_name AS customer_name';
+        $total = (int) $this->db->table($this->table)->count();
+        $records = $this->db->table($this->table)
+            ->select($columns)
+            ->inner_join('cars', 'cars.id = reservations.car_id')
+            ->inner_join('users', 'users.id = reservations.user_id')
+            ->order_by('reservations.created_at', 'DESC')
+            ->order_by('reservations.id', 'DESC')
+            ->pagination(max(1, min((int) $limit, 200)), 1)
+            ->get_all();
+
+        return ['total_count' => $total, 'reservations' => $records];
+    }
+
+    /**
      * Creates a pending reservation after locking the car and checking for overlaps.
      * Returns ['status' => 'created', 'id' => ...] or ['status' => <reason>].
      */

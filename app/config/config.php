@@ -262,10 +262,10 @@ $config['session_hmac_secret']     = getenv('APP_KEY') ?: '';
 $config['cookie_prefix']           = '';
 $config['cookie_domain']           = '';
 $config['cookie_path']             = '/';
-$config['cookie_secure']           = FALSE;
+$config['cookie_secure']           = (getenv('APP_ENV') ?: 'development') === 'production';
 $config['cookie_expiration']       = 86400;
-$config['cookie_httponly']         = FALSE;
-$config['cookie_samesite']         = 'Lax';
+$config['cookie_httponly']         = TRUE;
+$config['cookie_samesite']         = $config['cookie_secure'] ? 'None' : 'Lax';
 
 /*
 |--------------------------------------------------------------------------

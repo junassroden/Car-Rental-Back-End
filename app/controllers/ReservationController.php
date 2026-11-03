@@ -159,7 +159,11 @@ class ReservationController extends Controller
             return;
         }
 
-        $input  = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $form = $this->request->post();
+        $json = $this->request->json();
+        $input = is_array($form) && $form !== []
+            ? $form
+            : (is_array($json) ? $json : []);
         $status = $input['status'] ?? null;
         if (!in_array($status, ReservationModel::STATUSES, true)) {
             $this->response->send_json_error('A valid reservation status is required.', 422);

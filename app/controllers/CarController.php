@@ -285,7 +285,11 @@ class CarController extends Controller
      */
     private function carValues($id = 0)
     {
-        $input  = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $form = $this->request->post();
+        $json = $this->request->json();
+        $input = is_array($form) && $form !== []
+            ? $form
+            : (is_array($json) ? $json : []);
         $values = array_intersect_key(is_array($input) ? $input : [], array_flip(CarModel::FIELDS));
 
         if ($id && !$values) {

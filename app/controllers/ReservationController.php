@@ -36,7 +36,7 @@ class ReservationController extends Controller
 
     public function reservations()
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -50,7 +50,7 @@ class ReservationController extends Controller
 
     public function reservation($id)
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -71,7 +71,7 @@ class ReservationController extends Controller
 
     public function createReservation()
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -149,7 +149,7 @@ class ReservationController extends Controller
 
     public function updateReservation($id)
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -195,7 +195,7 @@ class ReservationController extends Controller
 
     private function updateVehicleUse($id, $action)
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;

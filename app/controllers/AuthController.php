@@ -35,10 +35,6 @@ class AuthController extends Controller
             return;
         }
 
-        $this->session->regenerate_on_login();
-        $this->session->set_userdata('user_id', (int) $user['id']);
-
-        // The session cookie authenticates the web app; the tokens serve JWT clients.
         $this->response->send_json([
             'success'       => true,
             'message'       => 'Login successful.',
@@ -128,8 +124,6 @@ class AuthController extends Controller
             return;
         }
 
-        $this->session->regenerate_on_login();
-        $this->session->set_userdata('user_id', (int) $user['id']);
         $this->response->send_json([
             'success'       => true,
             'message'       => 'Google sign-in successful.',
@@ -285,7 +279,7 @@ class AuthController extends Controller
 
     public function me()
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;

@@ -82,7 +82,7 @@ class CarController extends Controller
 
         // Only admins can see vehicles that are not available.
         if ($car && $car['status'] !== 'available') {
-            $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+            $user = $this->UserModel->find((int) $this->authenticated_user_id());
             if (!$user || (int) $user['is_active'] !== 1 || $user['role'] !== 'admin') {
                 $car = null;
             }
@@ -215,7 +215,7 @@ class CarController extends Controller
     /** Sends a 401 or 403 unless an active administrator is signed in. */
     private function requireAdmin()
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             exit;

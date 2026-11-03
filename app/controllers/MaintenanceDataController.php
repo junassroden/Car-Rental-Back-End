@@ -11,7 +11,7 @@ class MaintenanceDataController extends Controller
         parent::__construct();
         $this->security_headers->apply_api();
         $this->call->model(['MaintenanceDataModel', 'UserModel']);
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             exit;

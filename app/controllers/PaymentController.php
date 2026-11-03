@@ -153,7 +153,7 @@ class PaymentController extends Controller
 
     private function authenticatedUser()
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return null;

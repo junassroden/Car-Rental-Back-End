@@ -81,6 +81,8 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/reservations/{id}/checkout', 'ReservationController::vehicleCheckout');
     $router->post('/reservations/{id}/return', 'ReservationController::vehicleReturn');
     $router->post('/reservations/{id}/payment', 'PaymentController::createCheckout');
+    $router->post('/reservations/{id}/payment/manual', 'PaymentController::submitManual');
+    $router->post('/reservations/{id}/payment/{decision}', 'PaymentController::verifyManual');
 
     // PayMongo posts signed payment events directly to this endpoint.
     $router->post('/paymongo/webhook', 'PaymentController::webhook');

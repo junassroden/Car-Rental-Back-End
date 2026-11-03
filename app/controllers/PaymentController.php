@@ -17,6 +17,7 @@ class PaymentController extends Controller
         if (!$user) {
             return;
         }
+
         if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
             $this->response->send_json_error('Reservation not found.', 404);
             return;
@@ -87,6 +88,63 @@ class PaymentController extends Controller
             'checkout_url' => $checkout['url'],
             'checkout_session_id' => $checkout['id'],
         ], 'GCash checkout is ready.', 201);
+    }
+
+    public function submitManual($id)
+    {
+        $user = $this->authenticatedUser();
+        $reference = trim((string) $this->request->post('reference_number'));
+        if (!$user || $reference === '' || strlen($reference) > 80) {
+            $this->response->send_json_error('Enter a valid GCash reference number.', 422);
+            return;
+        }
+        $reservation = $this->ReservationModel->find_with_details((int) $id);
+        if (!$reservation || (int) $reservation['user_id'] !== (int) $user['id'] || $reservation['status'] !== 'confirmed') {
+            $this->response->send_json_error('Approved reservation not found.', 404);
+            return;
+        }
+        if ((int) $reservation['payment_required'] !== 1 || $reservation['payment_status'] === 'paid') {
+            $this->response->send_json_error('This reservation does not need a payment submission.', 409);
+            return;
+        }
+        $existing = $this->PaymentModel->latest_for_reservation((int) $id);
+        if ($existing && $existing['status'] === 'pending') {
+            $this->response->send_json_error('A payment is already awaiting administrator verification.', 409);
+            return;
+        }
+        $amount = number_format((float) $reservation['total_amount'], 2, '.', '');
+        $created = $existing && $existing['status'] === 'rejected'
+            ? $this->PaymentModel->resubmit_manual((int) $existing['id'], $reference, $amount)
+            : $this->PaymentModel->create_checkout([
+                'reservation_id' => (int) $id,
+                'checkout_session_id' => 'manual-' . bin2hex(random_bytes(16)),
+                'checkout_url' => 'manual-gcash',
+                'reference_number' => $reference,
+                'amount' => $amount,
+                'status' => 'pending',
+            ]);
+        if (!$created) {
+            $this->response->send_json_error('The payment submission could not be saved.', 500);
+            return;
+        }
+        $this->response->send_json_success(null, 'GCash payment submitted for administrator verification.');
+    }
+
+    public function verifyManual($id, $decision)
+    {
+        $user = $this->authenticatedUser();
+        if (!$user || $user['role'] !== 'admin') {
+            $this->response->send_json_error('Administrator access is required.', 403);
+            return;
+        }
+        $updated = $decision === 'approve'
+            ? $this->PaymentModel->mark_manual_paid((int) $id, (int) $user['id'])
+            : ($decision === 'reject' ? $this->PaymentModel->mark_manual_rejected((int) $id) : false);
+        if (!$updated) {
+            $this->response->send_json_error('No pending manual payment was found.', 409);
+            return;
+        }
+        $this->response->send_json_success(null, 'Manual GCash payment updated.');
     }
 
     public function webhook()

@@ -33,6 +33,39 @@ class PaymentModel extends Model
         return $this->insert($payment);
     }
 
+    public function resubmit_manual($id, $reference, $amount)
+    {
+        return (bool) $this->db->table($this->table)
+            ->where('id', (int) $id)
+            ->update([
+                'reference_number' => $reference,
+                'amount' => $amount,
+                'status' => 'pending',
+                'paid_at' => null,
+                'webhook_event_hash' => null,
+            ]);
+    }
+
+    public function mark_manual_paid($reservation_id, $admin_id)
+    {
+        return (bool) $this->db->table($this->table)
+            ->where('reservation_id', (int) $reservation_id)
+            ->where('status', 'pending')
+            ->update([
+                'status' => 'paid',
+                'webhook_event_hash' => hash('sha256', 'manual:' . (int) $reservation_id . ':' . (int) $admin_id . ':' . microtime(true)),
+                'paid_at' => date('Y-m-d H:i:s'),
+            ]);
+    }
+
+    public function mark_manual_rejected($reservation_id)
+    {
+        return (bool) $this->db->table($this->table)
+            ->where('reservation_id', (int) $reservation_id)
+            ->where('status', 'pending')
+            ->update(['status' => 'rejected']);
+    }
+
     public function mark_paid($session_id, $event_hash)
     {
         if (!$this->db->transaction()) {

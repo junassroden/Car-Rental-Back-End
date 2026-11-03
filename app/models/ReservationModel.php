@@ -379,6 +379,7 @@ class ReservationModel extends Model
             if (!isset($summary[$reservationId])) {
                 $summary[$reservationId] = [
                     'paid' => false,
+                    'status' => $payment['status'],
                     'reference' => $payment['reference_number'],
                     'paid_at' => null,
                 ];
@@ -396,7 +397,7 @@ class ReservationModel extends Model
             $payment = $summary[$reservationId] ?? null;
             $reservation['payment_status'] = (int) $reservation['payment_required'] === 0
                 ? 'not_required'
-                : ($payment && $payment['paid'] ? 'paid' : 'unpaid');
+                : ($payment && $payment['paid'] ? 'paid' : ($payment && $payment['status'] === 'pending' ? 'pending' : 'unpaid'));
             $reservation['payment_reference'] = $payment['reference'] ?? null;
             $reservation['payment_paid_at'] = $payment['paid_at'] ?? null;
         }

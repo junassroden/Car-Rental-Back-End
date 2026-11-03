@@ -47,6 +47,33 @@ class CarController extends Controller
         $this->listCars(true);
     }
 
+    public function availability($id)
+    {
+        $carId = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $startDate = $this->request->get('start_date');
+        $endDate = $this->request->get('end_date');
+        $start = is_string($startDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $startDate) : false;
+        $end = is_string($endDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $endDate) : false;
+
+        if (
+            !$carId
+            || !$start || $start->format('Y-m-d') !== $startDate
+            || !$end || $end->format('Y-m-d') !== $endDate
+            || $endDate <= $startDate
+            || $startDate < date('Y-m-d')
+        ) {
+            $this->response->send_json_error('Provide a valid future pickup and return date range.', 422);
+            return;
+        }
+
+        $available = $this->ReservationModel->is_available_for_dates($carId, $startDate, $endDate);
+        $this->response->send_json_success([
+            'available' => (bool) $available,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ], $available ? 'Vehicle is available for these dates.' : 'Vehicle is not available for these dates.');
+    }
+
     public function car($id)
     {
         $car = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])

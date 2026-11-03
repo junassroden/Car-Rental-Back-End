@@ -1,5 +1,7 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
+require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'RentalAgreement.php';
+require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'ReservationPolicy.php';
 
 class ReservationModel extends Model
 {
@@ -9,7 +11,9 @@ class ReservationModel extends Model
     // Mass-assignment whitelist (insert()/update() respect this).
     protected $fillable = [
         'user_id', 'car_id', 'start_date', 'end_date', 'rental_days',
-        'daily_rate', 'total_amount', 'status',
+        'daily_rate', 'total_amount', 'status', 'special_duration_request',
+        'contract_text', 'contract_version', 'contract_accepted_at', 'payment_required',
+        'checked_out_at', 'returned_at',
     ];
 
     // created_at uses the column default and updated_at is ON UPDATE CURRENT_TIMESTAMP.
@@ -23,10 +27,10 @@ class ReservationModel extends Model
     // Status changes an admin may make, keyed by the current status.
     const ADMIN_TRANSITIONS = [
         'pending'   => ['confirmed', 'rejected', 'cancelled'],
-        'confirmed' => ['cancelled', 'completed'],
+        'confirmed' => ['cancelled'],
     ];
 
-    const DETAIL_COLUMNS = 'reservations.id, reservations.user_id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.created_at, reservations.updated_at, cars.make, cars.model, cars.year, cars.category, cars.plate_number, cars.primary_image, users.full_name, users.username, users.email';
+    const DETAIL_COLUMNS = 'reservations.id, reservations.user_id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.special_duration_request, reservations.contract_text, reservations.contract_version, reservations.contract_accepted_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, reservations.created_at, reservations.updated_at, cars.make, cars.model, cars.year, cars.category, cars.plate_number, cars.primary_image, cars.security_deposit, users.full_name, users.username, users.email';
 
     const MAX_AMOUNT = 99999999.99;
 
@@ -38,18 +42,23 @@ class ReservationModel extends Model
             $query->where('reservations.user_id', (int) $user_id);
         }
 
-        return $query->order_by('reservations.created_at', 'DESC')
+        $reservations = $query->order_by('reservations.created_at', 'DESC')
             ->order_by('reservations.id', 'DESC')
             ->get_all();
+        return $this->attach_payment_summary($reservations);
     }
 
     /** One reservation with its car and customer details, or NULL. */
     public function find_with_details($id)
     {
-        return $this->details_query()
+        $reservation = $this->details_query()
             ->where('reservations.id', (int) $id)
             ->limit(1)
             ->row_array();
+        if (!$reservation) {
+            return null;
+        }
+        return $this->attach_payment_summary([$reservation])[0];
     }
 
     /** IDs of cars already reserved for part of the period [start, end). */
@@ -60,6 +69,19 @@ class ReservationModel extends Model
             ->get_column(0);
 
         return array_values(array_unique($ids));
+    }
+
+    public function is_available_for_dates($car_id, $start_date, $end_date)
+    {
+        $car = $this->db->table('cars')
+            ->select('status')
+            ->where('id', (int) $car_id)
+            ->limit(1)
+            ->row_array();
+
+        return $car
+            && $car['status'] === 'available'
+            && !$this->has_conflict($car_id, $start_date, $end_date);
     }
 
     /** Minimal reservation facts for the authenticated customer's own chat. */
@@ -87,7 +109,7 @@ class ReservationModel extends Model
      * Creates a pending reservation after locking the car and checking for overlaps.
      * Returns ['status' => 'created', 'id' => ...] or ['status' => <reason>].
      */
-    public function create_reservation($user_id, $car_id, $start_date, $end_date, $rental_days)
+    public function create_reservation($user_id, $car_id, $start_date, $end_date, $rental_days, $special_request, $accept_contract)
     {
         if (!$this->db->transaction()) {
             return ['status' => 'start_failed'];
@@ -106,8 +128,16 @@ class ReservationModel extends Model
             if ($car['status'] !== 'available') {
                 return $this->abort(['status' => 'vehicle_unavailable']);
             }
-            if ($rental_days < (int) $car['minimum_rental_duration']) {
-                return $this->abort(['status' => 'duration_too_short']);
+            $durationError = ReservationPolicy::duration_error(
+                (int) $rental_days,
+                (int) $car['minimum_rental_duration'],
+                (bool) $special_request
+            );
+            if ($durationError !== null) {
+                return $this->abort(['status' => $durationError]);
+            }
+            if (!$accept_contract) {
+                return $this->abort(['status' => 'contract_not_accepted']);
             }
             if ($this->has_conflict($car_id, $start_date, $end_date)) {
                 return $this->abort(['status' => 'date_conflict']);
@@ -119,6 +149,7 @@ class ReservationModel extends Model
                 return $this->abort(['status' => 'amount_too_large']);
             }
 
+            $acceptedAt = date('Y-m-d H:i:s');
             $id = $this->insert([
                 'user_id'      => (int) $user_id,
                 'car_id'       => (int) $car_id,
@@ -128,7 +159,39 @@ class ReservationModel extends Model
                 'daily_rate'   => number_format($daily_rate, 2, '.', ''),
                 'total_amount' => number_format($total_amount, 2, '.', ''),
                 'status'       => 'pending',
+                'special_duration_request' => $rental_days > 7 ? 1 : 0,
+                'contract_version' => RentalAgreement::VERSION,
+                'contract_accepted_at' => $acceptedAt,
+                'payment_required' => $total_amount > 0 ? 1 : 0,
             ]);
+            if (!$id) {
+                return $this->abort(['status' => 'error']);
+            }
+
+            $renter = $this->db->table('users')
+                ->select('full_name, username, email')
+                ->where('id', (int) $user_id)
+                ->limit(1)
+                ->row_array();
+            if (!$renter) {
+                return $this->abort(['status' => 'error']);
+            }
+            $carDetails = $this->db->table('cars')
+                ->select('year, make, model, plate_number, security_deposit')
+                ->where('id', (int) $car_id)
+                ->limit(1)
+                ->row_array();
+            $contract = RentalAgreement::generate([
+                'id' => (int) $id,
+                'start_date' => $start_date,
+                'end_date' => $end_date,
+                'rental_days' => $rental_days,
+                'daily_rate' => number_format($daily_rate, 2, '.', ''),
+                'total_amount' => number_format($total_amount, 2, '.', ''),
+            ], $carDetails, $renter, $acceptedAt);
+            $this->db->table($this->table)
+                ->where('id', (int) $id)
+                ->update(['contract_text' => $contract]);
 
             if (!$this->db->commit()) {
                 return ['status' => 'commit_failed'];
@@ -170,6 +233,13 @@ class ReservationModel extends Model
                 return $this->abort('customer_forbidden');
             }
 
+            if ($status === 'cancelled' && !empty($reservation['checked_out_at'])) {
+                return $this->abort('vehicle_in_use');
+            }
+            if ($status === 'cancelled' && $this->has_paid_payment($id)) {
+                return $this->abort('payment_refund_required');
+            }
+
             if ($status === 'confirmed') {
                 $car = $this->db->table('cars')
                     ->select('status')
@@ -199,6 +269,84 @@ class ReservationModel extends Model
         }
     }
 
+    public function update_vehicle_use($id, $is_admin, $action)
+    {
+        if (!$is_admin) {
+            return 'admin_forbidden';
+        }
+        if (!in_array($action, ['checkout', 'return'], true)) {
+            return 'invalid_transition';
+        }
+        if (!$this->db->transaction()) {
+            return 'start_failed';
+        }
+
+        try {
+            $reservation = $this->db->table($this->table)
+                ->where('id', (int) $id)
+                ->for_update()
+                ->row_array();
+            if (!$reservation) {
+                return $this->abort('not_found');
+            }
+            if ($reservation['status'] !== 'confirmed') {
+                return $this->abort('invalid_transition');
+            }
+
+            $car = $this->db->table('cars')
+                ->select('status')
+                ->where('id', (int) $reservation['car_id'])
+                ->for_update()
+                ->row_array();
+            if (!$car) {
+                return $this->abort('vehicle_not_found');
+            }
+
+            if ($action === 'checkout') {
+                $today = date('Y-m-d');
+                if (!empty($reservation['checked_out_at']) || $reservation['start_date'] > $today || $reservation['end_date'] <= $today) {
+                    return $this->abort('checkout_not_due');
+                }
+                if ($car['status'] !== 'available') {
+                    return $this->abort('vehicle_unavailable');
+                }
+                if ((int) $reservation['payment_required'] === 1 && !$this->has_paid_payment($id)) {
+                    return $this->abort('payment_required');
+                }
+
+                $this->db->table($this->table)
+                    ->where('id', (int) $id)
+                    ->update(['checked_out_at' => date('Y-m-d H:i:s')]);
+                $this->db->table('cars')
+                    ->where('id', (int) $reservation['car_id'])
+                    ->update(['status' => 'rented']);
+            } else {
+                if (empty($reservation['checked_out_at'])) {
+                    return $this->abort('vehicle_not_checked_out');
+                }
+                $this->db->table($this->table)
+                    ->where('id', (int) $id)
+                    ->update([
+                        'status' => 'completed',
+                        'returned_at' => date('Y-m-d H:i:s'),
+                    ]);
+                if ($car['status'] === 'rented') {
+                    $this->db->table('cars')
+                        ->where('id', (int) $reservation['car_id'])
+                        ->update(['status' => 'available']);
+                }
+            }
+
+            if (!$this->db->commit()) {
+                return 'commit_failed';
+            }
+            return 'updated';
+        } catch (Exception $exception) {
+            $this->db->roll_back();
+            throw $exception;
+        }
+    }
+
     /* ---------------------------------------------------------------
      * Helpers
      * ------------------------------------------------------------- */
@@ -211,6 +359,52 @@ class ReservationModel extends Model
             ->inner_join('users', 'users.id = reservations.user_id');
     }
 
+    private function attach_payment_summary(array $reservations)
+    {
+        if (!$reservations) {
+            return $reservations;
+        }
+
+        $ids = array_map(static function ($reservation) {
+            return (int) $reservation['id'];
+        }, $reservations);
+        $payments = $this->db->table('checkout_payments')
+            ->select('id, reservation_id, reference_number, status, paid_at')
+            ->in('reservation_id', $ids)
+            ->order_by('id', 'DESC')
+            ->get_all();
+        $summary = [];
+        foreach ($payments as $payment) {
+            $reservationId = (int) $payment['reservation_id'];
+            if (!isset($summary[$reservationId])) {
+                $summary[$reservationId] = [
+                    'paid' => false,
+                    'reference' => $payment['reference_number'],
+                    'paid_at' => null,
+                ];
+            }
+            if ($payment['status'] === 'paid') {
+                $summary[$reservationId]['paid'] = true;
+                if ($summary[$reservationId]['paid_at'] === null) {
+                    $summary[$reservationId]['paid_at'] = $payment['paid_at'];
+                }
+            }
+        }
+
+        foreach ($reservations as &$reservation) {
+            $reservationId = (int) $reservation['id'];
+            $payment = $summary[$reservationId] ?? null;
+            $reservation['payment_status'] = (int) $reservation['payment_required'] === 0
+                ? 'not_required'
+                : ($payment && $payment['paid'] ? 'paid' : 'unpaid');
+            $reservation['payment_reference'] = $payment['reference'] ?? null;
+            $reservation['payment_paid_at'] = $payment['paid_at'] ?? null;
+        }
+        unset($reservation);
+
+        return $reservations;
+    }
+
     /** TRUE when another blocking reservation overlaps the half-open period [start, end). */
     private function has_conflict($car_id, $start_date, $end_date, $ignore_id = 0)
     {
@@ -220,6 +414,15 @@ class ReservationModel extends Model
         }
 
         return (bool) $query->limit(1)->row_array();
+    }
+
+    private function has_paid_payment($reservation_id)
+    {
+        return (bool) $this->db->table('checkout_payments')
+            ->where('reservation_id', (int) $reservation_id)
+            ->where('status', 'paid')
+            ->limit(1)
+            ->row_array();
     }
 
     /** Blocking reservations that overlap the half-open period [start, end). */

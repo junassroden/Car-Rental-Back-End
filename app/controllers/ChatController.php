@@ -34,7 +34,10 @@ class ChatController extends Controller
             exit;
         }
 
-        $input   = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input = $this->request->json();
+        if (!is_array($input) || $input === []) {
+            $input = $this->request->post();
+        }
         $input   = is_array($input) ? $input : [];
         $message = $input['message'] ?? null;
         if (!is_string($message) || trim($message) === '' || strlen($message) > self::MAX_MESSAGE_LEN) {

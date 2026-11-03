@@ -109,20 +109,18 @@ class Controller
 	 */
 	public function authenticated_user_id()
 	{
-		$sessionUserId = (int) ($this->session->userdata('user_id') ?? 0);
-		if ($sessionUserId > 0) {
-			return $sessionUserId;
+		$this->call->library('api');
+		$token = $this->api->get_bearer_token();
+		if ($token) {
+			$payload = $this->api->validate_jwt($token);
+			$userId = (int) (is_array($payload) ? ($payload['sub'] ?? 0) : 0);
+			if ($userId > 0) {
+				return $userId;
+			}
 		}
 
-		try {
-			$this->call->library('api');
-			$token = $this->api->get_bearer_token();
-			$payload = $token ? $this->api->validate_jwt($token) : null;
-			$userId = (int) ($payload['sub'] ?? 0);
-			return $userId > 0 ? $userId : null;
-		} catch (Throwable $exception) {
-			return null;
-		}
+		$sessionUserId = (int) ($this->session->userdata('user_id') ?? 0);
+		return $sessionUserId > 0 ? $sessionUserId : null;
 	}
 
 	/**

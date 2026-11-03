@@ -82,7 +82,11 @@ class ReservationController extends Controller
         }
 
         // Form_validation reads $_POST, so a JSON body is placed there first.
-        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $form = $this->request->post();
+        $json = $this->request->json();
+        $input = is_array($form) && $form !== []
+            ? $form
+            : (is_array($json) ? $json : []);
         $_POST = is_array($input) ? $input : [];
         $this->call->library('form_validation');
         if (!$this->form_validation->validate([
@@ -95,8 +99,8 @@ class ReservationController extends Controller
             return;
         }
 
-        $startDate = $this->request->post('start_date');
-        $endDate   = $this->request->post('end_date');
+        $startDate = $input['start_date'] ?? null;
+        $endDate   = $input['end_date'] ?? null;
         $specialRequest = filter_var($input['special_request'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $acceptContract = filter_var($input['accept_contract'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $start     = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
@@ -121,7 +125,7 @@ class ReservationController extends Controller
         try {
             $result = $this->ReservationModel->create_reservation(
                 $user['id'],
-                (int) $this->request->post('car_id'),
+                (int) $input['car_id'],
                 $startDate,
                 $endDate,
                 $rentalDays,

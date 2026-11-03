@@ -149,6 +149,11 @@ class AuthController extends Controller
 
     private function requestPayload()
     {
+        $form = $this->request->post();
+        if (is_array($form) && $form !== []) {
+            return $form;
+        }
+
         $json = $this->request->json();
         return is_array($json) ? $json : $this->request->post();
     }

@@ -11,7 +11,7 @@ class AuthController extends Controller
 
     public function login()
     {
-        $input    = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input    = $this->requestPayload();
         $identity = trim((string) ($input['email'] ?? $input['username'] ?? ''));
         $password = (string) ($input['password'] ?? '');
 
@@ -58,7 +58,7 @@ class AuthController extends Controller
 
     public function googleLogin()
     {
-        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input = $this->requestPayload();
         $credential = $input['credential'] ?? '';
         if (!is_string($credential) || trim($credential) === '') {
             $this->response->send_json_error('A Google identity credential is required.', 422);
@@ -147,6 +147,12 @@ class AuthController extends Controller
         ]);
     }
 
+    private function requestPayload()
+    {
+        $json = $this->request->json();
+        return is_array($json) ? $json : $this->request->post();
+    }
+
     private function verifyGoogleCredential($credential)
     {
         $clientId = trim((string) getenv('GOOGLE_CLIENT_ID'));
@@ -203,7 +209,7 @@ class AuthController extends Controller
 
     public function refresh()
     {
-        $input        = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input        = $this->requestPayload();
         $refreshToken = $input['refresh_token'] ?? '';
         if (!is_string($refreshToken) || trim($refreshToken) === '') {
             $this->response->send_json_error('A refresh token is required.', 422);
@@ -222,7 +228,7 @@ class AuthController extends Controller
 
     public function register()
     {
-        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input = $this->requestPayload();
 
         // Form_validation reads $_POST, so a JSON body is placed there first.
         $_POST = is_array($input) ? $input : [];
@@ -256,7 +262,7 @@ class AuthController extends Controller
 
     public function logout()
     {
-        $input        = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input        = $this->requestPayload();
         $refreshToken = $input['refresh_token'] ?? '';
 
         if (is_string($refreshToken) && trim($refreshToken) !== '') {

@@ -13,7 +13,7 @@ class ReservationModel extends Model
         'user_id', 'car_id', 'start_date', 'end_date', 'rental_days',
         'daily_rate', 'total_amount', 'status', 'special_duration_request',
         'contract_text', 'contract_version', 'contract_accepted_at', 'payment_required',
-        'checked_out_at', 'returned_at',
+        'checked_out_at', 'returned_at', 'variant_id',
     ];
 
     // created_at uses the column default and updated_at is ON UPDATE CURRENT_TIMESTAMP.
@@ -30,7 +30,7 @@ class ReservationModel extends Model
         'confirmed' => ['cancelled'],
     ];
 
-    const DETAIL_COLUMNS = 'reservations.id, reservations.user_id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.special_duration_request, reservations.contract_text, reservations.contract_version, reservations.contract_accepted_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, reservations.created_at, reservations.updated_at, cars.make, cars.model, cars.year, cars.category, cars.plate_number, cars.primary_image, cars.security_deposit, users.full_name, users.username, users.email';
+    const DETAIL_COLUMNS = 'reservations.variant_id, car_color_variants.color AS variant_color, reservations.id, reservations.user_id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.special_duration_request, reservations.contract_text, reservations.contract_version, reservations.contract_accepted_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, reservations.created_at, reservations.updated_at, cars.make, cars.model, cars.year, cars.category, cars.plate_number, cars.primary_image, cars.security_deposit, users.full_name, users.username, users.email';
 
     const MAX_AMOUNT = 99999999.99;
 
@@ -61,17 +61,54 @@ class ReservationModel extends Model
         return $this->attach_payment_summary([$reservation])[0];
     }
 
-    /** IDs of cars already reserved for part of the period [start, end). */
+    /** IDs of cars with nothing left to rent for the period [start, end): every colour is fully booked. */
     public function booked_car_ids($start_date, $end_date)
     {
-        $ids = (array) $this->overlapping($start_date, $end_date)
-            ->select('car_id')
-            ->get_column(0);
+        $reservationsByCar = [];
+        foreach ($this->overlapping($start_date, $end_date)->select('car_id, variant_id')->get_all() as $reservation) {
+            $reservationsByCar[(int) $reservation['car_id']][] = $reservation;
+        }
+        $variantsByCar = [];
+        foreach ($this->db->table('car_color_variants')->select('id, car_id, stock')->get_all() as $variant) {
+            $variantsByCar[(int) $variant['car_id']][] = $variant;
+        }
 
-        return array_values(array_unique($ids));
+        $ids = [];
+        foreach (array_keys($reservationsByCar + $variantsByCar) as $carId) {
+            $reservations = $reservationsByCar[$carId] ?? [];
+            $variants = $variantsByCar[$carId] ?? [];
+            if (!$variants) {
+                $ids[] = $carId;
+                continue;
+            }
+            $hasFreeUnit = false;
+            foreach ($variants as $variant) {
+                if ($this->units_left($variant, $reservations) > 0) {
+                    $hasFreeUnit = true;
+                    break;
+                }
+            }
+            if (!$hasFreeUnit) {
+                $ids[] = $carId;
+            }
+        }
+
+        return $ids;
     }
 
-    public function is_available_for_dates($car_id, $start_date, $end_date)
+    /** Units of one colour free for the period, or NULL when the car has no such colour. */
+    public function units_available($car_id, $variant_id, $start_date, $end_date)
+    {
+        foreach ($this->variants_for_car($car_id) as $variant) {
+            if ((int) $variant['id'] === (int) $variant_id) {
+                return $this->units_left($variant, $this->overlapping_for_car($car_id, $start_date, $end_date));
+            }
+        }
+
+        return null;
+    }
+
+    public function is_available_for_dates($car_id, $start_date, $end_date, $variant_id = null)
     {
         $car = $this->db->table('cars')
             ->select('status')
@@ -81,7 +118,7 @@ class ReservationModel extends Model
 
         return $car
             && $car['status'] === 'available'
-            && !$this->has_conflict($car_id, $start_date, $end_date);
+            && !$this->has_conflict($car_id, $start_date, $end_date, 0, $variant_id);
     }
 
     /** Minimal reservation facts for the authenticated customer's own chat. */
@@ -109,7 +146,7 @@ class ReservationModel extends Model
      * Creates a pending reservation after locking the car and checking for overlaps.
      * Returns ['status' => 'created', 'id' => ...] or ['status' => <reason>].
      */
-    public function create_reservation($user_id, $car_id, $start_date, $end_date, $rental_days, $special_request, $accept_contract)
+    public function create_reservation($user_id, $car_id, $start_date, $end_date, $rental_days, $special_request, $accept_contract, $variant_id = null)
     {
         if (!$this->db->transaction()) {
             return ['status' => 'start_failed'];
@@ -139,7 +176,22 @@ class ReservationModel extends Model
             if (!$accept_contract) {
                 return $this->abort(['status' => 'contract_not_accepted']);
             }
-            if ($this->has_conflict($car_id, $start_date, $end_date)) {
+            $variants = $this->variants_for_car($car_id);
+            $variant = null;
+            if ($variants) {
+                if ($variant_id === null) {
+                    return $this->abort(['status' => 'color_required']);
+                }
+                foreach ($variants as $option) {
+                    if ((int) $option['id'] === (int) $variant_id) {
+                        $variant = $option;
+                    }
+                }
+                if (!$variant) {
+                    return $this->abort(['status' => 'color_invalid']);
+                }
+            }
+            if ($this->has_conflict($car_id, $start_date, $end_date, 0, $variant ? (int) $variant['id'] : null)) {
                 return $this->abort(['status' => 'date_conflict']);
             }
 
@@ -163,6 +215,7 @@ class ReservationModel extends Model
                 'contract_version' => RentalAgreement::VERSION,
                 'contract_accepted_at' => $acceptedAt,
                 'payment_required' => $total_amount > 0 ? 1 : 0,
+                'variant_id'   => $variant ? (int) $variant['id'] : null,
             ]);
             if (!$id) {
                 return $this->abort(['status' => 'error']);
@@ -181,6 +234,7 @@ class ReservationModel extends Model
                 ->where('id', (int) $car_id)
                 ->limit(1)
                 ->row_array();
+            $carDetails['variant_color'] = $variant['color'] ?? '';
             $contract = RentalAgreement::generate([
                 'id' => (int) $id,
                 'start_date' => $start_date,
@@ -250,7 +304,7 @@ class ReservationModel extends Model
                 if (
                     !$car
                     || $car['status'] !== 'available'
-                    || $this->has_conflict($reservation['car_id'], $reservation['start_date'], $reservation['end_date'], $id)
+                    || $this->has_conflict($reservation['car_id'], $reservation['start_date'], $reservation['end_date'], $id, $reservation['variant_id'])
                 ) {
                     return $this->abort('vehicle_unavailable');
                 }
@@ -317,9 +371,12 @@ class ReservationModel extends Model
                 $this->db->table($this->table)
                     ->where('id', (int) $id)
                     ->update(['checked_out_at' => date('Y-m-d H:i:s')]);
-                $this->db->table('cars')
-                    ->where('id', (int) $reservation['car_id'])
-                    ->update(['status' => 'rented']);
+                // With colours, other units can still be rented, so the listing stays available.
+                if (!$this->variants_for_car($reservation['car_id'])) {
+                    $this->db->table('cars')
+                        ->where('id', (int) $reservation['car_id'])
+                        ->update(['status' => 'rented']);
+                }
             } else {
                 if (empty($reservation['checked_out_at'])) {
                     return $this->abort('vehicle_not_checked_out');
@@ -356,7 +413,8 @@ class ReservationModel extends Model
         return $this->db->table($this->table)
             ->select(self::DETAIL_COLUMNS)
             ->inner_join('cars', 'cars.id = reservations.car_id')
-            ->inner_join('users', 'users.id = reservations.user_id');
+            ->inner_join('users', 'users.id = reservations.user_id')
+            ->left_join('car_color_variants', 'car_color_variants.id = reservations.variant_id');
     }
 
     private function attach_payment_summary(array $reservations)
@@ -411,15 +469,60 @@ class ReservationModel extends Model
         return $reservations;
     }
 
-    /** TRUE when another blocking reservation overlaps the half-open period [start, end). */
-    private function has_conflict($car_id, $start_date, $end_date, $ignore_id = 0)
+    /**
+     * TRUE when the period [start, end) cannot take another booking.
+     * Without colours the car is one unit. With colours, a colour is full once its overlapping
+     * bookings reach its stock. With no colour named, the car is full when every colour is.
+     */
+    private function has_conflict($car_id, $start_date, $end_date, $ignore_id = 0, $variant_id = null)
+    {
+        $reservations = $this->overlapping_for_car($car_id, $start_date, $end_date, $ignore_id);
+        $variants = $this->variants_for_car($car_id);
+        if (!$variants) {
+            return count($reservations) > 0;
+        }
+
+        foreach ($variants as $variant) {
+            $matches = $variant_id === null || (int) $variant['id'] === (int) $variant_id;
+            if ($matches && $this->units_left($variant, $reservations) > 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function variants_for_car($car_id)
+    {
+        return $this->db->table('car_color_variants')
+            ->where('car_id', (int) $car_id)
+            ->get_all();
+    }
+
+    private function overlapping_for_car($car_id, $start_date, $end_date, $ignore_id = 0)
     {
         $query = $this->overlapping($start_date, $end_date)->where('car_id', (int) $car_id);
         if ($ignore_id) {
             $query->where('id', '<>', (int) $ignore_id);
         }
 
-        return (bool) $query->limit(1)->row_array();
+        return $query->select('id, variant_id')->get_all();
+    }
+
+    /**
+     * Stock left in a colour after the given bookings. A booking with no colour was made before
+     * the car had colours. Its unit is unknown, so it counts against every colour to stay safe.
+     */
+    private function units_left(array $variant, array $reservations)
+    {
+        $used = 0;
+        foreach ($reservations as $reservation) {
+            if ($reservation['variant_id'] === null || (int) $reservation['variant_id'] === (int) $variant['id']) {
+                $used++;
+            }
+        }
+
+        return max(0, (int) $variant['stock'] - $used);
     }
 
     private function has_paid_payment($reservation_id)

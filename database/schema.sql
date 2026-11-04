@@ -74,17 +74,34 @@ CREATE TABLE IF NOT EXISTS cars (
     KEY cars_created_at_idx (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS car_color_variants (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    car_id INT UNSIGNED NOT NULL,
+    color VARCHAR(50) NOT NULL,
+    stock SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY car_color_variants_car_color_unique (car_id, color),
+    CONSTRAINT car_color_variants_car_fk
+        FOREIGN KEY (car_id) REFERENCES cars(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS car_images (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     car_id INT UNSIGNED NOT NULL,
     image_path VARCHAR(255) NOT NULL,
     is_primary TINYINT(1) NOT NULL DEFAULT 0,
+    variant_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY car_images_car_id_idx (car_id),
     CONSTRAINT car_images_car_fk
         FOREIGN KEY (car_id) REFERENCES cars(id)
-        ON DELETE CASCADE ON UPDATE CASCADE
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT car_images_variant_fk
+        FOREIGN KEY (variant_id) REFERENCES car_color_variants(id)
+        ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS reservations (
@@ -104,6 +121,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     payment_required TINYINT(1) NOT NULL DEFAULT 0,
     checked_out_at DATETIME NULL,
     returned_at DATETIME NULL,
+    variant_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -114,6 +132,9 @@ CREATE TABLE IF NOT EXISTS reservations (
         ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT reservations_car_fk
         FOREIGN KEY (car_id) REFERENCES cars(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT reservations_variant_fk
+        FOREIGN KEY (variant_id) REFERENCES car_color_variants(id)
         ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

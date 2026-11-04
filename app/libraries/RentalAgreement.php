@@ -16,8 +16,13 @@ class RentalAgreement
             $car['make'] ?? null,
             $car['model'] ?? null,
         ])));
+        $color = trim((string) ($car['variant_color'] ?? ''));
+        if ($color !== '') {
+            // A colour can have several units, so the listing's plate may not be the unit handed over.
+            $vehicle .= ' (' . $color . ')';
+        }
         $plate = trim((string) ($car['plate_number'] ?? ''));
-        if ($plate !== '') {
+        if ($plate !== '' && $color === '') {
             $vehicle .= ' (plate ' . $plate . ')';
         }
 

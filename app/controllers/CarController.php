@@ -28,7 +28,7 @@ class CarController extends Controller
     {
         parent::__construct();
         $this->security_headers->apply_api();
-        $this->call->model(['CarModel', 'CarImageModel', 'ReservationModel']);
+        $this->call->model(['CarModel', 'CarImageModel', 'CarVariantModel', 'ReservationModel']);
         $this->imageDirectory = ROOT_DIR . 'public' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'cars';
     }
 
@@ -66,9 +66,20 @@ class CarController extends Controller
             return;
         }
 
-        $available = $this->ReservationModel->is_available_for_dates($carId, $startDate, $endDate);
+        $variantId = null;
+        $requestedVariant = $this->request->get('variant_id');
+        if ($requestedVariant !== null && $requestedVariant !== '') {
+            $variantId = filter_var($requestedVariant, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($variantId === false || !$this->CarVariantModel->find_for_car($variantId, $carId)) {
+                $this->response->send_json_error('That colour is not offered for this vehicle.', 422);
+                return;
+            }
+        }
+
+        $available = $this->ReservationModel->is_available_for_dates($carId, $startDate, $endDate, $variantId);
         $this->response->send_json_success([
             'available' => (bool) $available,
+            'units_left' => $variantId === null ? null : $this->ReservationModel->units_available($carId, $variantId, $startDate, $endDate),
             'start_date' => $startDate,
             'end_date' => $endDate,
         ], $available ? 'Vehicle is available for these dates.' : 'Vehicle is not available for these dates.');
@@ -139,6 +150,8 @@ class CarController extends Controller
         $this->requireAdmin();
         $id = $this->findCarId($id);
 
+        $variantId = $this->variantIdFromInput($this->request->post('variant_id'), $id);
+
         $files = $this->uploadedFiles();
         if (!$files) {
             $this->response->send_json_error('Select at least one vehicle image.', 422);
@@ -176,7 +189,7 @@ class CarController extends Controller
         try {
             $saved = $this->CarImageModel->create_images($id, array_map(static function ($filename) {
                 return '/uploads/cars/' . $filename;
-            }, $stored));
+            }, $stored), $variantId);
         } catch (Exception $exception) {
             foreach ($stored as $filename) {
                 @unlink($this->imageDirectory . DIRECTORY_SEPARATOR . $filename);
@@ -187,6 +200,76 @@ class CarController extends Controller
         }
 
         $this->response->send_json_success($saved, 'Vehicle images uploaded successfully.', 201);
+    }
+
+    /** Links a photo to a colour, or makes it a general photo when variant_id is empty. */
+    public function updateImage($id, $imageId)
+    {
+        $this->requireAdmin();
+        $id = $this->findCarId($id);
+
+        $image = filter_var($imageId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
+            ? $this->CarImageModel->query()->where('id', (int) $imageId)->where('car_id', $id)->limit(1)->row_array()
+            : null;
+        if (!$image) {
+            $this->response->send_json_error('Vehicle image not found.', 404);
+            return;
+        }
+
+        $input = $this->jsonInput();
+        $variantId = $this->variantIdFromInput($input['variant_id'] ?? null, $id);
+        $this->CarImageModel->update((int) $imageId, ['variant_id' => $variantId]);
+
+        $this->response->send_json_success($this->CarModel->find_with_images($id), 'Vehicle image updated successfully.');
+    }
+
+    public function createVariant($id)
+    {
+        $this->requireAdmin();
+        $id = $this->findCarId($id);
+
+        $input = $this->jsonInput();
+        $color = $this->validVariantColor($input['color'] ?? null, $id);
+        $stock = $this->validVariantStock($input['stock'] ?? null);
+        $this->CarVariantModel->insert(['car_id' => $id, 'color' => $color, 'stock' => $stock]);
+
+        $this->response->send_json_success($this->CarModel->find_with_images($id), 'Colour added successfully.', 201);
+    }
+
+    public function updateVariant($id, $variantId)
+    {
+        $this->requireAdmin();
+        $id = $this->findCarId($id);
+        $variant = $this->findVariant($variantId, $id);
+
+        $input = $this->jsonInput();
+        $values = [];
+        if (array_key_exists('color', $input)) {
+            $values['color'] = $this->validVariantColor($input['color'], $id, (int) $variant['id']);
+        }
+        if (array_key_exists('stock', $input)) {
+            $values['stock'] = $this->validVariantStock($input['stock']);
+        }
+        if ($values) {
+            $this->CarVariantModel->update((int) $variant['id'], $values);
+        }
+
+        $this->response->send_json_success($this->CarModel->find_with_images($id), 'Colour updated successfully.');
+    }
+
+    public function deleteVariant($id, $variantId)
+    {
+        $this->requireAdmin();
+        $id = $this->findCarId($id);
+        $variant = $this->findVariant($variantId, $id);
+
+        if ($this->CarVariantModel->has_reservations((int) $variant['id'])) {
+            $this->response->send_json_error('This colour has reservations, so it cannot be removed. Set its stock to 0 to stop new bookings.', 409);
+            return;
+        }
+        $this->CarVariantModel->delete((int) $variant['id']);
+
+        $this->response->send_json_success($this->CarModel->find_with_images($id), 'Colour removed successfully.');
     }
 
     public function deleteImage($id, $imageId)
@@ -266,6 +349,69 @@ class CarController extends Controller
             'data'    => $result['cars'],
             'meta'    => $result['meta'],
         ]);
+    }
+
+    private function jsonInput()
+    {
+        $form = $this->request->post();
+        $json = $this->request->json();
+
+        return is_array($form) && $form !== [] ? $form : (is_array($json) ? $json : []);
+    }
+
+    /** Returns one colour of the car, or sends a 404. */
+    private function findVariant($variantId, $carId)
+    {
+        $variant = filter_var($variantId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
+            ? $this->CarVariantModel->find_for_car((int) $variantId, $carId)
+            : null;
+        if (!$variant) {
+            $this->response->send_json_error('Colour not found.', 404);
+            exit;
+        }
+
+        return $variant;
+    }
+
+    /** Returns a colour ID belonging to this car, NULL for an empty value, or sends a 422. */
+    private function variantIdFromInput($value, $carId)
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $variantId = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($variantId === false || !$this->CarVariantModel->find_for_car($variantId, $carId)) {
+            $this->response->send_json_error('That colour is not offered for this vehicle.', 422);
+            exit;
+        }
+
+        return $variantId;
+    }
+
+    private function validVariantColor($value, $carId, $ignoreId = 0)
+    {
+        $color = is_string($value) ? trim($value) : '';
+        if ($color === '' || mb_strlen($color) > 50) {
+            $this->response->send_json_error('Enter a colour name of up to 50 characters.', 422);
+            exit;
+        }
+        if ($this->CarVariantModel->color_exists($carId, $color, $ignoreId)) {
+            $this->response->send_json_error('This vehicle already has that colour.', 409);
+            exit;
+        }
+
+        return $color;
+    }
+
+    private function validVariantStock($value)
+    {
+        $stock = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => CarVariantModel::MAX_STOCK]]);
+        if ($stock === false) {
+            $this->response->send_json_error('Stock must be a whole number from 0 to ' . CarVariantModel::MAX_STOCK . '.', 422);
+            exit;
+        }
+
+        return $stock;
     }
 
     /** Returns the car ID as an int, or sends a 404. */

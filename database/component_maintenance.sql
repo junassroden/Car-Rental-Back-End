@@ -4,6 +4,9 @@
 -- Equivalent to migration 009_create_component_maintenance.php; run one or
 -- the other (safe to run in phpMyAdmin against car_rental_db).
 
+ALTER TABLE cars
+    ADD COLUMN IF NOT EXISTS current_mileage INT UNSIGNED NULL AFTER status;
+
 -- Catalog of inspectable components. The key is the stable identifier the
 -- React 3D rigs use to find the matching mesh / anchor. body_types lists the
 -- 3D rig body types that physically model the component.

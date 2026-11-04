@@ -4,8 +4,23 @@
 -- Equivalent to migration 009_create_component_maintenance.php; run one or
 -- the other (safe to run in phpMyAdmin against car_rental_db).
 
-ALTER TABLE cars
-    ADD COLUMN IF NOT EXISTS current_mileage INT UNSIGNED NULL AFTER status;
+-- Some MySQL versions used by hosted providers do not support
+-- ALTER TABLE ... ADD COLUMN IF NOT EXISTS. Use metadata to keep this
+-- script safe to rerun on those versions.
+SET @add_mileage_column = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE cars ADD COLUMN current_mileage INT UNSIGNED NULL AFTER status',
+        'SELECT 1'
+    )
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'cars'
+      AND COLUMN_NAME = 'current_mileage'
+);
+PREPARE add_mileage_column FROM @add_mileage_column;
+EXECUTE add_mileage_column;
+DEALLOCATE PREPARE add_mileage_column;
 
 -- Catalog of inspectable components. The key is the stable identifier the
 -- React 3D rigs use to find the matching mesh / anchor. body_types lists the

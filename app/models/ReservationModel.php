@@ -365,14 +365,19 @@ class ReservationModel extends Model
             return $reservations;
         }
 
-        $ids = array_map(static function ($reservation) {
+        $ids = array_values(array_map(static function ($reservation) {
             return (int) $reservation['id'];
-        }, $reservations);
-        $payments = $this->db->table('checkout_payments')
-            ->select('id, reservation_id, reference_number, status, paid_at')
-            ->in('reservation_id', $ids)
-            ->order_by('id', 'DESC')
-            ->get_all();
+        }, array_filter($reservations, static function ($reservation) {
+            return (int) ($reservation['payment_required'] ?? 0) === 1;
+        })));
+        $payments = [];
+        if ($ids) {
+            $payments = $this->db->table('checkout_payments')
+                ->select('id, reservation_id, reference_number, status, paid_at')
+                ->in('reservation_id', $ids)
+                ->order_by('id', 'DESC')
+                ->get_all();
+        }
         $summary = [];
         foreach ($payments as $payment) {
             $reservationId = (int) $payment['reservation_id'];

@@ -262,9 +262,10 @@ The React application uses the LavaLust API at `http://127.0.0.1:3000/`.
    on the same site.
 5. For an existing database, apply any unapplied migrations, including
    `009_create_component_maintenance.php`, `010_add_google_booking_payments.php`,
-   and `011_add_vehicle_mileage.php`. The component-maintenance migration
-   creates the tables used by the predictive-maintenance vehicle endpoint and
-   adds `cars.current_mileage`. Migrations are disabled by default:
+   `011_add_vehicle_mileage.php`, and `012_add_car_color_variants.php`. The
+   component-maintenance migration creates the tables used by the
+   predictive-maintenance vehicle endpoint and adds `cars.current_mileage`.
+   Migrations are disabled by default:
    temporarily set `$config['migration_enabled'] = TRUE` in
    `app/config/migration.php`, run `php lava migration run` from the backend
    directory, then set it back to `FALSE` and deploy. The migration adds

@@ -1,4 +1,4 @@
--- Adds vehicle colours with per-colour stock. Same change as app/migrations/011_add_car_color_variants.php.
+-- Adds vehicle colours with per-colour stock; the app migration is version 012.
 -- Back up the database first, then run this once against an existing DriveRent database.
 -- Existing cars and reservations are not changed. Cars with no colours keep working as one unit.
 
@@ -28,4 +28,4 @@ ALTER TABLE reservations
         ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Records the change so the app's migration runner does not repeat it.
-INSERT IGNORE INTO migrations (migration) VALUES (11);
+INSERT IGNORE INTO migrations (migration) VALUES (12);

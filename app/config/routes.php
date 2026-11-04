@@ -71,7 +71,11 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->patch('/cars/{id}', 'CarController::updateCar');
     $router->delete('/cars/{id}', 'CarController::deleteCar');
     $router->post('/cars/{id}/images', 'CarController::uploadImages');
+    $router->patch('/cars/{id}/images/{imageId}', 'CarController::updateImage');
     $router->delete('/cars/{id}/images/{imageId}', 'CarController::deleteImage');
+    $router->post('/cars/{id}/variants', 'CarController::createVariant');
+    $router->patch('/cars/{id}/variants/{variantId}', 'CarController::updateVariant');
+    $router->delete('/cars/{id}/variants/{variantId}', 'CarController::deleteVariant');
 
     // Reservations
     $router->get('/reservations', 'ReservationController::reservations');

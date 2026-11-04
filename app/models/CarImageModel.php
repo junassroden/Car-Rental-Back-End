@@ -5,18 +5,18 @@ class CarImageModel extends Model
 {
     protected $table       = 'car_images';
     protected $primary_key = 'id';
-    protected $fillable    = ['car_id', 'image_path'];
+    protected $fillable    = ['car_id', 'image_path', 'variant_id'];
     protected $timestamps  = false;
 
     /** Inserts one row per image path in a single transaction and returns the new rows. */
-    public function create_images($car_id, array $image_paths)
+    public function create_images($car_id, array $image_paths, $variant_id = null)
     {
         $this->db->transaction();
 
         try {
             $images = [];
             foreach ($image_paths as $image_path) {
-                $id       = $this->insert(['car_id' => (int) $car_id, 'image_path' => $image_path]);
+                $id       = $this->insert(['car_id' => (int) $car_id, 'image_path' => $image_path, 'variant_id' => $variant_id]);
                 $images[] = $this->find($id);
             }
             $this->db->commit();

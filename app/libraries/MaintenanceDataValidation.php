@@ -103,7 +103,7 @@ class MaintenanceDataValidation
                 throw new InvalidArgumentException(ucwords(str_replace('_', ' ', $field)) . ' must be text.');
             }
             $value = trim((string) $raw_value);
-            if (strlen($value) > $limit) {
+            if (mb_strlen($value) > $limit) {
                 throw new InvalidArgumentException(ucwords(str_replace('_', ' ', $field)) . " must be {$limit} characters or fewer.");
             }
             $values[$field] = $value === '' ? null : $value;
@@ -136,7 +136,7 @@ class MaintenanceDataValidation
                 $name = trim($raw_name);
                 $unit = trim($raw_unit);
                 $raw_value = $measurement['value'] ?? null;
-                if ($name === '' || strlen($name) > 160 || $unit === '' || strlen($unit) > 40 || !is_numeric($raw_value) || !is_finite((float) $raw_value)) {
+                if ($name === '' || mb_strlen($name) > 160 || $unit === '' || mb_strlen($unit) > 40 || !is_numeric($raw_value) || !is_finite((float) $raw_value)) {
                     throw new InvalidArgumentException('Each sensor measurement needs a name, finite numeric value, and unit.');
                 }
                 $values['sensor_measurements'][] = [

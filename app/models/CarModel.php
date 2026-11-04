@@ -26,7 +26,7 @@ class CarModel extends Model
     protected $fillable    = self::FIELDS;
     protected $timestamps  = false;
 
-    /** Car row plus an `images` array, or NULL when the car does not exist. */
+    /** Car row plus `images` and colour `variants` arrays, or NULL when the car does not exist. */
     public function find_with_images($id)
     {
         $car = $this->find($id);
@@ -35,6 +35,11 @@ class CarModel extends Model
         }
 
         $car['images'] = $this->db->table('car_images')
+            ->where('car_id', $id)
+            ->order_by('id', 'ASC')
+            ->result_array();
+        $car['variants'] = $this->db->table('car_color_variants')
+            ->select('id, color, stock')
             ->where('car_id', $id)
             ->order_by('id', 'ASC')
             ->result_array();

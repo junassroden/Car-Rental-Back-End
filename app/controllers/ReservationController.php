@@ -11,6 +11,8 @@ class ReservationController extends Controller
         'not_found'           => ['Reservation not found.', 404],
         'vehicle_not_found'   => ['Vehicle not found.', 404],
         'vehicle_unavailable' => ['This vehicle is not available for those dates.', 409],
+        'color_required'      => ['Choose a colour for this vehicle.', 422],
+        'color_invalid'       => ['That colour is not offered for this vehicle.', 422],
         'date_conflict'       => ['This vehicle is already reserved for part or all of those dates.', 409],
         'invalid_transition'  => ['That reservation status change is not allowed.', 409],
         'customer_forbidden'  => ['You may only cancel your own pending or confirmed reservations.', 403],
@@ -116,6 +118,15 @@ class ReservationController extends Controller
             return;
         }
 
+        $variantId = null;
+        if (isset($input['variant_id']) && $input['variant_id'] !== '') {
+            $variantId = filter_var($input['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($variantId === false) {
+                $this->response->send_json_error('That colour is not offered for this vehicle.', 422);
+                return;
+            }
+        }
+
         $rentalDays = (int) $start->diff($end)->format('%r%a');
         if ($rentalDays < 1 || $rentalDays > self::MAX_RENTAL_DAYS) {
             $this->response->send_json_error('The return date must be after the pickup date.', 422);
@@ -130,7 +141,8 @@ class ReservationController extends Controller
                 $endDate,
                 $rentalDays,
                 $specialRequest,
-                $acceptContract
+                $acceptContract,
+                $variantId
             );
         } catch (Exception $exception) {
             error_log('Reservation creation failed: ' . $exception->getMessage());

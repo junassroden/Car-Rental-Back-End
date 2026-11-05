@@ -1,22 +1,33 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-require_once APP_DIR . 'libraries/MaintenanceDataPolicy.php';
 
 class MaintenanceDataController extends Controller
 {
+    const EXPORT_FIELDS = [
+        'id', 'vehicle_id', 'make', 'model', 'year', 'category', 'engine_details',
+        'record_type', 'recorded_at', 'odometer_reading', 'odometer_unit', 'component',
+        'component_identifier',
+        'symptoms', 'inspection_findings', 'dtc_codes', 'sensor_measurements',
+        'suspected_cause', 'confirmed_cause', 'confirmed_fault_label',
+        'diagnostic_tests', 'repair_action', 'replaced_components', 'repair_outcome',
+        'source', 'verification_status',
+        'verified_at', 'created_at',
+    ];
+
     private $actor_id;
 
     public function __construct()
     {
         parent::__construct();
         $this->security_headers->apply_api();
-        $this->call->model(['MaintenanceDataModel', 'UserModel']);
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
+        $this->call->model('MaintenanceDataModel');
+        $this->call->library('MaintenanceDataValidation');
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
             $this->response->send_json_error('Authentication is required.', 401);
             exit;
         }
-        if (!MaintenanceDataPolicy::can_access($user)) {
+        if ($user['role'] !== 'admin') {
             $this->response->send_json_error('Administrator access is required.', 403);
             exit;
         }
@@ -159,13 +170,8 @@ class MaintenanceDataController extends Controller
             $this->response->send_json_error('Verification status and reason must be text values.', 422);
             return;
         }
-        $this->run_transition($id, function ($record_id) use ($input) {
-            return $this->MaintenanceDataModel->verify_record(
-                $record_id,
-                $this->actor_id,
-                $input['verification_status'] ?? '',
-                $input['reason'] ?? ''
-            );
+        $this->run_transition($id, function ($record_id) use ($status, $reason) {
+            return $this->MaintenanceDataModel->verify_record($record_id, $this->actor_id, $status, $reason);
         }, 'Verification status updated.');
     }
 
@@ -177,11 +183,7 @@ class MaintenanceDataController extends Controller
             $this->response->send_json_error($exception->getMessage(), 422);
             return;
         }
-        $replacement_id = filter_var(
-            $input['replacement_record_id'] ?? null,
-            FILTER_VALIDATE_INT,
-            ['options' => ['min_range' => 1]]
-        );
+        $replacement_id = filter_var($input['replacement_record_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if (!$replacement_id) {
             $this->response->send_json_error('A verified replacement record is required.', 422);
             return;
@@ -191,13 +193,8 @@ class MaintenanceDataController extends Controller
             $this->response->send_json_error('Supersession reason must be text.', 422);
             return;
         }
-        $this->run_transition($id, function ($record_id) use ($replacement_id, $input) {
-            return $this->MaintenanceDataModel->supersede_record(
-                $record_id,
-                $replacement_id,
-                $this->actor_id,
-                $input['reason'] ?? ''
-            );
+        $this->run_transition($id, function ($record_id) use ($replacement_id, $reason) {
+            return $this->MaintenanceDataModel->supersede_record($record_id, $replacement_id, $this->actor_id, $reason);
         }, 'Record superseded by the verified correction.');
     }
 
@@ -218,45 +215,42 @@ class MaintenanceDataController extends Controller
                 ], 'Verified maintenance data exported.');
                 return;
             }
-            $fields = [
-                'id', 'vehicle_id', 'make', 'model', 'year', 'category', 'engine_details',
-                'record_type', 'recorded_at', 'odometer_reading', 'odometer_unit', 'component',
-                'component_identifier',
-                'symptoms', 'inspection_findings', 'dtc_codes', 'sensor_measurements',
-                'suspected_cause', 'confirmed_cause', 'confirmed_fault_label',
-                'diagnostic_tests', 'repair_action', 'replaced_components', 'repair_outcome',
-                'source', 'verification_status',
-                'verified_at', 'created_at',
-            ];
-            $stream = fopen('php://temp', 'w+');
-            fputcsv($stream, $fields);
-            foreach ($rows as $row) {
-                $values = [];
-                foreach ($fields as $field) {
-                    $value = $row[$field] ?? null;
-                    if (is_array($value)) {
-                        $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-                    }
-                    $value = $value === null ? '' : (string) $value;
-                    if ($value !== '' && preg_match('/^[=+\-@]/', $value)) {
-                        $value = "'" . $value;
-                    }
-                    $values[] = $value;
-                }
-                fputcsv($stream, $values);
-            }
-            rewind($stream);
-            $csv = stream_get_contents($stream);
-            fclose($stream);
             $this->response
                 ->add_header('Content-Type', 'text/csv; charset=utf-8')
                 ->add_header('Content-Disposition', 'attachment; filename="verified-maintenance-data.csv"')
-                ->set_content($csv)
+                ->set_content($this->export_csv($rows))
                 ->send();
         } catch (Exception $exception) {
             error_log('Maintenance data export failed: ' . $exception->getMessage());
             $this->response->send_json_error('Verified maintenance data could not be exported.', 500);
         }
+    }
+
+    /** Verified rows as CSV. A leading =, +, - or @ is quoted so spreadsheets do not run it as a formula. */
+    private function export_csv(array $rows)
+    {
+        $stream = fopen('php://temp', 'w+');
+        fputcsv($stream, self::EXPORT_FIELDS);
+        foreach ($rows as $row) {
+            $values = [];
+            foreach (self::EXPORT_FIELDS as $field) {
+                $value = $row[$field] ?? null;
+                if (is_array($value)) {
+                    $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                }
+                $value = $value === null ? '' : (string) $value;
+                if ($value !== '' && preg_match('/^[=+\-@]/', $value)) {
+                    $value = "'" . $value;
+                }
+                $values[] = $value;
+            }
+            fputcsv($stream, $values);
+        }
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+
+        return $csv;
     }
 
     private function run_transition($id, callable $callback, $message)

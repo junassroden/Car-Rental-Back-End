@@ -1,7 +1,5 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-require_once APP_DIR . 'libraries/AiServiceClient.php';
-require_once APP_DIR . 'libraries/ComponentMaintenanceRules.php';
 
 /** Admin-only vehicle maintenance records and service-interval estimates. */
 class MaintenanceController extends Controller
@@ -11,10 +9,11 @@ class MaintenanceController extends Controller
         parent::__construct();
         $this->security_headers->apply_api();
         $this->call->model(['MaintenanceModel', 'CarModel']);
+        $this->call->library(['AiServiceClient', 'ComponentMaintenanceRules']);
 
         // Every endpoint here is for administrators only.
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
             $this->response->send_json_error('Authentication is required.', 401);
             exit;
         }
@@ -89,8 +88,7 @@ class MaintenanceController extends Controller
 
     public function createMaintenanceRecord()
     {
-        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
-        $input = is_array($input) ? $input : [];
+        $input = $this->input();
 
         foreach (['vehicleID', 'maintenanceType'] as $field) {
             if (!isset($input[$field]) || !is_scalar($input[$field]) || trim((string) $input[$field]) === '') {
@@ -126,10 +124,8 @@ class MaintenanceController extends Controller
             return;
         }
 
-        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
-
         try {
-            $result = $this->MaintenanceModel->update_record((int) $id, is_array($input) ? $input : []);
+            $result = $this->MaintenanceModel->update_record((int) $id, $this->input());
         } catch (InvalidArgumentException $exception) {
             $this->response->send_json_error($exception->getMessage(), 422);
             return;
@@ -153,7 +149,7 @@ class MaintenanceController extends Controller
 
     public function updateVehicleMileage()
     {
-        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input = $this->input();
 
         $vehicleId = (int) ($input['vehicleID'] ?? $input['car_id'] ?? 0);
         $mileage   = (int) ($input['current_mileage'] ?? $input['mileage'] ?? 0);
@@ -174,5 +170,13 @@ class MaintenanceController extends Controller
         }
 
         $this->response->send_json_success($vehicle, 'Vehicle mileage updated successfully.');
+    }
+
+    /** The JSON or form request body. Always an array. */
+    private function input()
+    {
+        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
+
+        return is_array($input) ? $input : [];
     }
 }

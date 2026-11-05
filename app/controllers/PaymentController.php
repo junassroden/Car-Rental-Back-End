@@ -1,7 +1,5 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'PayMongoClient.php';
-require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'XenditClient.php';
 
 class PaymentController extends Controller
 {
@@ -14,10 +12,7 @@ class PaymentController extends Controller
 
     public function createCheckout($id)
     {
-        $user = $this->authenticatedUser();
-        if (!$user) {
-            return;
-        }
+        $user = $this->requireUser();
 
         if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
             $this->response->send_json_error('Reservation not found.', 404);
@@ -63,7 +58,7 @@ class PaymentController extends Controller
         }
 
         try {
-            $client = new XenditClient(getenv('XENDIT_SECRET_KEY') ?: '');
+            $client = $this->call->library('XenditClient', getenv('XENDIT_SECRET_KEY') ?: '');
             $checkout = $client->createInvoice(
                 $reservation,
                 getenv('FRONTEND_URL') ?: 'http://127.0.0.1:5173'
@@ -93,9 +88,10 @@ class PaymentController extends Controller
 
     public function submitManual($id)
     {
-        $user = $this->authenticatedUser();
+        $user = $this->requireUser();
+
         $reference = trim((string) $this->request->post('reference_number'));
-        if (!$user || $reference === '' || strlen($reference) > 80) {
+        if ($reference === '' || strlen($reference) > 80) {
             $this->response->send_json_error('Enter a valid GCash reference number.', 422);
             return;
         }
@@ -133,11 +129,12 @@ class PaymentController extends Controller
 
     public function verifyManual($id, $decision)
     {
-        $user = $this->authenticatedUser();
-        if (!$user || $user['role'] !== 'admin') {
+        $user = $this->requireUser();
+        if ($user['role'] !== 'admin') {
             $this->response->send_json_error('Administrator access is required.', 403);
             return;
         }
+
         $updated = $decision === 'approve'
             ? $this->PaymentModel->mark_manual_paid((int) $id, (int) $user['id'])
             : ($decision === 'reject' ? $this->PaymentModel->mark_manual_rejected((int) $id) : false);
@@ -157,7 +154,7 @@ class PaymentController extends Controller
             return;
         }
 
-        $signature = $_SERVER['HTTP_PAYMONGO_SIGNATURE'] ?? $_SERVER['HTTP_X_PAYMONGO_SIGNATURE'] ?? '';
+        $signature = $this->request->header('Paymongo-Signature') ?? $this->request->header('X-Paymongo-Signature') ?? '';
         if (!$this->validSignature($rawBody, $signature, $secret)) {
             $this->response->send_json_error('Invalid PayMongo webhook signature.', 401);
             return;
@@ -214,7 +211,7 @@ class PaymentController extends Controller
     public function xenditWebhook()
     {
         $token = trim((string) getenv('XENDIT_CALLBACK_TOKEN'));
-        $received = (string) ($_SERVER['HTTP_X_CALLBACK_TOKEN'] ?? '');
+        $received = (string) $this->request->header('X-Callback-Token');
         if ($token === '' || !hash_equals($token, $received)) {
             $this->response->send_json_error('Invalid Xendit callback token.', 401);
             return;
@@ -253,16 +250,6 @@ class PaymentController extends Controller
         $this->response->send_json_success(null, 'Xendit payment received.');
     }
 
-    private function authenticatedUser()
-    {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
-            $this->response->send_json_error('Authentication is required.', 401);
-            return null;
-        }
-        return $user;
-    }
-
     private function validSignature($rawBody, $header, $secret)
     {
         $parts = [];
@@ -282,5 +269,17 @@ class PaymentController extends Controller
 
         $expected = hash_hmac('sha256', $timestamp . '.' . $rawBody, $secret);
         return hash_equals($expected, $signature);
+    }
+
+    /** Returns the signed-in user, or sends a 401. */
+    private function requireUser()
+    {
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            exit;
+        }
+
+        return $user;
     }
 }

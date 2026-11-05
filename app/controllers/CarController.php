@@ -52,16 +52,8 @@ class CarController extends Controller
         $carId = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         $startDate = $this->request->get('start_date');
         $endDate = $this->request->get('end_date');
-        $start = is_string($startDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $startDate) : false;
-        $end = is_string($endDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $endDate) : false;
 
-        if (
-            !$carId
-            || !$start || $start->format('Y-m-d') !== $startDate
-            || !$end || $end->format('Y-m-d') !== $endDate
-            || $endDate <= $startDate
-            || $startDate < date('Y-m-d')
-        ) {
+        if (!$carId || !$this->isFutureDateRange($startDate, $endDate)) {
             $this->response->send_json_error('Provide a valid future pickup and return date range.', 422);
             return;
         }
@@ -93,8 +85,8 @@ class CarController extends Controller
 
         // Only admins can see vehicles that are not available.
         if ($car && $car['status'] !== 'available') {
-            $user = $this->UserModel->find((int) $this->authenticated_user_id());
-            if (!$user || (int) $user['is_active'] !== 1 || $user['role'] !== 'admin') {
+            $user = $this->UserModel->find_active($this->authenticated_user_id());
+            if (!$user || $user['role'] !== 'admin') {
                 $car = null;
             }
         }
@@ -139,7 +131,7 @@ class CarController extends Controller
         }
 
         foreach ($images as $image) {
-            @unlink($this->imageDirectory . DIRECTORY_SEPARATOR . basename($image['image_path']));
+            $this->removeImageFile($image['image_path']);
         }
 
         $this->response->send_json_success(null, 'Vehicle deleted successfully.');
@@ -173,9 +165,7 @@ class CarController extends Controller
                 ->encrypt_name();
 
             if (!$upload->do_upload()) {
-                foreach ($stored as $filename) {
-                    @unlink($this->imageDirectory . DIRECTORY_SEPARATOR . $filename);
-                }
+                array_map([$this, 'removeImageFile'], $stored);
                 $this->response->send_json_error(
                     'Images must be valid JPEG, PNG, or WebP files no larger than 5 MB each.',
                     422,
@@ -191,9 +181,7 @@ class CarController extends Controller
                 return '/uploads/cars/' . $filename;
             }, $stored), $variantId);
         } catch (Exception $exception) {
-            foreach ($stored as $filename) {
-                @unlink($this->imageDirectory . DIRECTORY_SEPARATOR . $filename);
-            }
+            array_map([$this, 'removeImageFile'], $stored);
             error_log('Vehicle image save failed: ' . $exception->getMessage());
             $this->response->send_json_error('The vehicle images could not be saved.', 500);
             return;
@@ -209,7 +197,7 @@ class CarController extends Controller
         $id = $this->findCarId($id);
 
         $image = filter_var($imageId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
-            ? $this->CarImageModel->query()->where('id', (int) $imageId)->where('car_id', $id)->limit(1)->row_array()
+            ? $this->CarImageModel->find_for_car((int) $imageId, $id)
             : null;
         if (!$image) {
             $this->response->send_json_error('Vehicle image not found.', 404);
@@ -276,8 +264,7 @@ class CarController extends Controller
     {
         $this->requireAdmin();
 
-        $options = ['options' => ['min_range' => 1]];
-        $image   = (filter_var($id, FILTER_VALIDATE_INT, $options) && filter_var($imageId, FILTER_VALIDATE_INT, $options))
+        $image = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) && filter_var($imageId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
             ? $this->CarImageModel->delete_image((int) $imageId, (int) $id)
             : null;
 
@@ -286,7 +273,7 @@ class CarController extends Controller
             return;
         }
 
-        @unlink($this->imageDirectory . DIRECTORY_SEPARATOR . basename($image['image_path']));
+        $this->removeImageFile($image['image_path']);
 
         $this->response->send_json_success($this->CarModel->find_with_images((int) $id), 'Vehicle image deleted successfully.');
     }
@@ -295,18 +282,21 @@ class CarController extends Controller
      * Helpers
      * ------------------------------------------------------------- */
 
-    /** Sends a 401 or 403 unless an active administrator is signed in. */
-    private function requireAdmin()
+    /** TRUE for two real Y-m-d dates, the return after the pickup and the pickup not in the past. */
+    private function isFutureDateRange($startDate, $endDate)
     {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
-            $this->response->send_json_error('Authentication is required.', 401);
-            exit;
-        }
-        if ($user['role'] !== 'admin') {
-            $this->response->send_json_error('Administrator access is required.', 403);
-            exit;
-        }
+        $start = is_string($startDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $startDate) : false;
+        $end   = is_string($endDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $endDate) : false;
+
+        return $start && $start->format('Y-m-d') === $startDate
+            && $end && $end->format('Y-m-d') === $endDate
+            && $endDate > $startDate
+            && $startDate >= date('Y-m-d');
+    }
+
+    private function removeImageFile($path)
+    {
+        @unlink($this->imageDirectory . DIRECTORY_SEPARATOR . basename($path));
     }
 
     private function listCars($availableOnly)
@@ -316,16 +306,7 @@ class CarController extends Controller
         $filters   = [];
 
         if ($startDate !== null || $endDate !== null) {
-            $start = is_string($startDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $startDate) : false;
-            $end   = is_string($endDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $endDate) : false;
-
-            if (
-                !$availableOnly
-                || !$start || $start->format('Y-m-d') !== $startDate
-                || !$end || $end->format('Y-m-d') !== $endDate
-                || $endDate <= $startDate
-                || $startDate < date('Y-m-d')
-            ) {
+            if (!$availableOnly || !$this->isFutureDateRange($startDate, $endDate)) {
                 $this->response->send_json_error('Provide a valid future pickup and return date range.', 422);
                 exit;
             }
@@ -349,14 +330,6 @@ class CarController extends Controller
             'data'    => $result['cars'],
             'meta'    => $result['meta'],
         ]);
-    }
-
-    private function jsonInput()
-    {
-        $form = $this->request->post();
-        $json = $this->request->json();
-
-        return is_array($form) && $form !== [] ? $form : (is_array($json) ? $json : []);
     }
 
     /** Returns one colour of the car, or sends a 404. */
@@ -431,12 +404,7 @@ class CarController extends Controller
      */
     private function carValues($id = 0)
     {
-        $form = $this->request->post();
-        $json = $this->request->json();
-        $input = is_array($form) && $form !== []
-            ? $form
-            : (is_array($json) ? $json : []);
-        $values = array_intersect_key(is_array($input) ? $input : [], array_flip(CarModel::FIELDS));
+        $values = array_intersect_key($this->jsonInput(), array_flip(CarModel::FIELDS));
 
         if ($id && !$values) {
             $this->response->send_json_error('No valid vehicle fields were provided.', 422);
@@ -468,14 +436,7 @@ class CarController extends Controller
             }, ARRAY_FILTER_USE_KEY);
         }
 
-        // Form_validation reads $_POST, so the values are placed there first.
-        $_POST = $values;
-        $this->call->library('form_validation');
-        if (!$this->form_validation->validate($rules)) {
-            $errors = $this->form_validation->get_errors();
-            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
-            exit;
-        }
+        $this->validateInput($values, $rules);
         if (array_key_exists('status', $values) && !in_array($values['status'], CarModel::STATUSES, true)) {
             $this->response->send_json_error('"Status" is not a valid option.', 422);
             exit;
@@ -550,5 +511,55 @@ class CarController extends Controller
         }
 
         return $files;
+    }
+
+    /** Sends a 401 or 403 unless an active administrator is signed in. */
+    private function requireAdmin()
+    {
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            exit;
+        }
+        if ($user['role'] !== 'admin') {
+            $this->response->send_json_error('Administrator access is required.', 403);
+            exit;
+        }
+    }
+
+    /** The submitted form fields, or else the JSON body. Always an array. */
+    private function jsonInput()
+    {
+        $form = $this->request->post();
+        if ($form !== []) {
+            return $form;
+        }
+
+        $json = $this->request->json();
+
+        return is_array($json) ? $json : [];
+    }
+
+    /**
+     * Runs Form_validation on $input, or sends a 422. Form_validation reads $_POST, so the
+     * values are placed there first, as strings, with '' for any field a rule names that
+     * was not sent: its strlen() rejects NULL and its `required` rule treats the number 0 as empty.
+     */
+    private function validateInput(array $input, array $rules)
+    {
+        $fields = array_map(static function ($field) {
+            return strtok($field, '|');
+        }, array_keys($rules));
+
+        $_POST = array_map(static function ($value) {
+            return is_scalar($value) || $value === null ? (string) $value : $value;
+        }, $input) + array_fill_keys($fields, '');
+
+        $this->call->library('form_validation');
+        if (!$this->form_validation->validate($rules)) {
+            $errors = $this->form_validation->get_errors();
+            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
+            exit;
+        }
     }
 }

@@ -1,7 +1,5 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-require_once APP_DIR . 'libraries/MaintenanceDataValidation.php';
-require_once APP_DIR . 'libraries/MaintenanceDataPolicy.php';
 
 class MaintenanceDataModel extends Model
 {
@@ -15,58 +13,67 @@ class MaintenanceDataModel extends Model
         'technician_reference', 'source', 'evidence_reference', 'engine_details',
     ];
 
+    // The query builder accepts no "r.*", and idempotency_key/idempotency_hash must stay out of responses.
+    private const RECORD_COLUMNS = 'r.id, r.vehicle_id, r.vehicle_type, r.vehicle_make, r.vehicle_model, r.vehicle_year, r.engine_details, r.record_type, r.recorded_at, r.odometer_reading, r.odometer_unit, r.component, r.component_identifier, r.symptoms, r.inspection_findings, r.dtc_codes, r.sensor_measurements, r.suspected_cause, r.confirmed_cause, r.diagnostic_tests, r.repair_action, r.replaced_components, r.repair_outcome, r.technician_reference, r.source, r.evidence_reference, r.verification_status, r.created_by, r.verified_by, r.verified_at, r.superseded_by_id, r.created_at, r.updated_at, r.vehicle_make AS make, r.vehicle_model AS model, r.vehicle_year AS year, r.vehicle_type AS category, c.plate_number';
+
     protected $table = self::TABLE;
     protected $primary_key = 'id';
     protected $fillable = [];
     protected $timestamps = false;
 
+    public function __construct()
+    {
+        parent::__construct();
+        $this->call->library(['MaintenanceDataValidation', 'MaintenanceDataPolicy']);
+    }
+
     public function list_records(array $filters)
     {
-        $where = [];
-        $bindings = [];
-        foreach ([
-            'vehicle_id' => 'r.vehicle_id',
-            'record_type' => 'r.record_type',
-            'verification_status' => 'r.verification_status',
-        ] as $key => $column) {
-            if (($filters[$key] ?? '') !== '') {
-                $where[] = "{$column} = ?";
-                $bindings[] = $filters[$key];
+        $apply = function () use ($filters) {
+            $query = $this->records_query();
+            foreach ([
+                'vehicle_id' => 'r.vehicle_id',
+                'record_type' => 'r.record_type',
+                'verification_status' => 'r.verification_status',
+            ] as $key => $column) {
+                if (($filters[$key] ?? '') !== '') {
+                    $query->where($column, $filters[$key]);
+                }
             }
-        }
-        if (($filters['component'] ?? '') !== '') {
-            $where[] = 'r.component LIKE ?';
-            $bindings[] = '%' . $filters['component'] . '%';
-        }
-        if (($filters['date_from'] ?? '') !== '') {
-            $where[] = 'r.recorded_at >= ?';
-            $bindings[] = $filters['date_from'] . ' 00:00:00';
-        }
-        if (($filters['date_to'] ?? '') !== '') {
-            $where[] = 'r.recorded_at <= ?';
-            $bindings[] = $filters['date_to'] . ' 23:59:59';
-        }
-        if (($filters['search'] ?? '') !== '') {
-            $where[] = '(r.symptoms LIKE ? OR r.inspection_findings LIKE ? OR r.dtc_codes LIKE ? OR r.component LIKE ? OR c.make LIKE ? OR c.model LIKE ? OR c.plate_number LIKE ?)';
-            $search = '%' . $filters['search'] . '%';
-            array_push($bindings, $search, $search, $search, $search, $search, $search, $search);
-        }
+            if (($filters['component'] ?? '') !== '') {
+                $query->like('r.component', '%' . $filters['component'] . '%');
+            }
+            if (($filters['date_from'] ?? '') !== '') {
+                $query->where('r.recorded_at', '>=', $filters['date_from'] . ' 00:00:00');
+            }
+            if (($filters['date_to'] ?? '') !== '') {
+                $query->where('r.recorded_at', '<=', $filters['date_to'] . ' 23:59:59');
+            }
+            if (($filters['search'] ?? '') !== '') {
+                $search = '%' . $filters['search'] . '%';
+                $query->grouped(static function ($q) use ($search) {
+                    $q->like('r.symptoms', $search)
+                      ->or_like('r.inspection_findings', $search)
+                      ->or_like('r.dtc_codes', $search)
+                      ->or_like('r.component', $search)
+                      ->or_like('c.make', $search)
+                      ->or_like('c.model', $search)
+                      ->or_like('c.plate_number', $search);
+                });
+            }
+            return $query;
+        };
 
-        $where_sql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
-        $count = (int) $this->db->raw(
-            'SELECT COUNT(*) FROM ' . self::TABLE . ' r INNER JOIN cars c ON c.id = r.vehicle_id' . $where_sql,
-            $bindings
-        )->fetchColumn();
+        // The builder's count() ignores joins, and the filters can use the joined cars columns.
+        $count = (int) $apply()->select('COUNT(*) AS total')->get()['total'];
         $limit = max(1, min((int) ($filters['limit'] ?? 50), 100));
         $page = max(1, (int) ($filters['page'] ?? 1));
-        $offset = ($page - 1) * $limit;
-        $rows = $this->db->raw(
-            'SELECT r.*, r.vehicle_make AS make, r.vehicle_model AS model,
-                    r.vehicle_year AS year, r.vehicle_type AS category, c.plate_number
-             FROM ' . self::TABLE . ' r INNER JOIN cars c ON c.id = r.vehicle_id'
-            . $where_sql . ' ORDER BY r.recorded_at DESC, r.id DESC LIMIT ' . $limit . ' OFFSET ' . $offset,
-            $bindings
-        )->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $apply()
+            ->select(self::RECORD_COLUMNS)
+            ->order_by('r.recorded_at', 'DESC')
+            ->order_by('r.id', 'DESC')
+            ->pagination($limit, $page)
+            ->get_all();
 
         return [
             'records' => array_map([$this, 'decode_record'], $rows),
@@ -81,18 +88,13 @@ class MaintenanceDataModel extends Model
 
     public function find_record($id)
     {
-        $row = $this->db->raw(
-            'SELECT r.*, r.vehicle_make AS make, r.vehicle_model AS model,
-                    r.vehicle_year AS year, r.vehicle_type AS category, c.plate_number,
-                    creator.username AS created_by_username,
-                    verifier.username AS verified_by_username
-             FROM ' . self::TABLE . ' r
-             INNER JOIN cars c ON c.id = r.vehicle_id
-             LEFT JOIN users creator ON creator.id = r.created_by
-             LEFT JOIN users verifier ON verifier.id = r.verified_by
-             WHERE r.id = ? LIMIT 1',
-            [(int) $id]
-        )->fetch(PDO::FETCH_ASSOC);
+        $row = $this->records_query()
+            ->select(self::RECORD_COLUMNS . ', creator.username AS created_by_username, verifier.username AS verified_by_username')
+            ->left_join('users creator', 'creator.id = r.created_by')
+            ->left_join('users verifier', 'verifier.id = r.verified_by')
+            ->where('r.id', (int) $id)
+            ->limit(1)
+            ->get();
         return $row ? $this->decode_record($row) : null;
     }
 
@@ -102,14 +104,13 @@ class MaintenanceDataModel extends Model
         if (!$record) {
             return null;
         }
-        $events = $this->db->raw(
-            'SELECT a.*, u.username AS actor_username
-             FROM ' . self::AUDIT_TABLE . ' a
-             LEFT JOIN users u ON u.id = a.actor_user_id
-             WHERE a.maintenance_record_id = ?
-             ORDER BY a.created_at ASC, a.id ASC',
-            [(int) $id]
-        )->fetchAll(PDO::FETCH_ASSOC);
+        $events = $this->db->table(self::AUDIT_TABLE . ' a')
+            ->select('a.id, a.maintenance_record_id, a.actor_user_id, a.event_type, a.from_status, a.to_status, a.reason, a.before_snapshot, a.after_snapshot, a.created_at, u.username AS actor_username')
+            ->left_join('users u', 'u.id = a.actor_user_id')
+            ->where('a.maintenance_record_id', (int) $id)
+            ->order_by('a.created_at', 'ASC')
+            ->order_by('a.id', 'ASC')
+            ->get_all();
         foreach ($events as &$event) {
             $event['before_snapshot'] = $event['before_snapshot'] === null
                 ? null : json_decode($event['before_snapshot'], true);
@@ -126,17 +127,9 @@ class MaintenanceDataModel extends Model
             'sha256',
             json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
         );
-        if ($idempotency_key !== null) {
-            $existing = $this->db->table(self::TABLE)
-                ->where('idempotency_key', $idempotency_key)
-                ->limit(1)
-                ->get();
-            if ($existing) {
-                if (!hash_equals((string) $existing['idempotency_hash'], $idempotency_hash)) {
-                    throw new InvalidArgumentException('This Idempotency-Key was already used with different record contents. Review the existing record before creating another.');
-                }
-                return $this->find_record((int) $existing['id']);
-            }
+        $replayed = $this->idempotent_replay($idempotency_key, $idempotency_hash);
+        if ($replayed) {
+            return $replayed;
         }
         $vehicle = $this->db->table('cars')->where('id', $data['vehicle_id'])->limit(1)->get();
         if (!$vehicle) {
@@ -165,17 +158,10 @@ class MaintenanceDataModel extends Model
             $this->db->commit();
         } catch (Exception $exception) {
             $this->db->roll_back();
-            if ($idempotency_key !== null) {
-                $existing = $this->db->table(self::TABLE)
-                    ->where('idempotency_key', $idempotency_key)
-                    ->limit(1)
-                    ->get();
-                if ($existing) {
-                    if (!hash_equals((string) $existing['idempotency_hash'], $idempotency_hash)) {
-                        throw new InvalidArgumentException('This Idempotency-Key was already used with different record contents. Review the existing record before creating another.');
-                    }
-                    return $this->find_record((int) $existing['id']);
-                }
+            // A parallel request with the same key may have won the unique index.
+            $replayed = $this->idempotent_replay($idempotency_key, $idempotency_hash);
+            if ($replayed) {
+                return $replayed;
             }
             throw $exception;
         }
@@ -235,7 +221,6 @@ class MaintenanceDataModel extends Model
 
     public function submit_for_verification($id, $user_id)
     {
-        MaintenanceDataPolicy::assert_transition('draft', 'awaiting_verification');
         return $this->transition($id, $user_id, 'draft', 'awaiting_verification', null);
     }
 
@@ -334,22 +319,12 @@ class MaintenanceDataModel extends Model
 
     public function verified_export()
     {
-        $rows = $this->db->raw(
-            'SELECT r.id, r.vehicle_id, r.vehicle_make AS make, r.vehicle_model AS model,
-                    r.vehicle_year AS year, r.vehicle_type AS category, r.engine_details,
-                    r.record_type, r.recorded_at, r.odometer_reading, r.odometer_unit, r.component,
-                    r.component_identifier,
-                    r.symptoms, r.inspection_findings, r.dtc_codes,
-                    r.sensor_measurements, r.suspected_cause, r.confirmed_cause,
-                    r.diagnostic_tests, r.repair_action, r.replaced_components,
-                    r.repair_outcome, r.source,
-                    r.verification_status, r.verified_at, r.created_at
-             FROM ' . self::TABLE . ' r
-             INNER JOIN cars c ON c.id = r.vehicle_id
-             WHERE r.verification_status = ?
-             ORDER BY r.recorded_at ASC, r.id ASC',
-            ['verified']
-        )->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->records_query()
+            ->select('r.id, r.vehicle_id, r.vehicle_make AS make, r.vehicle_model AS model, r.vehicle_year AS year, r.vehicle_type AS category, r.engine_details, r.record_type, r.recorded_at, r.odometer_reading, r.odometer_unit, r.component, r.component_identifier, r.symptoms, r.inspection_findings, r.dtc_codes, r.sensor_measurements, r.suspected_cause, r.confirmed_cause, r.diagnostic_tests, r.repair_action, r.replaced_components, r.repair_outcome, r.source, r.verification_status, r.verified_at, r.created_at')
+            ->where('r.verification_status', 'verified')
+            ->order_by('r.recorded_at', 'ASC')
+            ->order_by('r.id', 'ASC')
+            ->get_all();
         foreach ($rows as &$row) {
             $row = $this->decode_record($row);
             $row['confirmed_fault_label'] = MaintenanceDataPolicy::confirmed_fault_label($row)
@@ -357,6 +332,30 @@ class MaintenanceDataModel extends Model
         }
         unset($row);
         return $rows;
+    }
+
+    private function records_query()
+    {
+        return $this->db->table(self::TABLE . ' r')->inner_join('cars c', 'c.id = r.vehicle_id');
+    }
+
+    /** The record already saved under this Idempotency-Key, or NULL. Throws when its contents differ. */
+    private function idempotent_replay($idempotency_key, $idempotency_hash)
+    {
+        if ($idempotency_key === null) {
+            return null;
+        }
+        $existing = $this->db->table(self::TABLE)
+            ->where('idempotency_key', $idempotency_key)
+            ->limit(1)
+            ->get();
+        if (!$existing) {
+            return null;
+        }
+        if (!hash_equals((string) $existing['idempotency_hash'], $idempotency_hash)) {
+            throw new InvalidArgumentException('This Idempotency-Key was already used with different record contents. Review the existing record before creating another.');
+        }
+        return $this->find_record((int) $existing['id']);
     }
 
     private function transition($id, $user_id, $from, $to, $reason)
@@ -408,7 +407,6 @@ class MaintenanceDataModel extends Model
 
     private function decode_record(array $record)
     {
-        unset($record['idempotency_key'], $record['idempotency_hash']);
         foreach (['dtc_codes', 'sensor_measurements', 'replaced_components'] as $field) {
             $record[$field] = empty($record[$field]) ? [] : json_decode($record[$field], true);
             if (!is_array($record[$field])) {

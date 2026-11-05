@@ -28,16 +28,23 @@ class CarImageModel extends Model
         }
     }
 
+    /** One image of the given car, or NULL when it belongs to a different car. */
+    public function find_for_car($image_id, $car_id)
+    {
+        return $this->query()
+            ->where('id', (int) $image_id)
+            ->where('car_id', (int) $car_id)
+            ->limit(1)
+            ->row_array() ?: null;
+    }
+
     /**
      * Deletes an image that belongs to the given car.
      * Returns the deleted row (so the file can be removed) or NULL when not found.
      */
     public function delete_image($image_id, $car_id)
     {
-        $image = $this->query()
-            ->where('id', $image_id)
-            ->where('car_id', $car_id)
-            ->row_array();
+        $image = $this->find_for_car($image_id, $car_id);
 
         if (!$image) {
             return null;

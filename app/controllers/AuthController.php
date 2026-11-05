@@ -26,30 +26,7 @@ class AuthController extends Controller
             return;
         }
 
-        try {
-            $this->call->library('api');
-            $tokens = $this->api->issue_tokens(['id' => (int) $user['id'], 'role' => (string) $user['role']]);
-        } catch (Throwable $exception) {
-            error_log('JWT token issuance failed: ' . $exception->getMessage());
-            $this->response->send_json_error('Authentication service is not configured correctly.', 503);
-            return;
-        }
-
-        $this->response->send_json([
-            'success'       => true,
-            'message'       => 'Login successful.',
-            'data'          => [
-                'id'        => (int) $user['id'],
-                'username'  => $user['username'],
-                'full_name' => $user['full_name'] ?? $user['username'],
-                'email'     => $user['email'],
-                'role'      => $user['role'],
-            ],
-            'access_token'  => $tokens['access_token'],
-            'refresh_token' => $tokens['refresh_token'],
-            'expires_in'    => $tokens['expires_in'],
-            'token_type'    => $tokens['token_type'],
-        ]);
+        $this->sendTokens($user, 'Login successful.');
     }
 
     public function googleLogin()
@@ -115,25 +92,25 @@ class AuthController extends Controller
             return;
         }
 
+        $this->sendTokens($user, 'Google sign-in successful.');
+    }
+
+    /** Issues a token pair for the user and sends the login response. */
+    private function sendTokens(array $user, $message)
+    {
         try {
             $this->call->library('api');
             $tokens = $this->api->issue_tokens(['id' => (int) $user['id'], 'role' => (string) $user['role']]);
         } catch (Throwable $exception) {
-            error_log('Google JWT token issuance failed: ' . $exception->getMessage());
+            error_log('JWT token issuance failed: ' . $exception->getMessage());
             $this->response->send_json_error('Authentication service is not configured correctly.', 503);
             return;
         }
 
         $this->response->send_json([
             'success'       => true,
-            'message'       => 'Google sign-in successful.',
-            'data'          => [
-                'id'        => (int) $user['id'],
-                'username'  => $user['username'],
-                'full_name' => $user['full_name'] ?? $user['username'],
-                'email'     => $user['email'],
-                'role'      => $user['role'],
-            ],
+            'message'       => $message,
+            'data'          => $this->userData($user),
             'access_token'  => $tokens['access_token'],
             'refresh_token' => $tokens['refresh_token'],
             'expires_in'    => $tokens['expires_in'],
@@ -141,24 +118,21 @@ class AuthController extends Controller
         ]);
     }
 
-    private function requestPayload()
+    private function userData(array $user)
     {
-        $form = $this->request->post();
-        if (is_array($form) && $form !== []) {
-            return $form;
-        }
-
-        $json = $this->request->json();
-        return is_array($json) ? $json : $this->request->post();
+        return [
+            'id'        => (int) $user['id'],
+            'username'  => $user['username'],
+            'full_name' => $user['full_name'] ?? $user['username'],
+            'email'     => $user['email'],
+            'role'      => $user['role'],
+        ];
     }
 
+    /** The verified claims of a Google ID token, or NULL. googleLogin() has already checked the configuration. */
     private function verifyGoogleCredential($credential)
     {
         $clientId = trim((string) getenv('GOOGLE_CLIENT_ID'));
-        if ($clientId === '' || !function_exists('curl_init')) {
-            error_log('Google sign-in is unavailable: GOOGLE_CLIENT_ID or the PHP cURL extension is missing.');
-            return null;
-        }
 
         $url = 'https://oauth2.googleapis.com/tokeninfo?id_token=' . rawurlencode($credential);
         $curl = curl_init($url);
@@ -227,20 +201,11 @@ class AuthController extends Controller
 
     public function register()
     {
-        $input = $this->requestPayload();
-
-        // Form_validation reads $_POST, so a JSON body is placed there first.
-        $_POST = is_array($input) ? $input : [];
-        $this->call->library('form_validation');
-        if (!$this->form_validation->validate([
+        $this->validateInput($this->requestPayload(), [
             'full_name|Full name' => 'required|max_length[150]',
             'email|Email address' => 'required|valid_email|max_length[255]',
             'password|Password'   => 'required|min_length[8]|max_length[72]',
-        ])) {
-            $errors = $this->form_validation->get_errors();
-            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
-            return;
-        }
+        ]);
 
         $email = strtolower(trim($this->request->post('email')));
         if ($this->UserModel->email_exists($email)) {
@@ -279,18 +244,48 @@ class AuthController extends Controller
 
     public function me()
     {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
         }
 
-        $this->response->send_json_success([
-            'id'        => (int) $user['id'],
-            'username'  => $user['username'],
-            'full_name' => $user['full_name'] ?? $user['username'],
-            'email'     => $user['email'],
-            'role'      => $user['role'],
-        ], 'Authenticated user retrieved.');
+        $this->response->send_json_success($this->userData($user), 'Authenticated user retrieved.');
+    }
+
+    /** The submitted form fields, or else the JSON body. Always an array. */
+    private function requestPayload()
+    {
+        $form = $this->request->post();
+        if ($form !== []) {
+            return $form;
+        }
+
+        $json = $this->request->json();
+
+        return is_array($json) ? $json : [];
+    }
+
+    /**
+     * Runs Form_validation on $input, or sends a 422. Form_validation reads $_POST, so the
+     * values are placed there first, as strings, with '' for any field a rule names that
+     * was not sent: its strlen() rejects NULL and its `required` rule treats the number 0 as empty.
+     */
+    private function validateInput(array $input, array $rules)
+    {
+        $fields = array_map(static function ($field) {
+            return strtok($field, '|');
+        }, array_keys($rules));
+
+        $_POST = array_map(static function ($value) {
+            return is_scalar($value) || $value === null ? (string) $value : $value;
+        }, $input) + array_fill_keys($fields, '');
+
+        $this->call->library('form_validation');
+        if (!$this->form_validation->validate($rules)) {
+            $errors = $this->form_validation->get_errors();
+            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
+            exit;
+        }
     }
 }

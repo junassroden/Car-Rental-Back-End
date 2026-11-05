@@ -32,7 +32,7 @@ class ChatController extends Controller
     public function chat()
     {
         // Customers and admins only (the two roles the users table allows).
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -48,7 +48,10 @@ class ChatController extends Controller
             exit;
         }
 
-        $input   = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $input = $this->request->json();
+        if (!is_array($input) || $input === []) {
+            $input = $this->request->post();
+        }
         $input   = is_array($input) ? $input : [];
         $message = $input['message'] ?? null;
         if (!is_string($message) || trim($message) === '' || strlen($message) > self::MAX_MESSAGE_LEN) {
@@ -275,7 +278,7 @@ class ChatController extends Controller
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_TIMEOUT        => 90,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_PROTOCOLS      => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         ]);

@@ -11,11 +11,22 @@ class ReservationController extends Controller
         'not_found'           => ['Reservation not found.', 404],
         'vehicle_not_found'   => ['Vehicle not found.', 404],
         'vehicle_unavailable' => ['This vehicle is not available for those dates.', 409],
+        'color_required'      => ['Choose a colour for this vehicle.', 422],
+        'color_invalid'       => ['That colour is not offered for this vehicle.', 422],
         'date_conflict'       => ['This vehicle is already reserved for part or all of those dates.', 409],
         'invalid_transition'  => ['That reservation status change is not allowed.', 409],
         'customer_forbidden'  => ['You may only cancel your own pending or confirmed reservations.', 403],
-        'duration_too_short'  => ['The selected dates do not meet this vehicle’s minimum rental duration.', 422],
+        'duration_too_short'  => ['The selected rental period must be at least 3 days and meet the vehicle minimum.', 422],
+        'duration_too_long'   => ['Rentals cannot exceed 21 days.', 422],
+        'special_request_required' => ['Rentals longer than 7 days must be submitted as a special-duration request.', 422],
+        'contract_not_accepted' => ['Accept the rental agreement before submitting your reservation.', 422],
         'amount_too_large'    => ['The selected rental period exceeds the maximum supported amount.', 422],
+        'payment_required'    => ['A verified GCash payment is required before vehicle handover.', 409],
+        'payment_refund_required' => ['A paid reservation cannot be cancelled here. Contact an administrator to arrange a refund.', 409],
+        'vehicle_in_use'      => ['A vehicle in use must be marked returned before its reservation can be cancelled.', 409],
+        'checkout_not_due'    => ['Vehicle handover is only available during the approved rental period.', 409],
+        'vehicle_not_checked_out' => ['This vehicle has not been checked out.', 409],
+        'admin_forbidden'     => ['Administrator access is required.', 403],
     ];
 
     public function __construct()
@@ -27,7 +38,7 @@ class ReservationController extends Controller
 
     public function reservations()
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -41,7 +52,7 @@ class ReservationController extends Controller
 
     public function reservation($id)
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -62,7 +73,7 @@ class ReservationController extends Controller
 
     public function createReservation()
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -73,7 +84,11 @@ class ReservationController extends Controller
         }
 
         // Form_validation reads $_POST, so a JSON body is placed there first.
-        $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $form = $this->request->post();
+        $json = $this->request->json();
+        $input = is_array($form) && $form !== []
+            ? $form
+            : (is_array($json) ? $json : []);
         $_POST = is_array($input) ? $input : [];
         $this->call->library('form_validation');
         if (!$this->form_validation->validate([
@@ -86,8 +101,10 @@ class ReservationController extends Controller
             return;
         }
 
-        $startDate = $this->request->post('start_date');
-        $endDate   = $this->request->post('end_date');
+        $startDate = $input['start_date'] ?? null;
+        $endDate   = $input['end_date'] ?? null;
+        $specialRequest = filter_var($input['special_request'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $acceptContract = filter_var($input['accept_contract'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $start     = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
         $end       = DateTimeImmutable::createFromFormat('!Y-m-d', $endDate);
 
@@ -101,6 +118,15 @@ class ReservationController extends Controller
             return;
         }
 
+        $variantId = null;
+        if (isset($input['variant_id']) && $input['variant_id'] !== '') {
+            $variantId = filter_var($input['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($variantId === false) {
+                $this->response->send_json_error('That colour is not offered for this vehicle.', 422);
+                return;
+            }
+        }
+
         $rentalDays = (int) $start->diff($end)->format('%r%a');
         if ($rentalDays < 1 || $rentalDays > self::MAX_RENTAL_DAYS) {
             $this->response->send_json_error('The return date must be after the pickup date.', 422);
@@ -110,10 +136,13 @@ class ReservationController extends Controller
         try {
             $result = $this->ReservationModel->create_reservation(
                 $user['id'],
-                (int) $this->request->post('car_id'),
+                (int) $input['car_id'],
                 $startDate,
                 $endDate,
-                $rentalDays
+                $rentalDays,
+                $specialRequest,
+                $acceptContract,
+                $variantId
             );
         } catch (Exception $exception) {
             error_log('Reservation creation failed: ' . $exception->getMessage());
@@ -136,7 +165,7 @@ class ReservationController extends Controller
 
     public function updateReservation($id)
     {
-        $user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             return;
@@ -146,7 +175,11 @@ class ReservationController extends Controller
             return;
         }
 
-        $input  = $this->request->is_json() ? $this->request->json() : $this->request->post();
+        $form = $this->request->post();
+        $json = $this->request->json();
+        $input = is_array($form) && $form !== []
+            ? $form
+            : (is_array($json) ? $json : []);
         $status = $input['status'] ?? null;
         if (!in_array($status, ReservationModel::STATUSES, true)) {
             $this->response->send_json_error('A valid reservation status is required.', 422);
@@ -168,5 +201,47 @@ class ReservationController extends Controller
         }
 
         $this->response->send_json_success($this->ReservationModel->find_with_details((int) $id), 'Reservation status updated successfully.');
+    }
+
+    public function vehicleCheckout($id)
+    {
+        $this->updateVehicleUse($id, 'checkout');
+    }
+
+    public function vehicleReturn($id)
+    {
+        $this->updateVehicleUse($id, 'return');
+    }
+
+    private function updateVehicleUse($id, $action)
+    {
+        $user = $this->UserModel->find((int) $this->authenticated_user_id());
+        if (!$user || (int) $user['is_active'] !== 1) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            return;
+        }
+        if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
+            $this->response->send_json_error('Reservation not found.', 404);
+            return;
+        }
+
+        try {
+            $result = $this->ReservationModel->update_vehicle_use((int) $id, $user['role'] === 'admin', $action);
+        } catch (Throwable $exception) {
+            error_log('Vehicle handover update failed: ' . $exception->getMessage());
+            $result = 'error';
+        }
+
+        if ($result !== 'updated') {
+            error_log('Vehicle handover request ended with: ' . $result);
+            [$message, $status] = self::ERRORS[$result] ?? ['The vehicle handover could not be updated.', 500];
+            $this->response->send_json_error($message, $status);
+            return;
+        }
+
+        $this->response->send_json_success(
+            $this->ReservationModel->find_with_details((int) $id),
+            $action === 'checkout' ? 'Vehicle checked out successfully.' : 'Vehicle return recorded successfully.'
+        );
     }
 }

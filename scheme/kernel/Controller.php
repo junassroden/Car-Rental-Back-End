@@ -103,6 +103,27 @@ class Controller
 	}
 
 	/**
+	 * Resolve the authenticated user ID from the session or bearer token.
+	 *
+	 * @return int|null
+	 */
+	public function authenticated_user_id()
+	{
+		$this->call->library('api');
+		$token = $this->api->get_bearer_token();
+		if ($token) {
+			$payload = $this->api->validate_jwt($token);
+			$userId = (int) (is_array($payload) ? ($payload['sub'] ?? 0) : 0);
+			if ($userId > 0) {
+				return $userId;
+			}
+		}
+
+		$sessionUserId = (int) ($this->session->userdata('user_id') ?? 0);
+		return $sessionUserId > 0 ? $sessionUserId : null;
+	}
+
+	/**
      * Called before the controller action.
      * Used to perform logic that needs to happen before each controller action.
      *

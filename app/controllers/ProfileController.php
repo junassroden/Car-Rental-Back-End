@@ -34,7 +34,7 @@ class ProfileController extends Controller
         $this->photoDirectory = ROOT_DIR . 'storage' . DIRECTORY_SEPARATOR . 'private' . DIRECTORY_SEPARATOR . 'user-verification';
 
         // Every endpoint here is for customers only.
-        $this->user = $this->UserModel->find((int) $this->session->userdata('user_id'));
+        $this->user = $this->UserModel->find((int) $this->authenticated_user_id());
         if (!$this->user || (int) $this->user['is_active'] !== 1) {
             $this->response->send_json_error('Authentication is required.', 401);
             exit;

@@ -7,6 +7,7 @@ class UserModel extends Model
     protected $primary_key = 'id';
     protected $fillable    = [
         'username', 'full_name', 'email', 'password', 'role', 'is_active',
+        'google_sub',
         'phone', 'address_line', 'city', 'province', 'postal_code', 'country',
         'driver_license_number', 'driver_license_expiry',
         'verification_consent_at', 'verification_photo_filename', 'updated_at',
@@ -30,6 +31,14 @@ class UserModel extends Model
     public function email_exists($email)
     {
         return (bool) $this->exists(['email' => $email]);
+    }
+
+    public function find_by_google_sub($google_sub)
+    {
+        return $this->db->table($this->table)
+            ->where('google_sub', $google_sub)
+            ->limit(1)
+            ->row_array();
     }
 
     /** Creates a customer with a unique username taken from the email address. Returns the new ID. */

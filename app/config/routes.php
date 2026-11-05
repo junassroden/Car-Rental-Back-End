@@ -57,6 +57,7 @@ if (PHP_SAPI === 'cli') {
 $router->group(['prefix' => '/api'], function ($router) {
     // Authentication
     $router->post('/login', 'AuthController::login');
+    $router->post('/google-auth', 'AuthController::googleLogin');
     $router->post('/register', 'AuthController::register');
     $router->post('/logout', 'AuthController::logout');
     $router->post('/refresh', 'AuthController::refresh');
@@ -70,20 +71,33 @@ $router->group(['prefix' => '/api'], function ($router) {
     // Vehicles ("available" must come before "{id}")
     $router->get('/cars', 'CarController::cars');
     $router->get('/cars/available', 'CarController::availableCars');
+    $router->get('/cars/{id}/availability', 'CarController::availability');
     $router->get('/cars/{id}', 'CarController::car');
     $router->post('/cars', 'CarController::createCar');
     $router->put('/cars/{id}', 'CarController::updateCar');
     $router->patch('/cars/{id}', 'CarController::updateCar');
     $router->delete('/cars/{id}', 'CarController::deleteCar');
     $router->post('/cars/{id}/images', 'CarController::uploadImages');
+    $router->patch('/cars/{id}/images/{imageId}', 'CarController::updateImage');
     $router->delete('/cars/{id}/images/{imageId}', 'CarController::deleteImage');
+    $router->post('/cars/{id}/variants', 'CarController::createVariant');
+    $router->patch('/cars/{id}/variants/{variantId}', 'CarController::updateVariant');
+    $router->delete('/cars/{id}/variants/{variantId}', 'CarController::deleteVariant');
 
     // Reservations
     $router->get('/reservations', 'ReservationController::reservations');
     $router->get('/reservations/{id}', 'ReservationController::reservation');
     $router->post('/reservations', 'ReservationController::createReservation');
     $router->patch('/reservations/{id}', 'ReservationController::updateReservation');
+    $router->post('/reservations/{id}/checkout', 'ReservationController::vehicleCheckout');
+    $router->post('/reservations/{id}/return', 'ReservationController::vehicleReturn');
+    $router->post('/reservations/{id}/payment', 'PaymentController::createCheckout');
+    $router->post('/reservations/{id}/payment/manual', 'PaymentController::submitManual');
+    $router->post('/reservations/{id}/payment/{decision}', 'PaymentController::verifyManual');
 
+    // PayMongo posts signed payment events directly to this endpoint.
+    $router->post('/paymongo/webhook', 'PaymentController::webhook');
+    $router->post('/xendit/webhook', 'PaymentController::xenditWebhook');
     // Maintenance (admin only)
     $router->get('/maintenance', 'MaintenanceController::maintenanceRecords');
     $router->get('/maintenance/predictions', 'MaintenanceController::maintenancePredictions');

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(100) NOT NULL,
     full_name VARCHAR(150) NULL,
     email VARCHAR(255) NOT NULL,
+    google_sub VARCHAR(255) NULL,
     phone VARCHAR(30) NULL,
     address_line VARCHAR(255) NULL,
     city VARCHAR(100) NULL,
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS users (
     PRIMARY KEY (id),
     UNIQUE KEY username_unique (username),
     UNIQUE KEY email_unique (email),
+    UNIQUE KEY users_google_sub_unique (google_sub),
     KEY email_idx (email),
     KEY role_idx (role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -72,17 +74,34 @@ CREATE TABLE IF NOT EXISTS cars (
     KEY cars_created_at_idx (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS car_color_variants (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    car_id INT UNSIGNED NOT NULL,
+    color VARCHAR(50) NOT NULL,
+    stock SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY car_color_variants_car_color_unique (car_id, color),
+    CONSTRAINT car_color_variants_car_fk
+        FOREIGN KEY (car_id) REFERENCES cars(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS car_images (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     car_id INT UNSIGNED NOT NULL,
     image_path VARCHAR(255) NOT NULL,
     is_primary TINYINT(1) NOT NULL DEFAULT 0,
+    variant_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY car_images_car_id_idx (car_id),
     CONSTRAINT car_images_car_fk
         FOREIGN KEY (car_id) REFERENCES cars(id)
-        ON DELETE CASCADE ON UPDATE CASCADE
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT car_images_variant_fk
+        FOREIGN KEY (variant_id) REFERENCES car_color_variants(id)
+        ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS reservations (
@@ -95,6 +114,14 @@ CREATE TABLE IF NOT EXISTS reservations (
     daily_rate DECIMAL(10,2) NOT NULL,
     total_amount DECIMAL(10,2) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    special_duration_request TINYINT(1) NOT NULL DEFAULT 0,
+    contract_text MEDIUMTEXT NULL,
+    contract_version VARCHAR(20) NULL,
+    contract_accepted_at DATETIME NULL,
+    payment_required TINYINT(1) NOT NULL DEFAULT 0,
+    checked_out_at DATETIME NULL,
+    returned_at DATETIME NULL,
+    variant_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -105,6 +132,30 @@ CREATE TABLE IF NOT EXISTS reservations (
         ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT reservations_car_fk
         FOREIGN KEY (car_id) REFERENCES cars(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT reservations_variant_fk
+        FOREIGN KEY (variant_id) REFERENCES car_color_variants(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS checkout_payments (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    reservation_id INT UNSIGNED NOT NULL,
+    checkout_session_id VARCHAR(100) NOT NULL,
+    checkout_url VARCHAR(500) NOT NULL,
+    reference_number VARCHAR(80) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    webhook_event_hash CHAR(64) NULL,
+    paid_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY checkout_payments_reservation_unique (reservation_id),
+    UNIQUE KEY checkout_payments_session_unique (checkout_session_id),
+    UNIQUE KEY checkout_payments_event_hash_unique (webhook_event_hash),
+    KEY checkout_payments_reservation_idx (reservation_id, id),
+    CONSTRAINT checkout_payments_reservation_fk
+        FOREIGN KEY (reservation_id) REFERENCES reservations(id)
         ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -38,11 +38,7 @@ class ReservationController extends Controller
 
     public function reservations()
     {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
-            $this->response->send_json_error('Authentication is required.', 401);
-            return;
-        }
+        $user = $this->requireUser();
 
         $this->response->send_json_success(
             $this->ReservationModel->for_user($user['id'], $user['role'] === 'admin'),
@@ -52,11 +48,7 @@ class ReservationController extends Controller
 
     public function reservation($id)
     {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
-            $this->response->send_json_error('Authentication is required.', 401);
-            return;
-        }
+        $user = $this->requireUser();
 
         $reservation = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
             ? $this->ReservationModel->find_with_details((int) $id)
@@ -73,33 +65,18 @@ class ReservationController extends Controller
 
     public function createReservation()
     {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
-            $this->response->send_json_error('Authentication is required.', 401);
-            return;
-        }
+        $user = $this->requireUser();
         if ($user['role'] === 'admin') {
             $this->response->send_json_error('Customer access is required.', 403);
             return;
         }
 
-        // Form_validation reads $_POST, so a JSON body is placed there first.
-        $form = $this->request->post();
-        $json = $this->request->json();
-        $input = is_array($form) && $form !== []
-            ? $form
-            : (is_array($json) ? $json : []);
-        $_POST = is_array($input) ? $input : [];
-        $this->call->library('form_validation');
-        if (!$this->form_validation->validate([
+        $input = $this->requestPayload();
+        $this->validateInput($input, [
             'car_id|Vehicle'         => 'required|pattern[int]|greater_than_equal_to[1]',
             'start_date|Pickup date' => 'required|pattern[date_ymd]',
             'end_date|Return date'   => 'required|pattern[date_ymd]',
-        ])) {
-            $errors = $this->form_validation->get_errors();
-            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
-            return;
-        }
+        ]);
 
         $startDate = $input['start_date'] ?? null;
         $endDate   = $input['end_date'] ?? null;
@@ -165,22 +142,13 @@ class ReservationController extends Controller
 
     public function updateReservation($id)
     {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
-            $this->response->send_json_error('Authentication is required.', 401);
-            return;
-        }
+        $user = $this->requireUser();
         if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
             $this->response->send_json_error('Reservation not found.', 404);
             return;
         }
 
-        $form = $this->request->post();
-        $json = $this->request->json();
-        $input = is_array($form) && $form !== []
-            ? $form
-            : (is_array($json) ? $json : []);
-        $status = $input['status'] ?? null;
+        $status = $this->requestPayload()['status'] ?? null;
         if (!in_array($status, ReservationModel::STATUSES, true)) {
             $this->response->send_json_error('A valid reservation status is required.', 422);
             return;
@@ -215,11 +183,7 @@ class ReservationController extends Controller
 
     private function updateVehicleUse($id, $action)
     {
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
-            $this->response->send_json_error('Authentication is required.', 401);
-            return;
-        }
+        $user = $this->requireUser();
         if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
             $this->response->send_json_error('Reservation not found.', 404);
             return;
@@ -243,5 +207,53 @@ class ReservationController extends Controller
             $this->ReservationModel->find_with_details((int) $id),
             $action === 'checkout' ? 'Vehicle checked out successfully.' : 'Vehicle return recorded successfully.'
         );
+    }
+
+    /** Returns the signed-in user, or sends a 401. */
+    private function requireUser()
+    {
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
+            $this->response->send_json_error('Authentication is required.', 401);
+            exit;
+        }
+
+        return $user;
+    }
+
+    /** The submitted form fields, or else the JSON body. Always an array. */
+    private function requestPayload()
+    {
+        $form = $this->request->post();
+        if ($form !== []) {
+            return $form;
+        }
+
+        $json = $this->request->json();
+
+        return is_array($json) ? $json : [];
+    }
+
+    /**
+     * Runs Form_validation on $input, or sends a 422. Form_validation reads $_POST, so the
+     * values are placed there first, as strings, with '' for any field a rule names that
+     * was not sent: its strlen() rejects NULL and its `required` rule treats the number 0 as empty.
+     */
+    private function validateInput(array $input, array $rules)
+    {
+        $fields = array_map(static function ($field) {
+            return strtok($field, '|');
+        }, array_keys($rules));
+
+        $_POST = array_map(static function ($value) {
+            return is_scalar($value) || $value === null ? (string) $value : $value;
+        }, $input) + array_fill_keys($fields, '');
+
+        $this->call->library('form_validation');
+        if (!$this->form_validation->validate($rules)) {
+            $errors = $this->form_validation->get_errors();
+            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
+            exit;
+        }
     }
 }

@@ -16,6 +16,14 @@ class UserModel extends Model
     // created_at uses the column default and updated_at is set in update_profile().
     protected $timestamps = false;
 
+    /** The active user with this ID, or NULL. */
+    public function find_active($id)
+    {
+        $user = $this->find((int) $id);
+
+        return $user && (int) $user['is_active'] === 1 ? $user : null;
+    }
+
     /** A user matched by email or username (for login), or NULL. */
     public function find_by_identity($identity)
     {

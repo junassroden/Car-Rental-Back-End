@@ -112,13 +112,10 @@ class MaintenanceModel extends Model
 
     public function find_record($id)
     {
-        return $this->db->table($this->table)
-            ->where($this->primary_key, (int) $id)
-            ->limit(1)
-            ->get();
+        return $this->find((int) $id);
     }
 
-    /** Inserts a record and returns it. Throws InvalidArgumentException for bad input. */
+    /** Inserts a record (and raises the car's mileage, in the same transaction) and returns it. Throws InvalidArgumentException for bad input. */
     public function create_record(array $data)
     {
         $record = [
@@ -145,10 +142,16 @@ class MaintenanceModel extends Model
             throw new InvalidArgumentException('Next maintenance date must be a valid YYYY-MM-DD value.');
         }
 
-        $id = $this->db->table($this->table)->insert($record);
-
-        if ($record['odometerReading'] !== null) {
-            $this->update_mileage($record['vehicleID'], $record['odometerReading']);
+        $this->db->transaction();
+        try {
+            $id = $this->insert($record);
+            if ($record['odometerReading'] !== null) {
+                $this->update_mileage($record['vehicleID'], $record['odometerReading']);
+            }
+            $this->db->commit();
+        } catch (Exception $exception) {
+            $this->db->roll_back();
+            throw $exception;
         }
 
         return $this->find_record($id);
@@ -173,12 +176,16 @@ class MaintenanceModel extends Model
             $update['cost'] = number_format((float) $update['cost'], 2, '.', '');
         }
 
-        $this->db->table($this->table)
-            ->where($this->primary_key, (int) $id)
-            ->update($update + ['updated_at' => date('Y-m-d H:i:s')]);
-
-        if (isset($input['odometerReading']) && $input['odometerReading'] !== '') {
-            $this->update_mileage((int) $record['vehicleID'], (int) $input['odometerReading']);
+        $this->db->transaction();
+        try {
+            $this->update((int) $id, $update + ['updated_at' => date('Y-m-d H:i:s')]);
+            if (isset($input['odometerReading']) && $input['odometerReading'] !== '') {
+                $this->update_mileage((int) $record['vehicleID'], (int) $input['odometerReading']);
+            }
+            $this->db->commit();
+        } catch (Exception $exception) {
+            $this->db->roll_back();
+            throw $exception;
         }
 
         return ['record' => $this->find_record($id), 'updated' => true];
@@ -431,6 +438,7 @@ class MaintenanceModel extends Model
     private function service_history()
     {
         $records = $this->db->table($this->table)
+            ->select('vehicleID, maintenanceType, maintenanceDate, maintenanceStatus, nextMaintenanceDate, odometerReading')
             ->order_by('maintenanceDate', 'DESC')
             ->order_by('maintenanceID', 'DESC')
             ->get_all();

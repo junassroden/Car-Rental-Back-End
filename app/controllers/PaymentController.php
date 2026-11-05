@@ -1,6 +1,7 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'PayMongoClient.php';
+require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'XenditClient.php';
 
 class PaymentController extends Controller
 {
@@ -53,17 +54,17 @@ class PaymentController extends Controller
         }
 
         $existing = $this->PaymentModel->latest_for_reservation((int) $reservation['id']);
-        if ($existing && $existing['status'] === 'pending') {
+        if ($existing && $existing['status'] === 'pending' && filter_var($existing['checkout_url'], FILTER_VALIDATE_URL)) {
             $this->response->send_json_success([
                 'checkout_url' => $existing['checkout_url'],
                 'checkout_session_id' => $existing['checkout_session_id'],
-            ], 'GCash checkout is ready.');
+            ], 'Xendit checkout is ready.');
             return;
         }
 
         try {
-            $client = new PayMongoClient(getenv('PAYMONGO_SECRET_KEY') ?: '');
-            $checkout = $client->createCheckoutSession(
+            $client = new XenditClient(getenv('XENDIT_SECRET_KEY') ?: '');
+            $checkout = $client->createInvoice(
                 $reservation,
                 getenv('FRONTEND_URL') ?: 'http://127.0.0.1:5173'
             );
@@ -79,15 +80,15 @@ class PaymentController extends Controller
                 throw new RuntimeException('The checkout session could not be stored.');
             }
         } catch (Throwable $exception) {
-            error_log('PayMongo checkout creation failed: ' . $exception->getMessage());
-            $this->response->send_json_error('GCash checkout could not be started. Please try again later.', 503);
+            error_log('Xendit checkout creation failed: ' . $exception->getMessage());
+            $this->response->send_json_error('Xendit checkout could not be started. Please try again later.', 503);
             return;
         }
 
         $this->response->send_json_success([
             'checkout_url' => $checkout['url'],
             'checkout_session_id' => $checkout['id'],
-        ], 'GCash checkout is ready.', 201);
+        ], 'Xendit checkout is ready.', 201);
     }
 
     public function submitManual($id)
@@ -155,6 +156,7 @@ class PaymentController extends Controller
             $this->response->send_json_error('PayMongo webhook is not configured.', 503);
             return;
         }
+
         $signature = $_SERVER['HTTP_PAYMONGO_SIGNATURE'] ?? $_SERVER['HTTP_X_PAYMONGO_SIGNATURE'] ?? '';
         if (!$this->validSignature($rawBody, $signature, $secret)) {
             $this->response->send_json_error('Invalid PayMongo webhook signature.', 401);
@@ -207,6 +209,48 @@ class PaymentController extends Controller
         }
 
         $this->response->send_json_success(null, 'Payment received.');
+    }
+
+    public function xenditWebhook()
+    {
+        $token = trim((string) getenv('XENDIT_CALLBACK_TOKEN'));
+        $received = (string) ($_SERVER['HTTP_X_CALLBACK_TOKEN'] ?? '');
+        if ($token === '' || !hash_equals($token, $received)) {
+            $this->response->send_json_error('Invalid Xendit callback token.', 401);
+            return;
+        }
+
+        $rawBody = $this->request->raw_body();
+        $event = json_decode($rawBody, true);
+        if (!is_array($event) || ($event['status'] ?? '') !== 'PAID' || !is_string($event['external_id'] ?? null)) {
+            $this->response->send_json_error('Unsupported Xendit webhook event.', 422);
+            return;
+        }
+
+        $payment = $this->PaymentModel->find_by_session($event['external_id']);
+        if (!$payment) {
+            $this->response->send_json_error('The Xendit invoice does not match a reservation.', 404);
+            return;
+        }
+        $expected = (float) $payment['amount'];
+        $receivedAmount = isset($event['paid_amount']) ? (float) $event['paid_amount'] : $expected;
+        if (abs($receivedAmount - $expected) > 0.01) {
+            $this->response->send_json_error('The Xendit payment amount could not be verified.', 422);
+            return;
+        }
+
+        try {
+            if (!$this->PaymentModel->mark_paid($event['external_id'], hash('sha256', $rawBody))) {
+                $this->response->send_json_error('The Xendit payment could not be recorded.', 500);
+                return;
+            }
+        } catch (Throwable $exception) {
+            error_log('Xendit webhook processing failed: ' . $exception->getMessage());
+            $this->response->send_json_error('The Xendit payment could not be recorded.', 500);
+            return;
+        }
+
+        $this->response->send_json_success(null, 'Xendit payment received.');
     }
 
     private function authenticatedUser()

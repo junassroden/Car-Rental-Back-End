@@ -90,6 +90,7 @@ $router->group(['prefix' => '/api'], function ($router) {
 
     // PayMongo posts signed payment events directly to this endpoint.
     $router->post('/paymongo/webhook', 'PaymentController::webhook');
+    $router->post('/xendit/webhook', 'PaymentController::xenditWebhook');
     // Maintenance (admin only)
     $router->get('/maintenance', 'MaintenanceController::maintenanceRecords');
     $router->get('/maintenance/predictions', 'MaintenanceController::maintenancePredictions');

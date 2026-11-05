@@ -32,10 +32,10 @@ class ChatController extends Controller
     public function chat()
     {
         // Customers and admins only (the two roles the users table allows).
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
             $this->response->send_json_error('Authentication is required.', 401);
-            return;
+            exit;
         }
 
         // LavaLust's built-in limiter (config: rate_limit_enabled in api.php): per signed-in user and per IP.
@@ -52,7 +52,6 @@ class ChatController extends Controller
         if (!is_array($input) || $input === []) {
             $input = $this->request->post();
         }
-        $input   = is_array($input) ? $input : [];
         $message = $input['message'] ?? null;
         if (!is_string($message) || trim($message) === '' || strlen($message) > self::MAX_MESSAGE_LEN) {
             $this->response->send_json_error('Enter a message of up to 4,000 characters.', 422);

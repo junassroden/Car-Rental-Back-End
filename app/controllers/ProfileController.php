@@ -34,8 +34,8 @@ class ProfileController extends Controller
         $this->photoDirectory = ROOT_DIR . 'storage' . DIRECTORY_SEPARATOR . 'private' . DIRECTORY_SEPARATOR . 'user-verification';
 
         // Every endpoint here is for customers only.
-        $this->user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$this->user || (int) $this->user['is_active'] !== 1) {
+        $this->user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$this->user) {
             $this->response->send_json_error('Authentication is required.', 401);
             exit;
         }
@@ -54,15 +54,7 @@ class ProfileController extends Controller
     {
         $user  = $this->user;
         $input = $this->request->is_json() ? $this->request->json() : $this->request->post();
-
-        // Form_validation reads $_POST, so a JSON body is placed there first.
-        $_POST = is_array($input) ? $input : [];
-        $this->call->library('form_validation');
-        if (!$this->form_validation->validate(self::FIELDS)) {
-            $errors = $this->form_validation->get_errors();
-            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
-            return;
-        }
+        $this->validateInput(is_array($input) ? $input : [], self::FIELDS);
 
         $values = [];
         foreach (self::COLUMNS as $column) {
@@ -174,5 +166,28 @@ class ProfileController extends Controller
     {
         $filename = basename((string) ($user['verification_photo_filename'] ?? ''));
         return $filename !== '' && is_file($this->photoDirectory . DIRECTORY_SEPARATOR . $filename);
+    }
+
+    /**
+     * Runs Form_validation on $input, or sends a 422. Form_validation reads $_POST, so the
+     * values are placed there first, as strings, with '' for any field a rule names that
+     * was not sent: its strlen() rejects NULL and its `required` rule treats the number 0 as empty.
+     */
+    private function validateInput(array $input, array $rules)
+    {
+        $fields = array_map(static function ($field) {
+            return strtok($field, '|');
+        }, array_keys($rules));
+
+        $_POST = array_map(static function ($value) {
+            return is_scalar($value) || $value === null ? (string) $value : $value;
+        }, $input) + array_fill_keys($fields, '');
+
+        $this->call->library('form_validation');
+        if (!$this->form_validation->validate($rules)) {
+            $errors = $this->form_validation->get_errors();
+            $this->response->send_json_error($errors[0], 422, ['errors' => $errors]);
+            exit;
+        }
     }
 }

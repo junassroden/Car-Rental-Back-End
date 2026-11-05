@@ -58,37 +58,6 @@ class CarModel extends Model
     }
 
     /**
-     * Cars the chatbot may describe: every car for an admin, only available ones otherwise.
-     * $vehicle_id narrows the list to one id or an array of ids.
-     * Returns ['cars' => up to $limit newest rows, 'vehicle_count' => total matching].
-     */
-    public function chat_context($is_admin, $limit = 50, array $exclude_ids = [], $vehicle_id = null)
-    {
-        $scope = static function ($query) use ($is_admin, $exclude_ids, $vehicle_id) {
-            if (!$is_admin) {
-                $query->where('status', 'available');
-            }
-            if ($exclude_ids) {
-                $query->not_in('id', array_map('intval', $exclude_ids));
-            }
-            if (is_array($vehicle_id) && $vehicle_id) {
-                $query->in('id', array_map('intval', $vehicle_id));
-            } elseif ($vehicle_id !== null && !is_array($vehicle_id)) {
-                $query->where('id', (int) $vehicle_id);
-            }
-            return $query;
-        };
-
-        return [
-            'vehicle_count' => (int) $scope($this->query())->count(),
-            'cars'          => $scope($this->query())
-                ->order_by('id', 'DESC')
-                ->pagination(max(1, min((int) $limit, 100)), 1)
-                ->result_array(),
-        ];
-    }
-
-    /**
      * Cars the chat assistant may answer about: every car for an admin, only available
      * ones otherwise (the same rule as the public vehicle pages). Read-only.
      */

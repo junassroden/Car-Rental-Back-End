@@ -10,14 +10,6 @@ class CarVariantModel extends Model
 
     const MAX_STOCK = 9999;
 
-    public function for_car($car_id)
-    {
-        return $this->query()
-            ->where('car_id', (int) $car_id)
-            ->order_by('id', 'ASC')
-            ->result_array();
-    }
-
     /** One colour of the given car, or NULL when it belongs to a different car. */
     public function find_for_car($variant_id, $car_id)
     {

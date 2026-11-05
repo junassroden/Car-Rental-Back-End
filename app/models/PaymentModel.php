@@ -22,10 +22,7 @@ class PaymentModel extends Model
 
     public function find_by_session($session_id)
     {
-        return $this->db->table($this->table)
-            ->where('checkout_session_id', $session_id)
-            ->limit(1)
-            ->row_array();
+        return $this->find_by('checkout_session_id', $session_id);
     }
 
     public function create_checkout(array $payment)

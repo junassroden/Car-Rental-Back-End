@@ -1,6 +1,5 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-require_once APP_DIR . 'libraries/ComponentMaintenanceRules.php';
 
 /**
  * Component-level inspections, configured service intervals, and the
@@ -15,6 +14,12 @@ class ComponentMaintenanceModel extends Model
     const INTERVALS   = 'maintenance_service_intervals';
 
     const INSPECTION_COLUMNS = 'vehicle_component_inspections.id, vehicle_component_inspections.vehicle_id, vehicle_component_inspections.component_key, vehicle_component_inspections.inspected_on, vehicle_component_inspections.odometer_km, vehicle_component_inspections.condition_rating, vehicle_component_inspections.reported_symptoms, vehicle_component_inspections.dtc_codes, vehicle_component_inspections.findings, vehicle_component_inspections.confirmed_fault, vehicle_component_inspections.service_performed, vehicle_component_inspections.service_date, vehicle_component_inspections.work_performed, vehicle_component_inspections.parts_replaced, vehicle_component_inspections.recommended_action, vehicle_component_inspections.next_due_date, vehicle_component_inspections.next_due_km, vehicle_component_inspections.technician, vehicle_component_inspections.created_at, users.full_name AS recorded_by_full_name, users.username AS recorded_by_username';
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->call->library('ComponentMaintenanceRules');
+    }
 
     /** The car row, or NULL. */
     public function vehicle($vehicle_id)

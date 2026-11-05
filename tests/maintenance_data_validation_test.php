@@ -133,7 +133,7 @@ $export_start = strpos($model, 'public function verified_export()');
 $export_end = strpos($model, 'private function transition(', $export_start);
 $export_code = substr($model, $export_start, $export_end - $export_start);
 if ($export_start === false || $export_end === false
-    || strpos($export_code, "WHERE r.verification_status = ?") === false
+    || strpos($export_code, "->where('r.verification_status', 'verified')") === false
     || strpos($export_code, "'verified'") === false
     || strpos($export_code, 'evidence_reference') !== false
     || strpos($export_code, 'verified_by') !== false) {

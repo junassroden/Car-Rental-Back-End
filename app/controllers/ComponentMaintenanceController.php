@@ -1,8 +1,5 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-require_once APP_DIR . 'libraries/ComponentMaintenanceRules.php';
-require_once APP_DIR . 'libraries/MaintenanceDataPolicy.php';
-require_once APP_DIR . 'libraries/AiServiceClient.php';
 
 /**
  * Admin-only component maintenance for the 3D Predictive Maintenance page:
@@ -20,14 +17,15 @@ class ComponentMaintenanceController extends Controller
         parent::__construct();
         $this->security_headers->apply_api();
         $this->call->model(['ComponentMaintenanceModel']);
+        $this->call->library(['ComponentMaintenanceRules', 'AiServiceClient']);
 
         // Every endpoint here is for active administrators only.
-        $user = $this->UserModel->find((int) $this->authenticated_user_id());
-        if (!$user || (int) $user['is_active'] !== 1) {
+        $user = $this->UserModel->find_active($this->authenticated_user_id());
+        if (!$user) {
             $this->response->send_json_error('Authentication is required.', 401);
             exit;
         }
-        if (!MaintenanceDataPolicy::can_access($user)) {
+        if ($user['role'] !== 'admin') {
             $this->response->send_json_error('Administrator access is required.', 403);
             exit;
         }
@@ -228,8 +226,7 @@ class ComponentMaintenanceController extends Controller
             return ['status' => 'unavailable', 'message' => self::PREDICTION_UNAVAILABLE, 'reason' => $reason];
         };
 
-        $this->config->load('api');
-        $capabilities = $this->ai_request('GET', (string) config_item('ai_service_capabilities_url'));
+        $capabilities = AiServiceClient::request('GET', (string) config_item('ai_service_capabilities_url'));
         if (!is_array($capabilities)) {
             return [
                 'service'    => ['reachable' => false, 'model_status' => null],
@@ -263,7 +260,7 @@ class ComponentMaintenanceController extends Controller
             return ['service' => $service, 'default' => $default, 'components' => []];
         }
 
-        $result = $this->ai_request('POST', AiServiceClient::endpoint('predict'), [
+        $result = AiServiceClient::request('POST', AiServiceClient::endpoint('predict'), [
             'vehicle' => AiServiceClient::model_vehicle($vehicle, $bodyType),
         ]);
         $scores = [];
@@ -320,11 +317,5 @@ class ComponentMaintenanceController extends Controller
         }
 
         return ['service' => $service + ['model_version' => $model['model_version'] ?? null], 'default' => $default, 'components' => $components];
-    }
-
-    /** JSON request to the AI service; returns the decoded body, or NULL on transport failure. */
-    private function ai_request($method, $url, $body = null)
-    {
-        return AiServiceClient::request($method, $url, $body);
     }
 }

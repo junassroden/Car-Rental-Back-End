@@ -1,7 +1,5 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
-require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'RentalAgreement.php';
-require_once ROOT_DIR . 'app' . DIRECTORY_SEPARATOR . 'libraries' . DIRECTORY_SEPARATOR . 'ReservationPolicy.php';
 
 class ReservationModel extends Model
 {
@@ -33,6 +31,12 @@ class ReservationModel extends Model
     const DETAIL_COLUMNS = 'reservations.variant_id, car_color_variants.color AS variant_color, reservations.id, reservations.user_id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.special_duration_request, reservations.contract_text, reservations.contract_version, reservations.contract_accepted_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, reservations.created_at, reservations.updated_at, cars.make, cars.model, cars.year, cars.category, cars.plate_number, cars.primary_image, cars.security_deposit, users.full_name, users.username, users.email';
 
     const MAX_AMOUNT = 99999999.99;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->call->library(['RentalAgreement', 'ReservationPolicy']);
+    }
 
     /** All reservations for an admin, or only the user's own for a customer. Newest first. */
     public function for_user($user_id, $is_admin)
@@ -124,11 +128,7 @@ class ReservationModel extends Model
     /** Minimal reservation facts for the authenticated customer's own chat. */
     public function chat_context_for_user($user_id, $limit = 20)
     {
-        $query = $this->db->table($this->table)
-            ->select('reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, cars.make, cars.model')
-            ->inner_join('cars', 'cars.id = reservations.car_id')
-            ->where('reservations.user_id', (int) $user_id);
-        $total = (int) $query->count();
+        $total = (int) $this->db->table($this->table)->where('user_id', (int) $user_id)->count();
 
         $records = $this->db->table($this->table)
             ->select('reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, cars.make, cars.model')
@@ -174,7 +174,7 @@ class ReservationModel extends Model
 
         try {
             $car = $this->db->table('cars')
-                ->select('id, daily_rental_price, minimum_rental_duration, status')
+                ->select('id, daily_rental_price, minimum_rental_duration, status, year, make, model, plate_number, security_deposit')
                 ->where('id', (int) $car_id)
                 ->for_update()
                 ->row_array();
@@ -249,12 +249,6 @@ class ReservationModel extends Model
             if (!$renter) {
                 return $this->abort(['status' => 'error']);
             }
-            $carDetails = $this->db->table('cars')
-                ->select('year, make, model, plate_number, security_deposit')
-                ->where('id', (int) $car_id)
-                ->limit(1)
-                ->row_array();
-            $carDetails['variant_color'] = $variant['color'] ?? '';
             $contract = RentalAgreement::generate([
                 'id' => (int) $id,
                 'start_date' => $start_date,
@@ -262,7 +256,7 @@ class ReservationModel extends Model
                 'rental_days' => $rental_days,
                 'daily_rate' => number_format($daily_rate, 2, '.', ''),
                 'total_amount' => number_format($total_amount, 2, '.', ''),
-            ], $carDetails, $renter, $acceptedAt);
+            ], $car + ['variant_color' => $variant['color'] ?? ''], $renter, $acceptedAt);
             $this->db->table($this->table)
                 ->where('id', (int) $id)
                 ->update(['contract_text' => $contract]);

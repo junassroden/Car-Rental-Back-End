@@ -1,0 +1,344 @@
+{
+  "version": "2026-11-07.1",
+  "note": "Questionnaire and condition-based screening rules for vehicle assessments. Keep this file byte-identical to Back-End/app/libraries/assessment_catalog.json; tests compare both copies. Thresholds are general workshop guidance, not manufacturer limits.",
+  "reassessment_interval_days": 30,
+  "training_policy": {
+    "version": "1",
+    "note": "Set before any model was trained. Change it only with a reason, never to make a specific model pass.",
+    "min_outcomes_per_category": 30,
+    "min_vehicles": 5,
+    "max_vehicle_share": 0.5,
+    "min_failures": 10,
+    "min_healthy": 10,
+    "horizon_days": 90,
+    "excluded_plate_prefixes": ["DEMO-"],
+    "evaluation": {
+      "test_fraction": 0.3,
+      "min_test_failures": 5,
+      "min_test_healthy": 5,
+      "min_recall": 0.7,
+      "min_recall_safety": 0.85,
+      "min_recall_lower_bound": 0.5,
+      "min_recall_lower_bound_safety": 0.6,
+      "min_precision": 0.5,
+      "min_f1": 0.6,
+      "min_pr_auc_lift": 1.25,
+      "min_unseen_vehicle_failures": 3
+    }
+  },
+  "ratings": [
+    {"key": "excellent", "score": 5, "label": "Excellent"},
+    {"key": "good", "score": 4, "label": "Good"},
+    {"key": "fair", "score": 3, "label": "Fair"},
+    {"key": "poor", "score": 2, "label": "Poor"},
+    {"key": "critical", "score": 1, "label": "Critical"},
+    {"key": "not_applicable", "score": null, "label": "N/A"},
+    {"key": "unknown", "score": null, "label": "Unknown"},
+    {"key": "not_assessed", "score": null, "label": "Not Assessed"}
+  ],
+  "answers": ["yes", "no", "unknown", "not_applicable"],
+  "rating_rules": {
+    "fair": {"severity": "advisory", "reason": "A Fair rating means wear or a defect was seen that does not yet need immediate work.", "action": "Monitor at the next reassessment and plan service if it worsens."},
+    "poor": {"severity": "warning", "reason": "A Poor rating means the assessor found a defect that needs repair.", "action": "Schedule repair and confirm the condition with a mechanic."},
+    "critical": {"severity": "critical", "reason": "A Critical rating means the assessor found the component unsafe or unfit for use.", "action": "Stop using the vehicle for rentals until a mechanic has inspected and cleared this component."}
+  },
+  "categories": [
+    {
+      "key": "engine",
+      "name": "Engine",
+      "safety_critical": false,
+      "component_keys": ["engine", "exhaust"],
+      "supports_fault_codes": true,
+      "questions": [
+        {"key": "starts_normally", "text": "Does the engine start normally?"},
+        {"key": "idles_smoothly", "text": "Does the engine idle smoothly?"},
+        {"key": "oil_level_ok", "text": "Is the engine oil level within the dipstick range?"},
+        {"key": "visible_oil_leak", "text": "Is there a visible oil or fuel leak?"},
+        {"key": "warning_light_on", "text": "Is the check engine light on?"}
+      ],
+      "symptoms": [
+        {"key": "oil_pressure_warning", "label": "Oil pressure warning light on"},
+        {"key": "fuel_leak_smell", "label": "Fuel leak or strong fuel smell"},
+        {"key": "knocking_noise", "label": "Knocking or rattling noise"},
+        {"key": "misfire", "label": "Misfire or rough running"},
+        {"key": "power_loss", "label": "Loss of power"},
+        {"key": "excessive_smoke", "label": "Excessive exhaust smoke"},
+        {"key": "hard_starting", "label": "Hard starting"}
+      ],
+      "measurements": [
+        {"key": "oil_pressure_kpa", "label": "Oil pressure at idle", "unit": "kPa", "min": 0, "max": 1200},
+        {"key": "engine_hours", "label": "Engine hours", "unit": "h", "min": 0, "max": 200000}
+      ]
+    },
+    {
+      "key": "battery_electrical",
+      "name": "Battery and Electrical",
+      "safety_critical": false,
+      "component_keys": ["battery", "lighting"],
+      "supports_fault_codes": true,
+      "questions": [
+        {"key": "terminals_clean", "text": "Are the battery terminals clean and tight?"},
+        {"key": "cranks_strongly", "text": "Does the starter crank strongly?"},
+        {"key": "lights_work", "text": "Do all exterior lights work?"},
+        {"key": "battery_warning_on", "text": "Is the battery or charging warning light on?"}
+      ],
+      "symptoms": [
+        {"key": "burning_wiring_smell", "label": "Burning smell or melted wiring"},
+        {"key": "battery_swollen_leaking", "label": "Battery swollen or leaking"},
+        {"key": "slow_crank", "label": "Slow cranking"},
+        {"key": "flickering_lights", "label": "Dim or flickering lights"},
+        {"key": "corroded_terminals", "label": "Corroded terminals"}
+      ],
+      "measurements": [
+        {"key": "battery_rest_voltage_v", "label": "Battery voltage, engine off", "unit": "V", "min": 0, "max": 20},
+        {"key": "charging_voltage_v", "label": "Charging voltage, engine running", "unit": "V", "min": 0, "max": 20},
+        {"key": "cranking_voltage_v", "label": "Voltage during cranking", "unit": "V", "min": 0, "max": 20},
+        {"key": "battery_age_months", "label": "Battery age", "unit": "months", "min": 0, "max": 240}
+      ]
+    },
+    {
+      "key": "brakes",
+      "name": "Brakes",
+      "safety_critical": true,
+      "component_keys": ["brakes-front", "brakes-rear"],
+      "supports_fault_codes": true,
+      "questions": [
+        {"key": "pedal_firm", "text": "Is the brake pedal firm?"},
+        {"key": "fluid_level_ok", "text": "Is the brake fluid level within range?"},
+        {"key": "parking_brake_holds", "text": "Does the parking brake hold the vehicle?"},
+        {"key": "abs_warning_on", "text": "Is the ABS or brake warning light on?"}
+      ],
+      "symptoms": [
+        {"key": "pedal_to_floor", "label": "Pedal sinks to the floor"},
+        {"key": "brake_fluid_leak", "label": "Brake fluid leak"},
+        {"key": "metal_grinding", "label": "Metal-on-metal grinding"},
+        {"key": "pulls_when_braking", "label": "Pulls to one side when braking"},
+        {"key": "squealing", "label": "Squealing when braking"},
+        {"key": "vibration_when_braking", "label": "Vibration when braking"}
+      ],
+      "measurements": [
+        {"key": "front_pad_mm", "label": "Front pad thickness", "unit": "mm", "min": 0, "max": 30},
+        {"key": "rear_pad_mm", "label": "Rear pad or shoe thickness", "unit": "mm", "min": 0, "max": 30},
+        {"key": "front_rotor_mm", "label": "Front rotor thickness", "unit": "mm", "min": 0, "max": 60}
+      ]
+    },
+    {
+      "key": "transmission",
+      "name": "Transmission",
+      "safety_critical": false,
+      "component_keys": ["transmission", "final-drive"],
+      "supports_fault_codes": true,
+      "questions": [
+        {"key": "shifts_smoothly", "text": "Does it shift smoothly through all gears?"},
+        {"key": "fluid_level_ok", "text": "Is the transmission fluid level within range?"},
+        {"key": "visible_fluid_leak", "text": "Is there a visible fluid leak?"},
+        {"key": "warning_light_on", "text": "Is a transmission warning light on?"}
+      ],
+      "symptoms": [
+        {"key": "loses_drive", "label": "Loses drive or will not engage a gear"},
+        {"key": "slipping", "label": "Slipping"},
+        {"key": "harsh_shifts", "label": "Harsh or delayed shifts"},
+        {"key": "burnt_fluid_smell", "label": "Burnt fluid smell"},
+        {"key": "whining_noise", "label": "Whining or grinding noise"}
+      ],
+      "measurements": [
+        {"key": "fluid_temperature_c", "label": "Fluid temperature", "unit": "°C", "min": -40, "max": 200}
+      ]
+    },
+    {
+      "key": "suspension_steering",
+      "name": "Suspension and Steering",
+      "safety_critical": true,
+      "component_keys": ["suspension", "steering"],
+      "supports_fault_codes": true,
+      "questions": [
+        {"key": "steering_free_play_ok", "text": "Is steering free play normal?"},
+        {"key": "tracks_straight", "text": "Does the vehicle track straight?"},
+        {"key": "visible_shock_leak", "text": "Is a shock absorber leaking?"},
+        {"key": "power_steering_warning_on", "text": "Is the power steering warning light on?"}
+      ],
+      "symptoms": [
+        {"key": "steering_loose_play", "label": "Loose steering or excessive play"},
+        {"key": "broken_spring_mount", "label": "Broken spring or mount"},
+        {"key": "clunking", "label": "Clunking over bumps"},
+        {"key": "excessive_bounce", "label": "Excessive bouncing"},
+        {"key": "pulls_to_side", "label": "Pulls to one side"},
+        {"key": "uneven_ride_height", "label": "Uneven ride height"}
+      ],
+      "measurements": [
+        {"key": "steering_free_play_mm", "label": "Steering wheel free play", "unit": "mm", "min": 0, "max": 200}
+      ]
+    },
+    {
+      "key": "tires_wheels",
+      "name": "Tires and Wheels",
+      "safety_critical": true,
+      "component_keys": ["tire-front-left", "tire-front-right", "tire-rear-left", "tire-rear-right", "tire-front", "tire-rear"],
+      "supports_fault_codes": false,
+      "questions": [
+        {"key": "pressure_checked_ok", "text": "Are tire pressures at the placard value?"},
+        {"key": "even_wear", "text": "Is tread wear even across the tire?"},
+        {"key": "wheel_nuts_tight", "text": "Are all wheel nuts present and tight?"},
+        {"key": "spare_available", "text": "Is a usable spare or repair kit on board?"}
+      ],
+      "symptoms": [
+        {"key": "tire_bulge", "label": "Sidewall bulge"},
+        {"key": "cord_exposed", "label": "Exposed cords or deep cut"},
+        {"key": "loose_wheel_nuts", "label": "Loose or missing wheel nuts"},
+        {"key": "cracked_rim", "label": "Cracked or bent rim"},
+        {"key": "uneven_wear", "label": "Uneven tread wear"},
+        {"key": "vibration_at_speed", "label": "Vibration at speed"}
+      ],
+      "measurements": [
+        {"key": "tread_depth_min_mm", "label": "Lowest tread depth", "unit": "mm", "min": 0, "max": 25},
+        {"key": "tire_pressure_min_psi", "label": "Lowest tire pressure", "unit": "psi", "min": 0, "max": 120},
+        {"key": "tire_age_months", "label": "Oldest tire age", "unit": "months", "min": 0, "max": 360}
+      ]
+    },
+    {
+      "key": "cooling",
+      "name": "Cooling System",
+      "safety_critical": true,
+      "component_keys": ["cooling"],
+      "supports_fault_codes": true,
+      "questions": [
+        {"key": "coolant_level_ok", "text": "Is the coolant level within range?"},
+        {"key": "visible_coolant_leak", "text": "Is there a visible coolant leak?"},
+        {"key": "fan_operates", "text": "Does the radiator fan operate?"},
+        {"key": "temperature_warning_on", "text": "Is the temperature warning light on?"}
+      ],
+      "symptoms": [
+        {"key": "overheating", "label": "Engine overheating"},
+        {"key": "steam_from_bay", "label": "Steam from the engine bay"},
+        {"key": "coolant_in_oil", "label": "Coolant in oil, or oil in coolant"},
+        {"key": "temperature_fluctuates", "label": "Temperature gauge fluctuates"},
+        {"key": "sweet_smell", "label": "Sweet coolant smell"}
+      ],
+      "measurements": [
+        {"key": "coolant_temperature_c", "label": "Coolant temperature at operating temperature", "unit": "°C", "min": -40, "max": 200}
+      ]
+    },
+    {
+      "key": "air_conditioning",
+      "name": "Air Conditioning",
+      "safety_critical": false,
+      "component_keys": ["air-conditioning"],
+      "supports_fault_codes": true,
+      "questions": [
+        {"key": "cools_cabin", "text": "Does the system cool the cabin?"},
+        {"key": "compressor_engages", "text": "Does the compressor engage?"},
+        {"key": "airflow_normal", "text": "Is airflow at the vents normal?"},
+        {"key": "cabin_filter_clean", "text": "Is the cabin air filter clean?"}
+      ],
+      "symptoms": [
+        {"key": "burning_smell_vents", "label": "Burning smell from the vents"},
+        {"key": "refrigerant_leak", "label": "Oily refrigerant leak at lines or condenser"},
+        {"key": "not_cooling", "label": "Blows warm air"},
+        {"key": "compressor_noise", "label": "Noisy compressor"},
+        {"key": "musty_smell", "label": "Musty smell"},
+        {"key": "water_in_cabin", "label": "Water leaking into the cabin"}
+      ],
+      "measurements": [
+        {"key": "vent_temperature_c", "label": "Center vent temperature", "unit": "°C", "min": -10, "max": 80},
+        {"key": "ambient_temperature_c", "label": "Ambient temperature during test", "unit": "°C", "min": -40, "max": 60}
+      ]
+    }
+  ],
+  "rules": [
+    {"id": "engine.oil_pressure_warning", "category": "engine", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "oil_pressure_warning"}, "observation": "Oil pressure warning light reported on.", "reason": "Running without oil pressure can seize the engine and cause sudden loss of drive.", "action": "Do not run the engine. Check oil level and pressure before further use."},
+    {"id": "engine.fuel_leak", "category": "engine", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "fuel_leak_smell"}, "observation": "Fuel leak or strong fuel smell reported.", "reason": "Leaking fuel is a fire risk.", "action": "Remove the vehicle from use and repair the leak before it is driven."},
+    {"id": "engine.visible_leak", "category": "engine", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "visible_oil_leak", "equals": "yes"}, "observation": "Visible oil or fuel leak recorded.", "reason": "A leak lowers fluid levels and can reach hot surfaces.", "action": "Locate the source and repair the leak."},
+    {"id": "engine.low_oil_level", "category": "engine", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "oil_level_ok", "equals": "no"}, "observation": "Engine oil level recorded outside range.", "reason": "Incorrect oil level can damage the engine.", "action": "Correct the oil level and check for leaks or consumption."},
+    {"id": "engine.warning_light", "category": "engine", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "warning_light_on", "equals": "yes"}, "observation": "Check engine light recorded on.", "reason": "The engine control module has stored a fault.", "action": "Read the fault codes and record them on this assessment."},
+    {"id": "engine.knocking", "category": "engine", "severity": "warning", "safety": false, "when": {"kind": "symptom", "key": "knocking_noise"}, "observation": "Knocking or rattling noise reported.", "reason": "Internal knocking can indicate bearing or combustion damage.", "action": "Have a mechanic diagnose the noise before extended use."},
+    {"id": "engine.misfire", "category": "engine", "severity": "warning", "safety": false, "when": {"kind": "symptom", "key": "misfire"}, "observation": "Misfire or rough running reported.", "reason": "Misfires reduce power and can damage the catalytic converter.", "action": "Read fault codes and inspect ignition and fuel delivery."},
+    {"id": "engine.power_loss", "category": "engine", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "power_loss"}, "observation": "Loss of power reported.", "reason": "Loss of power has several possible causes that need diagnosis.", "action": "Read fault codes and inspect air and fuel delivery."},
+    {"id": "engine.excessive_smoke", "category": "engine", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "excessive_smoke"}, "observation": "Excessive exhaust smoke reported.", "reason": "Smoke can indicate burning oil, coolant or excess fuel.", "action": "Have the smoke colour and cause diagnosed."},
+    {"id": "engine.hard_starting", "category": "engine", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "hard_starting"}, "observation": "Hard starting reported.", "reason": "Hard starting can come from the battery, fuel or ignition systems.", "action": "Check battery, starter and fuel delivery."},
+
+    {"id": "battery.burning_wiring", "category": "battery_electrical", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "burning_wiring_smell"}, "observation": "Burning smell or melted wiring reported.", "reason": "Overheated wiring is a fire risk.", "action": "Disconnect the battery and remove the vehicle from use until the wiring is repaired."},
+    {"id": "battery.swollen_leaking", "category": "battery_electrical", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "battery_swollen_leaking"}, "observation": "Swollen or leaking battery reported.", "reason": "A damaged battery can release acid and flammable gas.", "action": "Replace the battery, handling it with protective equipment."},
+    {"id": "battery.warning_light", "category": "battery_electrical", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "battery_warning_on", "equals": "yes"}, "observation": "Battery or charging warning light recorded on.", "reason": "The charging system may not be keeping the battery charged.", "action": "Test the alternator and battery."},
+    {"id": "battery.lights_failed", "category": "battery_electrical", "severity": "warning", "safety": true, "when": {"kind": "answer", "question": "lights_work", "equals": "no"}, "observation": "An exterior light is recorded as not working.", "reason": "Failed lights reduce visibility to other road users.", "action": "Replace the failed lamp before rental use."},
+    {"id": "battery.low_rest_voltage", "category": "battery_electrical", "severity": "warning", "safety": false, "when": {"kind": "measurement", "key": "battery_rest_voltage_v", "lt": 12.0}, "observation": "Battery voltage with the engine off is {value} V, below 12.0 V.", "reason": "A rested 12 V battery below 12.0 V is significantly discharged.", "action": "Recharge and load-test the battery."},
+    {"id": "battery.low_charging_voltage", "category": "battery_electrical", "severity": "warning", "safety": false, "when": {"kind": "measurement", "key": "charging_voltage_v", "lt": 13.0}, "observation": "Charging voltage is {value} V, below 13.0 V.", "reason": "A 12 V system normally charges above 13 V, so the alternator may be underperforming.", "action": "Test the alternator and drive belt."},
+    {"id": "battery.high_charging_voltage", "category": "battery_electrical", "severity": "warning", "safety": false, "when": {"kind": "measurement", "key": "charging_voltage_v", "gt": 15.0}, "observation": "Charging voltage is {value} V, above 15.0 V.", "reason": "Overcharging can damage the battery and electronics.", "action": "Test the voltage regulator."},
+    {"id": "battery.low_cranking_voltage", "category": "battery_electrical", "severity": "warning", "safety": false, "when": {"kind": "measurement", "key": "cranking_voltage_v", "lt": 9.6}, "observation": "Cranking voltage is {value} V, below 9.6 V.", "reason": "A healthy 12 V battery normally stays above about 9.6 V while cranking.", "action": "Load-test or replace the battery."},
+    {"id": "battery.slow_crank", "category": "battery_electrical", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "slow_crank"}, "observation": "Slow cranking reported.", "reason": "Slow cranking often comes before a battery or starter failure.", "action": "Test the battery and starter."},
+    {"id": "battery.flickering_lights", "category": "battery_electrical", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "flickering_lights"}, "observation": "Dim or flickering lights reported.", "reason": "Unstable voltage can indicate charging or connection faults.", "action": "Check the alternator, ground points and connections."},
+    {"id": "battery.corroded_terminals", "category": "battery_electrical", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "corroded_terminals"}, "observation": "Corroded battery terminals reported.", "reason": "Corrosion adds resistance and can cause starting faults.", "action": "Clean and protect the terminals."},
+
+    {"id": "brakes.pedal_to_floor", "category": "brakes", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "pedal_to_floor"}, "observation": "Brake pedal sinks to the floor.", "reason": "This indicates possible loss of hydraulic braking.", "action": "Do not drive. Inspect the hydraulic system before any further use."},
+    {"id": "brakes.fluid_leak", "category": "brakes", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "brake_fluid_leak"}, "observation": "Brake fluid leak reported.", "reason": "A leak can cause loss of braking.", "action": "Do not drive. Repair the leak and bleed the system."},
+    {"id": "brakes.metal_grinding", "category": "brakes", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "metal_grinding"}, "observation": "Metal-on-metal grinding reported.", "reason": "Pad friction material may be gone, which greatly reduces braking.", "action": "Remove from use. Replace pads and inspect the rotors."},
+    {"id": "brakes.pedal_not_firm", "category": "brakes", "severity": "critical", "safety": true, "when": {"kind": "answer", "question": "pedal_firm", "equals": "no"}, "observation": "Brake pedal recorded as not firm.", "reason": "A soft pedal can indicate air or a leak in the hydraulic system.", "action": "Do not drive until the hydraulic system has been inspected."},
+    {"id": "brakes.front_pad_critical", "category": "brakes", "severity": "critical", "safety": true, "when": {"kind": "measurement", "key": "front_pad_mm", "lt": 2.0}, "observation": "Front pad thickness is {value} mm, below 2.0 mm.", "reason": "Pads near their backing plate lose braking performance.", "action": "Remove from use and replace the front pads."},
+    {"id": "brakes.rear_pad_critical", "category": "brakes", "severity": "critical", "safety": true, "when": {"kind": "measurement", "key": "rear_pad_mm", "lt": 2.0}, "observation": "Rear pad or shoe thickness is {value} mm, below 2.0 mm.", "reason": "Friction material near its limit loses braking performance.", "action": "Remove from use and replace the rear friction material."},
+    {"id": "brakes.front_pad_low", "category": "brakes", "severity": "warning", "safety": true, "when": {"kind": "measurement", "key": "front_pad_mm", "gte": 2.0, "lt": 3.0}, "observation": "Front pad thickness is {value} mm, below 3.0 mm.", "reason": "Pads this thin are close to their service limit.", "action": "Schedule front pad replacement soon."},
+    {"id": "brakes.rear_pad_low", "category": "brakes", "severity": "warning", "safety": true, "when": {"kind": "measurement", "key": "rear_pad_mm", "gte": 2.0, "lt": 3.0}, "observation": "Rear pad or shoe thickness is {value} mm, below 3.0 mm.", "reason": "Friction material this thin is close to its service limit.", "action": "Schedule rear brake service soon."},
+    {"id": "brakes.fluid_low", "category": "brakes", "severity": "warning", "safety": true, "when": {"kind": "answer", "question": "fluid_level_ok", "equals": "no"}, "observation": "Brake fluid level recorded outside range.", "reason": "Low fluid can indicate a leak or worn pads.", "action": "Inspect for leaks and pad wear, then correct the level."},
+    {"id": "brakes.parking_brake", "category": "brakes", "severity": "warning", "safety": true, "when": {"kind": "answer", "question": "parking_brake_holds", "equals": "no"}, "observation": "Parking brake recorded as not holding.", "reason": "The vehicle may roll when parked.", "action": "Adjust or repair the parking brake before rental use."},
+    {"id": "brakes.warning_light", "category": "brakes", "severity": "warning", "safety": true, "when": {"kind": "answer", "question": "abs_warning_on", "equals": "yes"}, "observation": "ABS or brake warning light recorded on.", "reason": "ABS or base braking may be degraded.", "action": "Read fault codes and inspect the brake system."},
+    {"id": "brakes.pulling", "category": "brakes", "severity": "warning", "safety": true, "when": {"kind": "symptom", "key": "pulls_when_braking"}, "observation": "Vehicle pulls to one side when braking.", "reason": "Uneven braking can reduce stability during an emergency stop.", "action": "Inspect calipers, hoses and pads on both sides."},
+    {"id": "brakes.vibration", "category": "brakes", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "vibration_when_braking"}, "observation": "Vibration when braking reported.", "reason": "This commonly indicates rotor runout or uneven deposits.", "action": "Measure rotor runout and thickness."},
+    {"id": "brakes.squealing", "category": "brakes", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "squealing"}, "observation": "Squealing when braking reported.", "reason": "Squeal can come from wear indicators or glazing.", "action": "Measure pad thickness at the next opportunity."},
+
+    {"id": "transmission.loses_drive", "category": "transmission", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "loses_drive"}, "observation": "Loses drive or will not engage a gear.", "reason": "Sudden loss of drive can leave the vehicle stranded in traffic.", "action": "Remove from use until the transmission has been diagnosed."},
+    {"id": "transmission.visible_leak", "category": "transmission", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "visible_fluid_leak", "equals": "yes"}, "observation": "Visible transmission fluid leak recorded.", "reason": "Low fluid causes rapid internal wear.", "action": "Repair the leak and correct the fluid level."},
+    {"id": "transmission.fluid_low", "category": "transmission", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "fluid_level_ok", "equals": "no"}, "observation": "Transmission fluid level recorded outside range.", "reason": "Incorrect fluid level causes slipping and heat damage.", "action": "Correct the level and check for leaks."},
+    {"id": "transmission.slipping", "category": "transmission", "severity": "warning", "safety": false, "when": {"kind": "symptom", "key": "slipping"}, "observation": "Transmission slipping reported.", "reason": "Slipping indicates clutch or fluid problems and worsens with use.", "action": "Have the transmission diagnosed."},
+    {"id": "transmission.burnt_fluid", "category": "transmission", "severity": "warning", "safety": false, "when": {"kind": "symptom", "key": "burnt_fluid_smell"}, "observation": "Burnt transmission fluid smell reported.", "reason": "Burnt fluid indicates overheating.", "action": "Inspect the fluid and have the transmission diagnosed."},
+    {"id": "transmission.warning_light", "category": "transmission", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "warning_light_on", "equals": "yes"}, "observation": "Transmission warning light recorded on.", "reason": "The control module has detected a transmission fault.", "action": "Read fault codes and record them on this assessment."},
+    {"id": "transmission.high_temperature", "category": "transmission", "severity": "warning", "safety": false, "when": {"kind": "measurement", "key": "fluid_temperature_c", "gt": 120}, "observation": "Transmission fluid temperature is {value} °C, above 120 °C.", "reason": "Sustained high temperature degrades the fluid.", "action": "Inspect the cooler and fluid condition."},
+    {"id": "transmission.harsh_shifts", "category": "transmission", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "harsh_shifts"}, "observation": "Harsh or delayed shifts reported.", "reason": "This can come from fluid condition or control faults.", "action": "Check the fluid and read fault codes."},
+    {"id": "transmission.noise", "category": "transmission", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "whining_noise"}, "observation": "Whining or grinding transmission noise reported.", "reason": "Noise can indicate bearing wear or low fluid.", "action": "Check the fluid level and have the noise diagnosed."},
+
+    {"id": "suspension.steering_play", "category": "suspension_steering", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "steering_loose_play"}, "observation": "Loose steering or excessive play reported.", "reason": "Excessive play can reduce control of the vehicle.", "action": "Do not drive until steering joints have been inspected."},
+    {"id": "suspension.broken_spring", "category": "suspension_steering", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "broken_spring_mount"}, "observation": "Broken spring or mount reported.", "reason": "A failed spring or mount can affect steering and stability.", "action": "Remove from use and repair the suspension."},
+    {"id": "suspension.free_play_high", "category": "suspension_steering", "severity": "critical", "safety": true, "when": {"kind": "answer", "question": "steering_free_play_ok", "equals": "no"}, "observation": "Steering free play recorded as abnormal.", "reason": "Abnormal play can reduce control of the vehicle.", "action": "Inspect tie rods and the steering rack before further use."},
+    {"id": "suspension.free_play_measure", "category": "suspension_steering", "severity": "warning", "safety": true, "when": {"kind": "measurement", "key": "steering_free_play_mm", "gt": 30}, "observation": "Steering wheel free play is {value} mm, above 30 mm.", "reason": "This is above the general limit often used in inspections.", "action": "Inspect the steering system against the manufacturer limit."},
+    {"id": "suspension.not_tracking", "category": "suspension_steering", "severity": "warning", "safety": true, "when": {"kind": "answer", "question": "tracks_straight", "equals": "no"}, "observation": "Vehicle recorded as not tracking straight.", "reason": "This can indicate alignment or suspension damage.", "action": "Check alignment and suspension components."},
+    {"id": "suspension.shock_leak", "category": "suspension_steering", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "visible_shock_leak", "equals": "yes"}, "observation": "Leaking shock absorber recorded.", "reason": "A leaking damper reduces stability and braking grip.", "action": "Replace the shock absorber."},
+    {"id": "suspension.power_steering_light", "category": "suspension_steering", "severity": "warning", "safety": true, "when": {"kind": "answer", "question": "power_steering_warning_on", "equals": "yes"}, "observation": "Power steering warning light recorded on.", "reason": "Steering assist may be lost.", "action": "Read fault codes and inspect the steering system."},
+    {"id": "suspension.pulls", "category": "suspension_steering", "severity": "warning", "safety": true, "when": {"kind": "symptom", "key": "pulls_to_side"}, "observation": "Vehicle pulls to one side.", "reason": "This can indicate alignment, tire or suspension faults.", "action": "Check tires and alignment."},
+    {"id": "suspension.clunking", "category": "suspension_steering", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "clunking"}, "observation": "Clunking over bumps reported.", "reason": "This commonly indicates worn bushings or links.", "action": "Inspect bushings and links."},
+    {"id": "suspension.bounce", "category": "suspension_steering", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "excessive_bounce"}, "observation": "Excessive bouncing reported.", "reason": "This commonly indicates worn dampers.", "action": "Test the shock absorbers."},
+    {"id": "suspension.ride_height", "category": "suspension_steering", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "uneven_ride_height"}, "observation": "Uneven ride height reported.", "reason": "This can indicate a sagging spring.", "action": "Measure ride height and inspect the springs."},
+
+    {"id": "tires.bulge", "category": "tires_wheels", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "tire_bulge"}, "observation": "Tire sidewall bulge reported.", "reason": "A bulge means internal damage, and the tire can fail suddenly.", "action": "Do not drive. Replace the tire."},
+    {"id": "tires.cords_exposed", "category": "tires_wheels", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "cord_exposed"}, "observation": "Exposed cords or deep cut reported.", "reason": "Exposed cords can lead to a blowout.", "action": "Do not drive. Replace the tire."},
+    {"id": "tires.loose_nuts", "category": "tires_wheels", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "loose_wheel_nuts"}, "observation": "Loose or missing wheel nuts reported.", "reason": "A wheel can detach.", "action": "Do not drive. Fit and torque all wheel nuts."},
+    {"id": "tires.nuts_answer", "category": "tires_wheels", "severity": "critical", "safety": true, "when": {"kind": "answer", "question": "wheel_nuts_tight", "equals": "no"}, "observation": "Wheel nuts recorded as loose or missing.", "reason": "A wheel can detach.", "action": "Do not drive. Fit and torque all wheel nuts."},
+    {"id": "tires.cracked_rim", "category": "tires_wheels", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "cracked_rim"}, "observation": "Cracked or bent rim reported.", "reason": "A damaged rim can lose pressure or fail.", "action": "Remove from use and replace the wheel."},
+    {"id": "tires.tread_critical", "category": "tires_wheels", "severity": "critical", "safety": true, "when": {"kind": "measurement", "key": "tread_depth_min_mm", "lt": 1.6}, "observation": "Lowest tread depth is {value} mm, below 1.6 mm.", "reason": "Below the 1.6 mm wear indicator, wet grip is severely reduced.", "action": "Do not rent the vehicle. Replace the tire."},
+    {"id": "tires.tread_low", "category": "tires_wheels", "severity": "warning", "safety": true, "when": {"kind": "measurement", "key": "tread_depth_min_mm", "gte": 1.6, "lt": 3.0}, "observation": "Lowest tread depth is {value} mm, below 3.0 mm.", "reason": "Wet grip falls noticeably as tread approaches the 1.6 mm limit.", "action": "Schedule tire replacement soon."},
+    {"id": "tires.pressure_low", "category": "tires_wheels", "severity": "warning", "safety": true, "when": {"kind": "measurement", "key": "tire_pressure_min_psi", "lt": 20}, "observation": "Lowest tire pressure is {value} psi, below 20 psi.", "reason": "This is far below the usual car placard range, and an underinflated tire can overheat.", "action": "Inflate to the placard value and check for a puncture."},
+    {"id": "tires.age_old", "category": "tires_wheels", "severity": "warning", "safety": true, "when": {"kind": "measurement", "key": "tire_age_months", "gt": 120}, "observation": "Oldest tire age is {value} months, above 10 years.", "reason": "Rubber degrades with age even when tread remains.", "action": "Inspect closely and plan replacement."},
+    {"id": "tires.uneven_wear", "category": "tires_wheels", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "uneven_wear"}, "observation": "Uneven tread wear reported.", "reason": "This can indicate alignment or pressure problems.", "action": "Check alignment and inflation."},
+    {"id": "tires.vibration", "category": "tires_wheels", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "vibration_at_speed"}, "observation": "Vibration at speed reported.", "reason": "This commonly indicates wheel imbalance or tire damage.", "action": "Balance the wheels and inspect the tires."},
+
+    {"id": "cooling.overheating", "category": "cooling", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "overheating"}, "observation": "Engine overheating reported.", "reason": "Continued running can destroy the engine and strand the vehicle.", "action": "Stop running the engine. Let it cool, then find the cause before further use."},
+    {"id": "cooling.steam", "category": "cooling", "severity": "critical", "safety": true, "when": {"kind": "symptom", "key": "steam_from_bay"}, "observation": "Steam from the engine bay reported.", "reason": "Pressurized hot coolant may be escaping and can cause burns.", "action": "Stop the engine and do not open the cap while hot. Inspect after cooling."},
+    {"id": "cooling.coolant_in_oil", "category": "cooling", "severity": "critical", "safety": false, "when": {"kind": "symptom", "key": "coolant_in_oil"}, "observation": "Coolant in oil, or oil in coolant, reported.", "reason": "This can indicate a head gasket or cooler failure.", "action": "Stop using the engine until pressure and leak tests are done."},
+    {"id": "cooling.temperature_critical", "category": "cooling", "severity": "critical", "safety": true, "when": {"kind": "measurement", "key": "coolant_temperature_c", "gte": 120}, "observation": "Coolant temperature is {value} °C, at or above 120 °C.", "reason": "This is well above the normal operating range of most engines.", "action": "Stop running the engine and find the cause before further use."},
+    {"id": "cooling.temperature_high", "category": "cooling", "severity": "warning", "safety": false, "when": {"kind": "measurement", "key": "coolant_temperature_c", "gte": 110, "lt": 120}, "observation": "Coolant temperature is {value} °C, at or above 110 °C.", "reason": "This is above the usual operating range of most engines.", "action": "Inspect the thermostat, fan and coolant level."},
+    {"id": "cooling.warning_light", "category": "cooling", "severity": "critical", "safety": true, "when": {"kind": "answer", "question": "temperature_warning_on", "equals": "yes"}, "observation": "Temperature warning light recorded on.", "reason": "The engine may be overheating.", "action": "Stop running the engine and inspect the cooling system."},
+    {"id": "cooling.level_low", "category": "cooling", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "coolant_level_ok", "equals": "no"}, "observation": "Coolant level recorded outside range.", "reason": "Low coolant can cause overheating.", "action": "Correct the level once cool, and pressure-test for leaks."},
+    {"id": "cooling.visible_leak", "category": "cooling", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "visible_coolant_leak", "equals": "yes"}, "observation": "Visible coolant leak recorded.", "reason": "A leak can lead to overheating.", "action": "Repair the leak."},
+    {"id": "cooling.fan_failed", "category": "cooling", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "fan_operates", "equals": "no"}, "observation": "Radiator fan recorded as not operating.", "reason": "The engine can overheat at low speed.", "action": "Test the fan, relay and fuse."},
+    {"id": "cooling.temperature_fluctuates", "category": "cooling", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "temperature_fluctuates"}, "observation": "Temperature gauge fluctuation reported.", "reason": "This can indicate a thermostat fault or air in the system.", "action": "Test the thermostat and bleed the system."},
+    {"id": "cooling.sweet_smell", "category": "cooling", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "sweet_smell"}, "observation": "Sweet coolant smell reported.", "reason": "This can indicate a small coolant leak.", "action": "Pressure-test the cooling system."},
+
+    {"id": "ac.burning_smell", "category": "air_conditioning", "severity": "warning", "safety": true, "when": {"kind": "symptom", "key": "burning_smell_vents"}, "observation": "Burning smell from the vents reported.", "reason": "This can indicate an overheated blower motor or wiring.", "action": "Switch the system off and inspect the blower motor and wiring before use."},
+    {"id": "ac.refrigerant_leak", "category": "air_conditioning", "severity": "warning", "safety": false, "when": {"kind": "symptom", "key": "refrigerant_leak"}, "observation": "Oily refrigerant leak reported.", "reason": "A leak reduces cooling and can damage the compressor.", "action": "Leak-test and repair using certified refrigerant equipment."},
+    {"id": "ac.compressor_not_engaging", "category": "air_conditioning", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "compressor_engages", "equals": "no"}, "observation": "Compressor recorded as not engaging.", "reason": "The system cannot cool without the compressor running.", "action": "Check refrigerant pressure, the clutch and its fuse."},
+    {"id": "ac.not_cooling_answer", "category": "air_conditioning", "severity": "warning", "safety": false, "when": {"kind": "answer", "question": "cools_cabin", "equals": "no"}, "observation": "System recorded as not cooling the cabin.", "reason": "Cooling has been lost, which affects rental comfort.", "action": "Check refrigerant charge, compressor and condenser."},
+    {"id": "ac.not_cooling_symptom", "category": "air_conditioning", "severity": "warning", "safety": false, "when": {"kind": "symptom", "key": "not_cooling"}, "observation": "System blows warm air.", "reason": "Cooling has been lost, which affects rental comfort.", "action": "Check refrigerant charge, compressor and condenser."},
+    {"id": "ac.vent_temperature_high", "category": "air_conditioning", "severity": "advisory", "safety": false, "when": {"kind": "measurement", "key": "vent_temperature_c", "gt": 18}, "observation": "Center vent temperature is {value} °C, above 18 °C.", "reason": "A working system on maximum cooling normally delivers cooler air, depending on ambient temperature.", "action": "Compare with ambient temperature and check refrigerant charge."},
+    {"id": "ac.water_in_cabin", "category": "air_conditioning", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "water_in_cabin"}, "observation": "Water leaking into the cabin reported.", "reason": "This commonly indicates a blocked evaporator drain.", "action": "Clear the evaporator drain."},
+    {"id": "ac.compressor_noise", "category": "air_conditioning", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "compressor_noise"}, "observation": "Noisy compressor reported.", "reason": "Noise can come before compressor failure.", "action": "Inspect the compressor and its mounting."},
+    {"id": "ac.airflow_low", "category": "air_conditioning", "severity": "advisory", "safety": false, "when": {"kind": "answer", "question": "airflow_normal", "equals": "no"}, "observation": "Vent airflow recorded as abnormal.", "reason": "This commonly indicates a blocked filter or blower fault.", "action": "Check the cabin filter and blower motor."},
+    {"id": "ac.filter_dirty", "category": "air_conditioning", "severity": "advisory", "safety": false, "when": {"kind": "answer", "question": "cabin_filter_clean", "equals": "no"}, "observation": "Cabin air filter recorded as dirty.", "reason": "A dirty filter reduces airflow and air quality.", "action": "Replace the cabin filter."},
+    {"id": "ac.musty_smell", "category": "air_conditioning", "severity": "advisory", "safety": false, "when": {"kind": "symptom", "key": "musty_smell"}, "observation": "Musty smell reported.", "reason": "This commonly indicates moisture or growth on the evaporator.", "action": "Clean the evaporator and replace the cabin filter."}
+  ]
+}

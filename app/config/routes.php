@@ -123,6 +123,26 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->put('/maintenance/vehicles/{id}/components/{key}/schedule', 'ComponentMaintenanceController::saveSchedule');
     $router->delete('/maintenance/vehicles/{id}/components/{key}/schedule', 'ComponentMaintenanceController::deleteSchedule');
 
+    // Vehicle assessments (active administrators only). Fixed paths come before "{id}".
+    $router->get('/assessments/training/overview', 'VehicleAssessmentController::trainingOverview');
+    $router->get('/assessments/training/{category}/dataset', 'VehicleAssessmentController::trainingDataset');
+    $router->post('/assessments/training/{category}/train', 'VehicleAssessmentController::train');
+    $router->post('/assessments/training/{category}/accept', 'VehicleAssessmentController::acceptModel');
+    $router->post('/assessments/training/{category}/revoke', 'VehicleAssessmentController::revokeModel');
+    $router->get('/assessments/catalog', 'VehicleAssessmentController::catalog');
+    $router->get('/assessments/fleet', 'VehicleAssessmentController::fleet');
+    $router->get('/assessments/vehicles/{id}', 'VehicleAssessmentController::vehicle');
+    $router->patch('/assessments/vehicles/{id}/profile', 'VehicleAssessmentController::updateProfile');
+    $router->get('/assessments/vehicles/{id}/categories/{key}/history', 'VehicleAssessmentController::categoryHistory');
+    $router->get('/assessments/evidence/{id}', 'VehicleAssessmentController::evidence');
+    $router->post('/assessments/outcomes/{id}/verify', 'VehicleAssessmentController::verifyOutcome');
+    $router->post('/assessments', 'VehicleAssessmentController::create');
+    $router->get('/assessments/{id}', 'VehicleAssessmentController::show');
+    $router->post('/assessments/{id}/analysis', 'VehicleAssessmentController::analyze');
+    $router->post('/assessments/{id}/review', 'VehicleAssessmentController::review');
+    $router->post('/assessments/{id}/categories/{key}/evidence', 'VehicleAssessmentController::uploadEvidence');
+    $router->post('/assessments/{id}/categories/{key}/outcomes', 'VehicleAssessmentController::createOutcome');
+
     // AI chatbot (forwards to the Python AI service)
     $router->post('/chat', 'ChatController::chat');
 });

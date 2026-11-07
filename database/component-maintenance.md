@@ -1,8 +1,7 @@
 # Component maintenance (3D Predictive Maintenance page)
 
 Powers `/admin/maintenance/predictions`. Separate from the legacy service
-records (`tblvehicle_maintenance`) and the evidence-verification module
-(`maintenance_data_records`); neither is altered.
+records (`tblvehicle_maintenance`), which are not altered.
 
 ## Database setup
 

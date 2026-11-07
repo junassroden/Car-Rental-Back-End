@@ -106,16 +106,6 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->patch('/maintenance/records/{id}', 'MaintenanceController::updateMaintenanceRecord');
     $router->patch('/maintenance/mileage', 'MaintenanceController::updateVehicleMileage');
 
-    // Evidence-backed maintenance data (active administrators only).
-    $router->get('/maintenance/data-records/export', 'MaintenanceDataController::export');
-    $router->get('/maintenance/data-records', 'MaintenanceDataController::records');
-    $router->post('/maintenance/data-records', 'MaintenanceDataController::create');
-    $router->get('/maintenance/data-records/{id}', 'MaintenanceDataController::detail');
-    $router->patch('/maintenance/data-records/{id}', 'MaintenanceDataController::update');
-    $router->post('/maintenance/data-records/{id}/submit', 'MaintenanceDataController::submit');
-    $router->post('/maintenance/data-records/{id}/verify', 'MaintenanceDataController::verify');
-    $router->post('/maintenance/data-records/{id}/supersede', 'MaintenanceDataController::supersede');
-
     // Component-level inspection and schedules for the 3D view (active administrators only).
     $router->get('/maintenance/vehicles/{id}/components', 'ComponentMaintenanceController::components');
     $router->get('/maintenance/vehicles/{id}/components/{key}/history', 'ComponentMaintenanceController::history');

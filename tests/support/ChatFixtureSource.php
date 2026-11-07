@@ -8,7 +8,7 @@ require_once __DIR__ . '/../../app/libraries/ChatRetrieval.php';
  * rules as the SQL (customers see available cars only; bookings by user id).
  *
  * Fixture keys: cars, reservations (with user_id), users (id, full_name),
- * maintenance_records, verified_evidence_records, maintenance_due, inspections,
+ * maintenance_records, maintenance_due, inspections,
  * and optional "fail": [method names that throw, to test database errors].
  */
 class ChatFixtureSource implements ChatDataSource
@@ -18,7 +18,7 @@ class ChatFixtureSource implements ChatDataSource
     public function __construct(array $db)
     {
         $this->db = $db + ['cars' => [], 'reservations' => [], 'users' => [], 'maintenance_records' => [],
-                           'verified_evidence_records' => [], 'maintenance_due' => [], 'inspections' => [], 'fail' => []];
+                           'maintenance_due' => [], 'inspections' => [], 'fail' => []];
     }
 
     private function guard($method)
@@ -85,8 +85,6 @@ class ChatFixtureSource implements ChatDataSource
         };
         return [
             'legacy_service_records'            => $filter($this->db['maintenance_records'], 'vehicleID'),
-            'verified_evidence_records'         => $filter($this->db['verified_evidence_records'], 'vehicle_id'),
-            'verified_evidence_table_available' => true,
         ];
     }
 

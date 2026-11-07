@@ -50,8 +50,7 @@ class MaintenanceModel extends Model
 
     /**
      * Bounded, admin-only chat context. Legacy service entries are not
-     * presented as verified faults; the newer evidence table is optional
-     * until its migration has been applied.
+     * presented as verified faults.
      */
     public function chat_context($vehicle_id = null, $limit = 40)
     {
@@ -69,44 +68,12 @@ class MaintenanceModel extends Model
             ->pagination(max(1, min((int) $limit, 40)), 1)
             ->get_all();
 
-        $verifiedAvailable = (bool) $this->db->raw(
-            'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?',
-            ['maintenance_data_records']
-        )->fetchColumn();
-        $verified = [];
-
-        if ($verifiedAvailable) {
-            $verifiedQuery = $this->db->table('maintenance_data_records')
-                ->select('maintenance_data_records.id, maintenance_data_records.vehicle_id, maintenance_data_records.record_type, maintenance_data_records.recorded_at, maintenance_data_records.component, maintenance_data_records.symptoms, maintenance_data_records.inspection_findings, maintenance_data_records.dtc_codes, maintenance_data_records.confirmed_cause, maintenance_data_records.repair_action, maintenance_data_records.repair_outcome, maintenance_data_records.source, cars.make, cars.model')
-                ->inner_join('cars', 'cars.id = maintenance_data_records.vehicle_id')
-                ->where('maintenance_data_records.verification_status', 'verified');
-
-            if ($vehicle_id !== null) {
-                $verifiedQuery->where('maintenance_data_records.vehicle_id', (int) $vehicle_id);
-            }
-
-            $verified = $verifiedQuery
-                ->order_by('maintenance_data_records.recorded_at', 'DESC')
-                ->order_by('maintenance_data_records.id', 'DESC')
-                ->pagination(max(1, min((int) $limit, 40)), 1)
-                ->get_all();
-        }
-
         return [
             'legacy_service_records' => array_map(static function ($record) {
                 $record['maintenanceType'] = substr((string) $record['maintenanceType'], 0, 80);
                 $record['description'] = substr((string) $record['description'], 0, 300);
                 return $record;
             }, $legacy),
-            'verified_evidence_records' => array_map(static function ($record) {
-                foreach (['component', 'symptoms', 'inspection_findings', 'confirmed_cause', 'repair_action', 'repair_outcome'] as $field) {
-                    $record[$field] = substr((string) ($record[$field] ?? ''), 0, 300);
-                }
-                $record['dtc_codes'] = substr((string) ($record['dtc_codes'] ?? ''), 0, 120);
-                $record['source'] = substr((string) ($record['source'] ?? ''), 0, 160);
-                return $record;
-            }, $verified),
-            'verified_evidence_table_available' => $verifiedAvailable,
         ];
     }
 

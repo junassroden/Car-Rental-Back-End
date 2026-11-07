@@ -264,7 +264,6 @@ if ($phase === 'ai_down') {
     check(call('GET', '/api/reservations', $admin)['status'] === 200, 'admin reservations still work');
     check(call('GET', '/api/maintenance', $admin)['status'] === 200, 'admin maintenance records still work');
     check(call('GET', '/api/maintenance', $customer)['status'] === 403, 'customers stay out of maintenance records');
-    check(call('GET', '/api/maintenance/data-records', $admin)['status'] === 200, 'admin evidence records still work');
     $legacy = call('GET', "/api/maintenance/vehicles/{$data['vehicle_id']}/components", $admin);
     check($legacy['status'] === 200, 'the existing component endpoint still works', $legacy['raw']);
     $legacyKeys = array_column($legacy['body']['data']['components'] ?? [], 'key');

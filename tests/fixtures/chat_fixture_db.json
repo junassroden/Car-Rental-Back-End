@@ -42,12 +42,6 @@
      "maintenanceDate": "2026-02-10", "cost": "2400.00", "maintenanceStatus": "Completed", "nextMaintenanceDate": null,
      "odometerReading": 36000, "make": "Honda", "model": "City"}
   ],
-  "verified_evidence_records": [
-    {"id": 5, "vehicle_id": 3, "record_type": "repair", "recorded_at": "2026-09-20", "component": "Catalytic converter",
-     "symptoms": "Check engine light", "inspection_findings": "Rear O2 sensor signal mirrors front", "dtc_codes": "P0420",
-     "confirmed_cause": "Catalyst efficiency low", "repair_action": "Replaced catalytic converter", "repair_outcome": "Code cleared",
-     "source": "Workshop invoice", "make": "Honda", "model": "City"}
-  ],
   "maintenance_due": [
     {"id": 1, "make": "Toyota", "model": "Vios", "plate_number": "NAB 1234", "status": "available", "current_mileage": 59800,
      "last_service_date": "2026-09-30", "last_service_type": "Oil change", "last_service_odometer": 58000, "next_scheduled_date": null,

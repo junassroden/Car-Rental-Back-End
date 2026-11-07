@@ -29,7 +29,7 @@ interface ChatDataSource
     /** ['status' => count] over all cars. */
     public function vehicle_status_counts();
 
-    /** ['legacy_service_records' => rows, 'verified_evidence_records' => rows, 'verified_evidence_table_available' => bool]. */
+    /** ['legacy_service_records' => rows]. */
     public function maintenance_records($vehicle_id, $limit);
 
     /** One row per car with its rule-based service status (MaintenanceModel::chat_due_overview). */
@@ -377,8 +377,7 @@ class ChatRetrieval
         $id      = count($args['vehicle_ids']) === 1 ? $args['vehicle_ids'][0] : null;
         $narrow  = $args['makes'] || $args['models'] || count($args['vehicle_ids']) > 1;
         $records = $source->maintenance_records($id, $narrow ? 40 : $limit);
-        $records['legacy_service_records']    = array_slice(self::for_vehicles($records['legacy_service_records'] ?? [], $args, 'vehicleID'), 0, $limit);
-        $records['verified_evidence_records'] = array_slice(self::for_vehicles($records['verified_evidence_records'] ?? [], $args, 'vehicle_id'), 0, $limit);
+        $records['legacy_service_records'] = array_slice(self::for_vehicles($records['legacy_service_records'] ?? [], $args, 'vehicleID'), 0, $limit);
         return $records;
     }
 

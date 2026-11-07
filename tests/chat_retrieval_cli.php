@@ -29,7 +29,7 @@ $out = array_map(static function ($request) use ($fixture) {
     return ChatRetrieval::execute($request['plan'] ?? [], [
         'role'    => ($viewer['role'] ?? '') === 'admin' ? 'admin' : 'customer',
         'user_id' => (int) ($viewer['user_id'] ?? 0),
-    ], $source);
+    ], $source, $fixture['evaluation_date'] ?? null);
 }, $input['requests']);
 
 

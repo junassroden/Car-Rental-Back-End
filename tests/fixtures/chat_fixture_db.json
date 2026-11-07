@@ -1,4 +1,5 @@
 {
+  "evaluation_date": "2026-10-31",
   "purpose": "Controlled rows shaped like the MySQL query results ChatDatabaseSource returns. Used by tests/chat_retrieval_test.php and automotive_ai_service/scripts/evaluate_chatbot.py. Not real customer data.",
   "users": [
     {"id": 1, "full_name": "Fleet Admin", "role": "admin"},

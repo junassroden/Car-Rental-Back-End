@@ -91,9 +91,8 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->patch('/reservations/{id}', 'ReservationController::updateReservation');
     $router->post('/reservations/{id}/checkout', 'ReservationController::vehicleCheckout');
     $router->post('/reservations/{id}/return', 'ReservationController::vehicleReturn');
+    // Payments are confirmed only by the gateway webhooks below, never by hand or by the browser.
     $router->post('/reservations/{id}/payment', 'PaymentController::createCheckout');
-    $router->post('/reservations/{id}/payment/manual', 'PaymentController::submitManual');
-    $router->post('/reservations/{id}/payment/{decision}', 'PaymentController::verifyManual');
 
     // PayMongo posts signed payment events directly to this endpoint.
     $router->post('/paymongo/webhook', 'PaymentController::webhook');

@@ -22,9 +22,10 @@ class ReservationModel extends Model
     // Reservation statuses that block a car for the requested dates.
     const BLOCKING_STATUSES = ['pending', 'confirmed'];
 
-    // Status changes an admin may make, keyed by the current status.
+    // Status changes an admin may make, keyed by the current status. A pending reservation is
+    // awaiting payment and is confirmed only by a verified payment (PaymentModel::mark_paid).
     const ADMIN_TRANSITIONS = [
-        'pending'   => ['confirmed', 'rejected', 'cancelled'],
+        'pending'   => ['cancelled'],
         'confirmed' => ['cancelled'],
     ];
 
@@ -230,7 +231,8 @@ class ReservationModel extends Model
                 'rental_days'  => (int) $rental_days,
                 'daily_rate'   => number_format($daily_rate, 2, '.', ''),
                 'total_amount' => number_format($total_amount, 2, '.', ''),
-                'status'       => 'pending',
+                // Pending means awaiting payment. Nothing to pay means nothing to wait for.
+                'status'       => $total_amount > 0 ? 'pending' : 'confirmed',
                 'special_duration_request' => $rental_days > 7 ? 1 : 0,
                 'contract_version' => RentalAgreement::VERSION,
                 'contract_accepted_at' => $acceptedAt,
@@ -445,7 +447,7 @@ class ReservationModel extends Model
         $payments = [];
         if ($ids) {
             $payments = $this->db->table('checkout_payments')
-                ->select('id, reservation_id, reference_number, status, paid_at')
+                ->select('id, reservation_id, checkout_session_id, checkout_url, reference_number, amount, status, paid_at, created_at')
                 ->in('reservation_id', $ids)
                 ->order_by('id', 'DESC')
                 ->get_all();
@@ -456,8 +458,15 @@ class ReservationModel extends Model
             if (!isset($summary[$reservationId])) {
                 $summary[$reservationId] = [
                     'paid' => false,
+                    'id' => (int) $payment['id'],
                     'status' => $payment['status'],
                     'reference' => $payment['reference_number'],
+                    'amount' => $payment['amount'],
+                    // The method is not stored, so it is named by how the attempt was made.
+                    'method' => $payment['checkout_url'] === 'manual-gcash'
+                        ? 'GCash (manual reference)'
+                        : (str_starts_with((string) $payment['checkout_session_id'], 'cs_') ? 'PayMongo GCash checkout' : 'Xendit online checkout'),
+                    'created_at' => $payment['created_at'],
                     'paid_at' => null,
                 ];
             }
@@ -472,10 +481,18 @@ class ReservationModel extends Model
         foreach ($reservations as &$reservation) {
             $reservationId = (int) $reservation['id'];
             $payment = $summary[$reservationId] ?? null;
+            // paid: verified by the gateway. pending: checkout started, not yet verified.
+            // failed: the attempt expired or was rejected. unpaid: no attempt yet.
             $reservation['payment_status'] = (int) $reservation['payment_required'] === 0
                 ? 'not_required'
-                : ($payment && $payment['paid'] ? 'paid' : ($payment && $payment['status'] === 'pending' ? 'pending' : 'unpaid'));
+                : (!$payment ? 'unpaid'
+                    : ($payment['paid'] ? 'paid'
+                        : ($payment['status'] === 'pending' ? 'pending' : 'failed')));
+            $reservation['payment_id'] = $payment['id'] ?? null;
             $reservation['payment_reference'] = $payment['reference'] ?? null;
+            $reservation['payment_amount'] = $payment['amount'] ?? null;
+            $reservation['payment_method'] = $payment['method'] ?? null;
+            $reservation['payment_created_at'] = $payment['created_at'] ?? null;
             $reservation['payment_paid_at'] = $payment['paid_at'] ?? null;
         }
         unset($reservation);

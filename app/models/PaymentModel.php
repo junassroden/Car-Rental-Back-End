@@ -30,39 +30,41 @@ class PaymentModel extends Model
         return $this->insert($payment);
     }
 
-    public function resubmit_manual($id, $reference, $amount)
+    /**
+     * Replaces an unpaid attempt with a new checkout. A reservation keeps one payment row
+     * (checkout_payments_reservation_unique), so a retry reuses it. A paid row is never touched.
+     */
+    public function restart_checkout($id, array $checkout)
     {
         return (bool) $this->db->table($this->table)
             ->where('id', (int) $id)
-            ->update([
-                'reference_number' => $reference,
-                'amount' => $amount,
+            ->where('status', '<>', 'paid')
+            ->update($checkout + [
                 'status' => 'pending',
                 'paid_at' => null,
                 'webhook_event_hash' => null,
+                'created_at' => date('Y-m-d H:i:s'),
             ]);
     }
 
-    public function mark_manual_paid($reservation_id, $admin_id)
+    /** Marks a still-pending checkout as expired. Paid payments are left as they are. */
+    public function mark_expired($session_id)
     {
-        return (bool) $this->db->table($this->table)
-            ->where('reservation_id', (int) $reservation_id)
+        $this->db->table($this->table)
+            ->where('checkout_session_id', $session_id)
             ->where('status', 'pending')
-            ->update([
-                'status' => 'paid',
-                'webhook_event_hash' => hash('sha256', 'manual:' . (int) $reservation_id . ':' . (int) $admin_id . ':' . microtime(true)),
-                'paid_at' => date('Y-m-d H:i:s'),
-            ]);
+            ->update(['status' => 'expired']);
+        return true;
     }
 
-    public function mark_manual_rejected($reservation_id)
-    {
-        return (bool) $this->db->table($this->table)
-            ->where('reservation_id', (int) $reservation_id)
-            ->where('status', 'pending')
-            ->update(['status' => 'rejected']);
-    }
-
+    /**
+     * Records a gateway-verified payment and, in the same transaction, confirms the reservation
+     * it pays for. Safe to repeat: a payment already marked paid is not processed again.
+     * The reservation is confirmed only while it is still pending. A cancelled or rejected one
+     * stays as it is, and the paid record shows the administrator that a refund is needed.
+     * Pending reservations already hold their dates (ReservationModel::BLOCKING_STATUSES),
+     * so confirming one cannot create a double booking.
+     */
     public function mark_paid($session_id, $event_hash)
     {
         if (!$this->db->transaction()) {
@@ -83,6 +85,12 @@ class PaymentModel extends Model
                 return true;
             }
 
+            $reservation = $this->db->table('reservations')
+                ->select('id, status')
+                ->where('id', (int) $payment['reservation_id'])
+                ->for_update()
+                ->row_array();
+
             $this->db->table($this->table)
                 ->where('id', (int) $payment['id'])
                 ->update([
@@ -90,6 +98,11 @@ class PaymentModel extends Model
                     'webhook_event_hash' => $event_hash,
                     'paid_at' => date('Y-m-d H:i:s'),
                 ]);
+            if ($reservation && $reservation['status'] === 'pending') {
+                $this->db->table('reservations')
+                    ->where('id', (int) $reservation['id'])
+                    ->update(['status' => 'confirmed']);
+            }
             if (!$this->db->commit()) {
                 return false;
             }

@@ -21,7 +21,7 @@ class ReservationController extends Controller
         'special_request_required' => ['Rentals longer than 7 days must be submitted as a special-duration request.', 422],
         'contract_not_accepted' => ['Accept the rental agreement before submitting your reservation.', 422],
         'amount_too_large'    => ['The selected rental period exceeds the maximum supported amount.', 422],
-        'payment_required'    => ['A verified GCash payment is required before vehicle handover.', 409],
+        'payment_required'    => ['A verified payment is required before vehicle handover.', 409],
         'payment_refund_required' => ['A paid reservation cannot be cancelled here. Contact an administrator to arrange a refund.', 409],
         'vehicle_in_use'      => ['A vehicle in use must be marked returned before its reservation can be cancelled.', 409],
         'checkout_not_due'    => ['Vehicle handover is only available during the approved rental period.', 409],
@@ -135,7 +135,7 @@ class ReservationController extends Controller
 
         $this->response->send_json_success(
             $this->ReservationModel->find_with_details($result['id']),
-            'Reservation created successfully and is awaiting confirmation.',
+            'Reservation created. Complete payment to confirm it.',
             201
         );
     }

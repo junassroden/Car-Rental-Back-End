@@ -27,8 +27,14 @@ class PaymentController extends Controller
             $this->response->send_json_error('Reservation not found.', 404);
             return;
         }
-        if ($reservation['status'] !== 'confirmed') {
-            $this->response->send_json_error('The reservation must be approved before payment.', 409);
+        // Payment confirms a pending reservation. Confirmed ones approved before automatic
+        // confirmation may still be unpaid, so they can be paid too.
+        if (!in_array($reservation['status'], ['pending', 'confirmed'], true)) {
+            $this->response->send_json_error('Only reservations awaiting payment can be paid.', 409);
+            return;
+        }
+        if ($reservation['status'] === 'pending' && $reservation['start_date'] < date('Y-m-d')) {
+            $this->response->send_json_error('The pickup date has passed. Please make a new reservation.', 409);
             return;
         }
         if ($reservation['end_date'] <= date('Y-m-d')) {
@@ -48,8 +54,14 @@ class PaymentController extends Controller
             return;
         }
 
+        // An open invoice is reused, so a second click cannot start a second payment. Xendit
+        // invoices last 24 hours (XenditClient), so an older pending one is replaced.
         $existing = $this->PaymentModel->latest_for_reservation((int) $reservation['id']);
-        if ($existing && $existing['status'] === 'pending' && filter_var($existing['checkout_url'], FILTER_VALIDATE_URL)) {
+        if (
+            $existing && $existing['status'] === 'pending'
+            && filter_var($existing['checkout_url'], FILTER_VALIDATE_URL)
+            && strtotime($existing['created_at']) > time() - 23 * 3600
+        ) {
             $this->response->send_json_success([
                 'checkout_url' => $existing['checkout_url'],
                 'checkout_session_id' => $existing['checkout_session_id'],
@@ -63,14 +75,18 @@ class PaymentController extends Controller
                 $reservation,
                 getenv('FRONTEND_URL') ?: 'http://127.0.0.1:5173'
             );
-            $created = $this->PaymentModel->create_checkout([
-                'reservation_id' => (int) $reservation['id'],
+            $attempt = [
                 'checkout_session_id' => $checkout['id'],
                 'checkout_url' => $checkout['url'],
                 'reference_number' => $checkout['reference_number'],
                 'amount' => $checkout['amount'],
-                'status' => 'pending',
-            ]);
+            ];
+            $created = $existing
+                ? $this->PaymentModel->restart_checkout((int) $existing['id'], $attempt)
+                : $this->PaymentModel->create_checkout($attempt + [
+                    'reservation_id' => (int) $reservation['id'],
+                    'status' => 'pending',
+                ]);
             if (!$created) {
                 throw new RuntimeException('The checkout session could not be stored.');
             }
@@ -84,65 +100,6 @@ class PaymentController extends Controller
             'checkout_url' => $checkout['url'],
             'checkout_session_id' => $checkout['id'],
         ], 'Xendit checkout is ready.', 201);
-    }
-
-    public function submitManual($id)
-    {
-        $user = $this->requireUser();
-
-        $reference = trim((string) $this->request->post('reference_number'));
-        if ($reference === '' || strlen($reference) > 80) {
-            $this->response->send_json_error('Enter a valid GCash reference number.', 422);
-            return;
-        }
-        $reservation = $this->ReservationModel->find_with_details((int) $id);
-        if (!$reservation || (int) $reservation['user_id'] !== (int) $user['id'] || $reservation['status'] !== 'confirmed') {
-            $this->response->send_json_error('Approved reservation not found.', 404);
-            return;
-        }
-        if ((int) $reservation['payment_required'] !== 1 || $reservation['payment_status'] === 'paid') {
-            $this->response->send_json_error('This reservation does not need a payment submission.', 409);
-            return;
-        }
-        $existing = $this->PaymentModel->latest_for_reservation((int) $id);
-        if ($existing && $existing['status'] === 'pending') {
-            $this->response->send_json_error('A payment is already awaiting administrator verification.', 409);
-            return;
-        }
-        $amount = number_format((float) $reservation['total_amount'], 2, '.', '');
-        $created = $existing && $existing['status'] === 'rejected'
-            ? $this->PaymentModel->resubmit_manual((int) $existing['id'], $reference, $amount)
-            : $this->PaymentModel->create_checkout([
-                'reservation_id' => (int) $id,
-                'checkout_session_id' => 'manual-' . bin2hex(random_bytes(16)),
-                'checkout_url' => 'manual-gcash',
-                'reference_number' => $reference,
-                'amount' => $amount,
-                'status' => 'pending',
-            ]);
-        if (!$created) {
-            $this->response->send_json_error('The payment submission could not be saved.', 500);
-            return;
-        }
-        $this->response->send_json_success(null, 'GCash payment submitted for administrator verification.');
-    }
-
-    public function verifyManual($id, $decision)
-    {
-        $user = $this->requireUser();
-        if ($user['role'] !== 'admin') {
-            $this->response->send_json_error('Administrator access is required.', 403);
-            return;
-        }
-
-        $updated = $decision === 'approve'
-            ? $this->PaymentModel->mark_manual_paid((int) $id, (int) $user['id'])
-            : ($decision === 'reject' ? $this->PaymentModel->mark_manual_rejected((int) $id) : false);
-        if (!$updated) {
-            $this->response->send_json_error('No pending manual payment was found.', 409);
-            return;
-        }
-        $this->response->send_json_success(null, 'Manual GCash payment updated.');
     }
 
     public function webhook()
@@ -219,7 +176,8 @@ class PaymentController extends Controller
 
         $rawBody = $this->request->raw_body();
         $event = json_decode($rawBody, true);
-        if (!is_array($event) || ($event['status'] ?? '') !== 'PAID' || !is_string($event['external_id'] ?? null)) {
+        $status = is_array($event) ? strtoupper((string) ($event['status'] ?? '')) : '';
+        if (!in_array($status, ['PAID', 'SETTLED', 'EXPIRED'], true) || !is_string($event['external_id'] ?? null)) {
             $this->response->send_json_error('Unsupported Xendit webhook event.', 422);
             return;
         }
@@ -229,9 +187,21 @@ class PaymentController extends Controller
             $this->response->send_json_error('The Xendit invoice does not match a reservation.', 404);
             return;
         }
-        $expected = (float) $payment['amount'];
-        $receivedAmount = isset($event['paid_amount']) ? (float) $event['paid_amount'] : $expected;
-        if (abs($receivedAmount - $expected) > 0.01) {
+
+        // An expired invoice was never paid. The reservation stays pending so the customer can retry.
+        if ($status === 'EXPIRED') {
+            $this->PaymentModel->mark_expired($event['external_id']);
+            $this->response->send_json_success(null, 'Xendit invoice expiry recorded.');
+            return;
+        }
+
+        // PAID and SETTLED both mean the money was received. The amount must be stated and match.
+        $currency = strtoupper((string) ($event['currency'] ?? 'PHP'));
+        if (
+            $currency !== 'PHP'
+            || !is_numeric($event['paid_amount'] ?? null)
+            || abs((float) $event['paid_amount'] - (float) $payment['amount']) > 0.01
+        ) {
             $this->response->send_json_error('The Xendit payment amount could not be verified.', 422);
             return;
         }

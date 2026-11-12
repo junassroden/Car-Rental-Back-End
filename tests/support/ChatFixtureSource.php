@@ -1,5 +1,6 @@
 <?php
 
+require_once __DIR__ . '/../../app/libraries/ReservationPolicy.php';
 require_once __DIR__ . '/../../app/libraries/ChatRetrieval.php';
 
 /**

@@ -58,7 +58,15 @@ check(names(run_tool('vehicles.search', ['min_seats' => 7], $customer, $fixture)
 check(names(run_tool('vehicles.search', ['max_daily_rate' => 2000], $customer, $fixture)) === ['Toyota Vios'], 'budget filter');
 $quote = run_tool('vehicles.quote', ['models' => ['Fortuner'], 'rental_days' => 3], $customer, $fixture);
 check($quote['data']['vehicles'][0]['quote'] === ['rental_days' => 3, 'daily_rate' => 3500.0, 'base_total' => 10500.0,
-      'meets_minimum' => true, 'minimum_days' => 1, 'security_deposit' => 6000.0], 'quote uses daily rate x days with the deposit separate');
+      'meets_minimum' => true, 'minimum_days' => 3, 'special_request_required' => false, 'exceeds_maximum' => false,
+      'standard_maximum_days' => 7, 'maximum_days' => 21, 'security_deposit' => 6000.0], 'quote uses daily rate x days with the deposit separate');
+// The system-wide 3-day minimum (ReservationPolicy) applies even when the listing allows 1 day.
+$short = run_tool('vehicles.quote', ['models' => ['Fortuner'], 'rental_days' => 2], $customer, $fixture)['data']['vehicles'][0];
+check($short['quote']['meets_minimum'] === false && $short['minimum_rental_duration'] === 3, 'quote applies the 3-day system minimum');
+$long = run_tool('vehicles.quote', ['models' => ['Fortuner'], 'rental_days' => 10], $customer, $fixture)['data']['vehicles'][0]['quote'];
+check($long['special_request_required'] === true && $long['exceeds_maximum'] === false, '8 to 21 days needs a special-duration request');
+$tooLong = run_tool('vehicles.quote', ['models' => ['Fortuner'], 'rental_days' => 30], $customer, $fixture)['data']['vehicles'][0]['quote'];
+check($tooLong['exceeds_maximum'] === true, 'more than 21 days cannot be booked');
 $hiace = run_tool('vehicles.quote', ['models' => ['Hiace'], 'rental_days' => 1], $admin, $fixture);
 check($hiace['data']['vehicles'][0]['quote']['meets_minimum'] === false, 'quote flags a period below the minimum duration');
 check(run_tool('vehicles.quote', ['models' => ['Vios']], $customer, $fixture)['reason'] === 'rental_days_required', 'a quote needs a duration');
@@ -131,6 +139,19 @@ check(run_tool('bookings.mine', ['reservation_id' => 52], $customer, $fixture)['
 $active = run_tool('bookings.mine', ['active' => true], $customer, $fixture, '2026-11-06')['data']['reservations'];
 check(count($active) === 1 && $active[0]['days_remaining'] === 2, 'an active rental shows the days remaining');
 check(run_tool('bookings.mine', [], $customer, $fixture)['data']['totals_by_status'] === ['pending' => 4500.0, 'completed' => 3400.0], 'recorded totals by status');
+// Payment state reaches the chat; payment references and checkout links do not.
+$paidFixture = $fixture;
+foreach ($paidFixture['reservations'] as &$row) {
+    if ((int) $row['id'] === 41) {
+        $row += ['payment_status' => 'failed', 'payment_reference' => 'DR-SECRET-REF', 'checkout_url' => 'https://pay.example/x',
+                 'checked_out_at' => null, 'returned_at' => null];
+    }
+}
+unset($row);
+$paid = run_tool('bookings.mine', ['reservation_id' => 41], $customer, $paidFixture)['data']['reservations'][0];
+check($paid['payment_status'] === 'failed' && $paid['handed_over'] === false && $paid['returned'] === false, 'own booking carries its payment status');
+check(!isset($paid['payment_reference']) && !isset($paid['checkout_url']), 'payment references and checkout links are not passed to the chat');
+check($one[0]['payment_status'] === null, 'a booking without payment data reports no payment status');
 
 // --- Costs, status, revenue, utilisation -------------------------------------------
 $costs = run_tool('maintenance.costs', [], $admin, $fixture)['data'];

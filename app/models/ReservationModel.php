@@ -132,7 +132,7 @@ class ReservationModel extends Model
         $total = (int) $this->db->table($this->table)->where('user_id', (int) $user_id)->count();
 
         $records = $this->db->table($this->table)
-            ->select('reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, cars.make, cars.model')
+            ->select('reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, cars.make, cars.model')
             ->inner_join('cars', 'cars.id = reservations.car_id')
             ->where('reservations.user_id', (int) $user_id)
             ->order_by('reservations.created_at', 'DESC')
@@ -140,7 +140,8 @@ class ReservationModel extends Model
             ->pagination(max(1, min((int) $limit, 20)), 1)
             ->get_all();
 
-        return ['total_count' => $total, 'reservations' => $records];
+        // "Did my payment go through?": the same payment status My Reservations shows.
+        return ['total_count' => $total, 'reservations' => $this->attach_payment_summary($records)];
     }
 
     /**
@@ -149,7 +150,7 @@ class ReservationModel extends Model
      */
     public function chat_context_all($limit = 200)
     {
-        $columns = 'reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, cars.make, cars.model, users.full_name AS customer_name';
+        $columns = 'reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, cars.make, cars.model, users.full_name AS customer_name';
         $total = (int) $this->db->table($this->table)->count();
         $records = $this->db->table($this->table)
             ->select($columns)
@@ -160,7 +161,7 @@ class ReservationModel extends Model
             ->pagination(max(1, min((int) $limit, 200)), 1)
             ->get_all();
 
-        return ['total_count' => $total, 'reservations' => $records];
+        return ['total_count' => $total, 'reservations' => $this->attach_payment_summary($records)];
     }
 
     /**

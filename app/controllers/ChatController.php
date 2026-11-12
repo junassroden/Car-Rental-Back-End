@@ -26,7 +26,7 @@ class ChatController extends Controller
         parent::__construct();
         $this->security_headers->apply_api();
         $this->call->model(['CarModel', 'MaintenanceModel', 'ReservationModel', 'ComponentMaintenanceModel']);
-        $this->call->library(['AiServiceClient', 'ComponentMaintenanceRules', 'ChatRetrieval']);
+        $this->call->library(['AiServiceClient', 'ComponentMaintenanceRules', 'ReservationPolicy', 'ChatRetrieval']);
     }
 
     public function chat()

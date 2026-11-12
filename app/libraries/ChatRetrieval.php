@@ -393,22 +393,33 @@ class ChatRetrieval
         }));
     }
 
-    /** Same rule as ReservationModel::create_reservation. */
+    /** Same rule as ReservationModel::create_reservation and ReservationPolicy::duration_error. */
     private static function quote(array $vehicle, $days)
     {
         if ($days === null) {
             return null;
         }
         $rate    = round((float) $vehicle['daily_rental_price'], 2);
-        $minimum = (int) $vehicle['minimum_rental_duration'];
+        $minimum = self::minimum_days($vehicle);
         return [
             'rental_days'      => $days,
             'daily_rate'       => $rate,
             'base_total'       => round($rate * $days, 2),
             'meets_minimum'    => $days >= $minimum,
             'minimum_days'     => $minimum,
+            // 8 to 21 days must be sent as a special-duration request; longer rentals are refused.
+            'special_request_required' => $days > ReservationPolicy::STANDARD_MAXIMUM_DAYS && $days <= ReservationPolicy::SPECIAL_MAXIMUM_DAYS,
+            'exceeds_maximum'  => $days > ReservationPolicy::SPECIAL_MAXIMUM_DAYS,
+            'standard_maximum_days' => ReservationPolicy::STANDARD_MAXIMUM_DAYS,
+            'maximum_days'     => ReservationPolicy::SPECIAL_MAXIMUM_DAYS,
             'security_deposit' => round((float) $vehicle['security_deposit'], 2),
         ];
+    }
+
+    /** The shortest rental that can be booked: the system-wide minimum or the vehicle's own, whichever is longer. */
+    private static function minimum_days(array $vehicle)
+    {
+        return max(ReservationPolicy::MINIMUM_RENTAL_DAYS, (int) ($vehicle['minimum_rental_duration'] ?? 0));
     }
 
     private static function typed_vehicle(array $vehicle)
@@ -422,6 +433,10 @@ class ChatRetrieval
             if (isset($vehicle[$key])) {
                 $vehicle[$key] = (int) $vehicle[$key];
             }
+        }
+        if (isset($vehicle['minimum_rental_duration'])) {
+            // What a customer can actually book, not only the listing's own setting.
+            $vehicle['minimum_rental_duration'] = self::minimum_days($vehicle);
         }
         foreach (['air_conditioning', 'gps_navigation'] as $key) {
             if (array_key_exists($key, $vehicle)) {
@@ -493,6 +508,10 @@ class ChatRetrieval
             $out['is_active'] = $blocking && $start <= $now && $end > $now;
             $out['days_until_pickup'] = $blocking && $start > $now ? (int) $now->diff($start)->format('%a') : null;
             $out['days_remaining'] = $out['is_active'] ? (int) $now->diff($end)->format('%a') : null;
+            // Payment and handover state only; payment references and checkout links stay out of the chat.
+            $out['payment_status'] = isset($row['payment_status']) ? (string) $row['payment_status'] : null;
+            $out['handed_over'] = !empty($row['checked_out_at']);
+            $out['returned'] = !empty($row['returned_at']);
             return $out;
         }, array_slice($rows, 0, $args['limit']));
 

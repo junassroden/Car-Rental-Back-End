@@ -9,7 +9,7 @@ require_once __DIR__ . '/../../app/libraries/ChatRetrieval.php';
  * rules as the SQL (customers see available cars only; bookings by user id).
  *
  * Fixture keys: cars, reservations (with user_id), users (id, full_name),
- * maintenance_records, maintenance_due, inspections,
+ * maintenance_records, maintenance_due, inspections, reassessments,
  * and optional "fail": [method names that throw, to test database errors].
  */
 class ChatFixtureSource implements ChatDataSource
@@ -19,7 +19,7 @@ class ChatFixtureSource implements ChatDataSource
     public function __construct(array $db)
     {
         $this->db = $db + ['cars' => [], 'reservations' => [], 'users' => [], 'maintenance_records' => [],
-                           'maintenance_due' => [], 'inspections' => [], 'fail' => []];
+                           'maintenance_due' => [], 'inspections' => [], 'reassessments' => [], 'fail' => []];
     }
 
     private function guard($method)
@@ -93,6 +93,13 @@ class ChatFixtureSource implements ChatDataSource
     {
         $this->guard('maintenance_due');
         return $this->db['maintenance_due'];
+    }
+
+    /** Fixture rows carry their reassessment state already ("reassessments" key); none means none assessed. */
+    public function reassessment_overview()
+    {
+        $this->guard('reassessment_overview');
+        return $this->db['reassessments'];
     }
 
     public function component_inspections($vehicle_id, $limit)

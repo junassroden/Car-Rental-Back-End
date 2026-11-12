@@ -43,6 +43,12 @@ interface ChatDataSource
 
     /** Every maintenance-log row with its cost and the car's make and model, newest first. */
     public function maintenance_cost_records();
+
+    /**
+     * One row per car with its latest vehicle assessment and monthly reassessment state:
+     * id, make, model, plate_number, assessed_on, reassessment => [status, due_on, days_until_due].
+     */
+    public function reassessment_overview();
 }
 
 class ChatRetrieval
@@ -66,6 +72,7 @@ class ChatRetrieval
         'vehicles.status'          => ['admin'],
         'reservations.revenue'     => ['admin'],
         'fleet.utilization'        => ['admin'],
+        'assessments.due'          => ['admin'],
     ];
     public const SORTS       = ['price_asc', 'price_desc', 'year_desc', 'year_asc'];
     public const ADMIN_SORTS = ['mileage_desc', 'mileage_asc'];
@@ -255,6 +262,20 @@ class ChatRetrieval
             case 'maintenance.due':
                 return ['vehicles' => self::for_vehicles($source->maintenance_due(), $args, 'id'),
                         'rule' => 'Rule-based estimate: due after 180 days or 5,000 km since the last completed service, or when a recorded next-maintenance date has passed; approaching within 30 days.'];
+
+            case 'assessments.due':
+                // Monthly reassessment, as the assessment pages compute it (ComponentMaintenanceRules::reassessment_status).
+                $rows = array_map(static function ($row) {
+                    return [
+                        'id' => (int) $row['id'], 'make' => $row['make'], 'model' => $row['model'], 'plate_number' => $row['plate_number'] ?? null,
+                        'assessed_on' => $row['assessed_on'] ?? null,
+                        'status' => (string) ($row['reassessment']['status'] ?? 'never_assessed'),
+                        'due_on' => $row['reassessment']['due_on'] ?? null,
+                        'days_until_due' => isset($row['reassessment']['days_until_due']) ? (int) $row['reassessment']['days_until_due'] : null,
+                    ];
+                }, self::for_vehicles($source->reassessment_overview(), $args, 'id'));
+                return ['vehicles' => $rows, 'counts' => array_count_values(array_column($rows, 'status')),
+                        'rule' => 'Each vehicle is reassessed monthly from its latest assessment; due soon means within 7 days.'];
 
             case 'maintenance.recurring':
                 return ['issues' => self::recurring(self::maintenance_records($args, $source, 40))];

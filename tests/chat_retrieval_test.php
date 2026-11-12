@@ -139,6 +139,19 @@ check(run_tool('bookings.mine', ['reservation_id' => 52], $customer, $fixture)['
 $active = run_tool('bookings.mine', ['active' => true], $customer, $fixture, '2026-11-06')['data']['reservations'];
 check(count($active) === 1 && $active[0]['days_remaining'] === 2, 'an active rental shows the days remaining');
 check(run_tool('bookings.mine', [], $customer, $fixture)['data']['totals_by_status'] === ['pending' => 4500.0, 'completed' => 3400.0], 'recorded totals by status');
+// Monthly reassessment state, for administrators only.
+$assessed = $fixture + ['reassessments' => [
+    ['id' => 1, 'make' => 'Toyota', 'model' => 'Vios', 'plate_number' => 'ABC 1234', 'assessed_on' => '2026-09-01',
+     'reassessment' => ['status' => 'overdue', 'due_on' => '2026-10-01', 'days_until_due' => -30]],
+    ['id' => 2, 'make' => 'Toyota', 'model' => 'Fortuner', 'plate_number' => 'XYZ 5678', 'assessed_on' => null,
+     'reassessment' => ['status' => 'never_assessed', 'due_on' => null, 'days_until_due' => null]],
+]];
+$due = run_tool('assessments.due', [], $admin, $assessed);
+check($due['status'] === 'ok' && $due['data']['counts'] === ['overdue' => 1, 'never_assessed' => 1], 'reassessment counts by status');
+check($due['data']['vehicles'][0]['due_on'] === '2026-10-01' && $due['data']['vehicles'][0]['days_until_due'] === -30, 'reassessment due date and days');
+check(run_tool('assessments.due', ['models' => ['Vios']], $admin, $assessed)['data']['counts'] === ['overdue' => 1], 'reassessment filtered by model');
+check(run_tool('assessments.due', [], $customer, $assessed)['status'] === 'denied', 'customers cannot see reassessments');
+
 // Payment state reaches the chat; payment references and checkout links do not.
 $paidFixture = $fixture;
 foreach ($paidFixture['reservations'] as &$row) {

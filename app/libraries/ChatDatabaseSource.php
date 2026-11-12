@@ -15,15 +15,17 @@ class ChatDatabaseSource implements ChatDataSource
     private $reservations;
     private $maintenance;
     private $components;
+    private $assessments;
     private $vehicleRows = [];
 
-    /** @param array $models ['cars' => CarModel, 'reservations' => ReservationModel, 'maintenance' => MaintenanceModel, 'components' => ComponentMaintenanceModel] */
+    /** @param array $models ['cars' => CarModel, 'reservations' => ReservationModel, 'maintenance' => MaintenanceModel, 'components' => ComponentMaintenanceModel, 'assessments' => VehicleAssessmentModel] */
     public function __construct(array $models)
     {
         $this->cars         = $models['cars'];
         $this->reservations = $models['reservations'];
         $this->maintenance  = $models['maintenance'];
         $this->components   = $models['components'];
+        $this->assessments  = $models['assessments'];
     }
 
     public function vehicles($is_admin)
@@ -73,6 +75,15 @@ class ChatDatabaseSource implements ChatDataSource
     public function maintenance_cost_records()
     {
         return $this->maintenance->records();
+    }
+
+    public function reassessment_overview()
+    {
+        $today    = new DateTimeImmutable('today');
+        $interval = (int) ComponentMaintenanceRules::assessment_catalog()['reassessment_interval_days'];
+        return array_map(static function ($row) use ($today, $interval) {
+            return $row + ['reassessment' => ComponentMaintenanceRules::reassessment_status($row['assessed_on'], $today, $interval)];
+        }, $this->assessments->fleet_overview());
     }
 
     public function model_feature_vehicles()

@@ -49,6 +49,15 @@ interface ChatDataSource
      * id, make, model, plate_number, assessed_on, reassessment => [status, due_on, days_until_due].
      */
     public function reassessment_overview();
+
+    /**
+     * One row per assessed car (VehicleAssessmentModel::chat_condition): id, make, model, year, plate_number, status,
+     * current_mileage, assessed_on, odometer_km, overall_screening, safety_warning_count,
+     * systems => [category_key, category, rating, rating_score, screening_status, previous_rating, previous_score],
+     * findings => [category_key, severity, is_safety, observation, recommended_action],
+     * outcomes => [category_key => [result => count]] (verified outcomes only).
+     */
+    public function assessment_condition();
 }
 
 class ChatRetrieval
@@ -76,6 +85,7 @@ class ChatRetrieval
         'reservations.revenue'     => ['admin'],
         'fleet.utilization'        => ['admin'],
         'assessments.due'          => ['admin'],
+        'assessments.condition'    => ['admin'],
     ];
     public const SORTS       = ['price_asc', 'price_desc', 'year_desc', 'year_asc'];
     public const ADMIN_SORTS = ['mileage_desc', 'mileage_asc'];
@@ -290,6 +300,11 @@ class ChatRetrieval
                 }, self::for_vehicles($source->reassessment_overview(), $args, 'id'));
                 return ['vehicles' => $rows, 'counts' => array_count_values(array_column($rows, 'status')),
                         'rule' => 'Each vehicle is reassessed monthly from its latest assessment; due soon means within 7 days.'];
+
+            case 'assessments.condition':
+                // Latest assessment ratings, the trend since the one before, findings and verified outcomes.
+                return ['vehicles' => array_slice(self::for_vehicles($source->assessment_condition(), $args, 'id'), 0, 100),
+                        'rule' => 'Ratings and findings come from the latest recorded vehicle assessment; a trend compares it with the assessment before.'];
 
             case 'maintenance.recurring':
                 return ['issues' => self::recurring(self::maintenance_records($args, $source, 40))];

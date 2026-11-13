@@ -377,6 +377,15 @@ class ChatRetrieval
                 $order = (float) ($a[$column] ?? 0) <=> (float) ($b[$column] ?? 0);
                 return $ascending ? $order : -$order;
             });
+        } elseif ($is_admin) {
+            // Rentable cars first, so a long fleet list cut at the limit never hides them ("available cars" with 20
+            // unavailable demo cars once answered "none"). The order within each group is kept.
+            $position = array_flip(array_keys($matches));
+            uksort($matches, static function ($a, $b) use ($matches, $position) {
+                $rank = ((string) ($matches[$a]['status'] ?? '') === 'available' ? 0 : 1) <=> ((string) ($matches[$b]['status'] ?? '') === 'available' ? 0 : 1);
+                return $rank ?: $position[$a] <=> $position[$b];
+            });
+            $matches = array_values($matches);
         }
 
         $total   = count($matches);

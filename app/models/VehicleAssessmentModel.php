@@ -65,6 +65,101 @@ class VehicleAssessmentModel extends Model
         )->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /**
+     * Read-only condition summary for the administrator chat: per assessed vehicle, the latest
+     * assessment's system ratings (with each system's rating at the assessment before it, to show
+     * a trend), its most severe findings, and the verified outcomes recorded for the vehicle.
+     */
+    public function chat_condition()
+    {
+        $assessments = $this->db->raw(
+            'SELECT va.id, va.vehicle_id, va.assessed_on, va.odometer_km, va.overall_screening, va.safety_warning_count,
+                    cars.make, cars.model, cars.year, cars.plate_number, cars.status, cars.current_mileage
+             FROM vehicle_assessments va
+             INNER JOIN cars ON cars.id = va.vehicle_id
+             ORDER BY va.vehicle_id ASC, va.assessed_on DESC, va.id DESC'
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $latest = $previous = [];
+        foreach ($assessments as $row) {
+            $vehicle = (int) $row['vehicle_id'];
+            if (!isset($latest[$vehicle])) {
+                $latest[$vehicle] = $row;
+            } elseif (!isset($previous[$vehicle])) {
+                $previous[$vehicle] = $row;
+            }
+        }
+        if (!$latest) {
+            return [];
+        }
+
+        $ids = array_map('intval', array_merge(array_column($latest, 'id'), array_column($previous, 'id')));
+        $components = [];
+        foreach ($this->db->raw('SELECT assessment_id, category_key, rating, rating_score, screening_status FROM ' . self::COMPONENTS
+                                . ' WHERE assessment_id IN (' . implode(',', $ids) . ')')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $components[(int) $row['assessment_id']][$row['category_key']] = $row;
+        }
+
+        $latest_ids = array_map('intval', array_column($latest, 'id'));
+        $findings = [];
+        foreach ($this->db->raw('SELECT assessment_id, category_key, severity, is_safety, observation, recommended_action FROM ' . self::FINDINGS
+                                . ' WHERE assessment_id IN (' . implode(',', $latest_ids) . ')'
+                                . " ORDER BY FIELD(severity, 'critical', 'warning', 'advisory'), is_safety DESC, id ASC")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $findings[(int) $row['assessment_id']][] = [
+                'category_key'       => $row['category_key'],
+                'severity'           => $row['severity'],
+                'is_safety'          => (bool) $row['is_safety'],
+                'observation'        => $row['observation'],
+                'recommended_action' => $row['recommended_action'],
+            ];
+        }
+
+        $outcomes = [];
+        foreach ($this->db->raw("SELECT vehicle_id, category_key, result, COUNT(*) AS n FROM " . self::OUTCOMES
+                                . " WHERE verification_status = 'verified' GROUP BY vehicle_id, category_key, result")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $outcomes[(int) $row['vehicle_id']][$row['category_key']][$row['result']] = (int) $row['n'];
+        }
+
+        $catalog = ComponentMaintenanceRules::assessment_catalog()['categories'];
+        $labels = array_column($catalog, 'name', 'key');
+        $safety = array_column($catalog, 'safety_critical', 'key');
+        $rows = [];
+        foreach ($latest as $vehicle => $assessment) {
+            $before = isset($previous[$vehicle]) ? ($components[(int) $previous[$vehicle]['id']] ?? []) : [];
+            $systems = [];
+            foreach ($components[(int) $assessment['id']] ?? [] as $key => $component) {
+                $systems[] = [
+                    'category_key'     => $key,
+                    'category'         => $labels[$key] ?? $key,
+                    'safety_critical'  => !empty($safety[$key]),
+                    'rating'           => $component['rating'],
+                    'rating_score'     => $component['rating_score'] === null ? null : (int) $component['rating_score'],
+                    'screening_status' => $component['screening_status'],
+                    'previous_rating'  => $before[$key]['rating'] ?? null,
+                    'previous_score'   => isset($before[$key]['rating_score']) ? (int) $before[$key]['rating_score'] : null,
+                ];
+            }
+            $rows[] = [
+                'id'                   => $vehicle,
+                'make'                 => $assessment['make'],
+                'model'                => $assessment['model'],
+                'year'                 => $assessment['year'] === null ? null : (int) $assessment['year'],
+                'plate_number'         => $assessment['plate_number'],
+                'status'               => $assessment['status'],
+                'current_mileage'      => $assessment['current_mileage'] === null ? null : (int) $assessment['current_mileage'],
+                'assessed_on'          => $assessment['assessed_on'],
+                'odometer_km'          => $assessment['odometer_km'] === null ? null : (int) $assessment['odometer_km'],
+                'previous_assessed_on' => $previous[$vehicle]['assessed_on'] ?? null,
+                'overall_screening'    => $assessment['overall_screening'],
+                'safety_warning_count' => (int) $assessment['safety_warning_count'],
+                'systems'              => $systems,
+                'findings'             => array_slice($findings[(int) $assessment['id']] ?? [], 0, 8),
+                'outcomes'             => $outcomes[$vehicle] ?? new stdClass(),
+            ];
+        }
+        return $rows;
+    }
+
     /* ---------------------------------------------------------------
      * Assessments
      * ------------------------------------------------------------- */

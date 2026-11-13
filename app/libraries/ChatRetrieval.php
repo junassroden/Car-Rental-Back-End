@@ -55,6 +55,9 @@ class ChatRetrieval
 {
     public const MAX_REQUESTS = 4;
     public const MAX_RENTAL_DAYS = 365;
+    // Reservations read for totals, rankings and utilisation (lists in chat are limited separately).
+    public const AGGREGATE_ROWS = 5000;
+    public const TOP_ROWS = 10;
 
     /** Tool => roles allowed to use it. */
     public const TOOLS = [
@@ -245,11 +248,22 @@ class ChatRetrieval
                 return self::reservation_rows($data, $args, $today, false);
 
             case 'reservations.summary':
-                $data = $source->reservations_all(200);
+                $data = $source->reservations_all(self::AGGREGATE_ROWS);
                 $result = self::reservation_rows($data, $args, $today, true);
                 $result['counts_by_status'] = array_count_values(array_map(static function ($row) {
                     return (string) $row['status'];
                 }, $data['reservations']));
+                // "Who has the most bookings?": every customer's reservation count, not only the rows listed.
+                $customers = [];
+                foreach ($data['reservations'] as $row) {
+                    $name = (string) ($row['customer_name'] ?? '') ?: 'Unnamed customer';
+                    $customers[$name] = ($customers[$name] ?? 0) + 1;
+                }
+                arsort($customers);
+                $result['by_customer'] = array_map(static function ($name, $count) {
+                    return ['customer_name' => $name, 'reservations' => $count];
+                }, array_keys(array_slice($customers, 0, self::TOP_ROWS, true)), array_slice($customers, 0, self::TOP_ROWS, true));
+                $result['rows_counted'] = count($data['reservations']);
                 return $result;
 
             case 'fleet.status_counts':
@@ -577,7 +591,7 @@ class ChatRetrieval
             $due[(int) $row['id']] = $row;
         }
         $records = $source->maintenance_cost_records();
-        $reservations = $source->reservations_all(200)['reservations'];
+        $reservations = $source->reservations_all(self::AGGREGATE_ROWS)['reservations'];
         $out = [];
         foreach ($cars as $car) {
             $id = (int) $car['id'];
@@ -612,22 +626,45 @@ class ChatRetrieval
     private static function revenue(array $args, ChatDataSource $source)
     {
         $by_status = [];
-        foreach ($source->reservations_all(200)['reservations'] as $row) {
+        $paid = 0.0;
+        $customers = [];
+        $vehicles = [];
+        foreach ($source->reservations_all(self::AGGREGATE_ROWS)['reservations'] as $row) {
             if (($args['from'] !== null && $row['start_date'] < $args['from']) || ($args['to'] !== null && $row['start_date'] > $args['to'])) {
                 continue;
             }
             $status = (string) $row['status'];
+            $amount = (float) $row['total_amount'];
             $by_status[$status] = $by_status[$status] ?? ['reservations' => 0, 'total' => 0.0];
             $by_status[$status]['reservations']++;
-            $by_status[$status]['total'] = round($by_status[$status]['total'] + (float) $row['total_amount'], 2);
+            $by_status[$status]['total'] = round($by_status[$status]['total'] + $amount, 2);
+            if (!in_array($status, ['pending', 'confirmed', 'completed'], true)) {
+                continue;  // cancelled and rejected bookings carry no value
+            }
+            if (($row['payment_status'] ?? null) === 'paid') {
+                $paid = round($paid + $amount, 2);
+            }
+            $customer = (string) ($row['customer_name'] ?? '') ?: 'Unnamed customer';
+            $customers[$customer] = ['customer_name' => $customer, 'reservations' => ($customers[$customer]['reservations'] ?? 0) + 1,
+                                     'booked' => round(($customers[$customer]['booked'] ?? 0) + $amount, 2)];
+            $car = (int) ($row['car_id'] ?? 0);
+            $vehicles[$car] = ['car_id' => $car, 'make' => $row['make'] ?? null, 'model' => $row['model'] ?? null,
+                               'reservations' => ($vehicles[$car]['reservations'] ?? 0) + 1,
+                               'booked' => round(($vehicles[$car]['booked'] ?? 0) + $amount, 2)];
         }
         ksort($by_status);
         $booked = 0.0;
         foreach (['pending', 'confirmed', 'completed'] as $status) {
             $booked = round($booked + ($by_status[$status]['total'] ?? 0), 2);
         }
-        return ['by_status' => $by_status, 'booked_total' => $booked, 'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP',
-                'basis' => 'Stored reservation totals; the system records no payments.'];
+        $top = static function (array $rows) {
+            usort($rows, static function ($a, $b) { return $b['booked'] <=> $a['booked'] ?: $b['reservations'] <=> $a['reservations']; });
+            return array_slice($rows, 0, self::TOP_ROWS);
+        };
+        return ['by_status' => $by_status, 'booked_total' => $booked, 'paid_total' => $paid,
+                'by_customer' => $top(array_values($customers)), 'by_vehicle' => $top(array_values($vehicles)),
+                'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP',
+                'basis' => 'Stored reservation totals of pending, confirmed and completed bookings; paid means a verified online payment.'];
     }
 
     /** Booked days per car within [from, to] (default: the 30 days up to today) from pending, confirmed and completed reservations. */
@@ -637,7 +674,7 @@ class ChatRetrieval
         $from = new DateTimeImmutable($args['from'] ?? $to->modify('-30 days')->format('Y-m-d'));
         $window = max(1, (int) $from->diff($to)->format('%a'));
         $booked = [];
-        foreach ($source->reservations_all(200)['reservations'] as $row) {
+        foreach ($source->reservations_all(self::AGGREGATE_ROWS)['reservations'] as $row) {
             if (!in_array((string) $row['status'], ['pending', 'confirmed', 'completed'], true)) {
                 continue;
             }

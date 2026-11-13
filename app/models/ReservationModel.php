@@ -146,7 +146,8 @@ class ReservationModel extends Model
 
     /**
      * Every customer's reservations for the administrator chat, newest first. Only the
-     * customer's name is included, never contact details.
+     * customer's name is included, never contact details. Up to 5,000 rows, so totals and
+     * rankings count every reservation; lists shown in chat are cut down by ChatRetrieval.
      */
     public function chat_context_all($limit = 200)
     {
@@ -158,7 +159,7 @@ class ReservationModel extends Model
             ->inner_join('users', 'users.id = reservations.user_id')
             ->order_by('reservations.created_at', 'DESC')
             ->order_by('reservations.id', 'DESC')
-            ->pagination(max(1, min((int) $limit, 200)), 1)
+            ->pagination(max(1, min((int) $limit, 5000)), 1)
             ->get_all();
 
         return ['total_count' => $total, 'reservations' => $this->attach_payment_summary($records)];

@@ -177,6 +177,15 @@ check($status['current_mileage'] === 72100 && $status['service']['service_status
 check(run_tool('vehicles.status', ['models' => ['Vios']], $customer, $fixture)['status'] === 'denied', 'customers cannot read vehicle status');
 $revenue = run_tool('reservations.revenue', [], $admin, $fixture)['data']['by_status'];
 check($revenue['confirmed']['total'] === 10500.0 && $revenue['completed']['total'] === 3400.0 && $revenue['pending']['total'] === 4500.0, 'revenue by status from stored totals');
+// Booked value per car and per customer, over every reservation; cancelled and rejected ones carry no value.
+$fullRevenue = run_tool('reservations.revenue', [], $admin, $fixture)['data'];
+$bookedSum = array_sum(array_column($fullRevenue['by_vehicle'], 'booked'));
+check(abs($bookedSum - $fullRevenue['booked_total']) < 0.01, 'per-vehicle booked value adds up to the booked total');
+check(abs(array_sum(array_column($fullRevenue['by_customer'], 'booked')) - $fullRevenue['booked_total']) < 0.01, 'per-customer booked value adds up to the booked total');
+check($fullRevenue['by_vehicle'][0]['booked'] >= end($fullRevenue['by_vehicle'])['booked'], 'per-vehicle value sorted highest first');
+check($fullRevenue['paid_total'] === 0.0, 'no verified payments in the fixture');
+$summary = run_tool('reservations.summary', [], $admin, $fixture)['data'];
+check(array_sum(array_column($summary['by_customer'], 'reservations')) === $summary['rows_counted'], 'customer ranking counts every reservation');
 $util = run_tool('fleet.utilization', ['from' => '2026-11-01', 'to' => '2026-11-30'], $admin, $fixture)['data'];
 $byModel = array_column($util['vehicles'], 'booked_days', 'model');
 check($util['window_days'] === 29 && $byModel['Fortuner'] === 3 && $byModel['Vios'] === 3 && $byModel['Hiace'] === 0, 'utilisation counts booked days in the window');

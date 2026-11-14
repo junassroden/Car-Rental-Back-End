@@ -51,6 +51,8 @@ $router->get('/', 'Welcome::index');
 if (PHP_SAPI === 'cli') {
     $router->get('/migrate', 'MigrationController::migrate');
     $router->get('/status', 'MigrationController::status');
+    // Scheduled job (`php lava reservations expire`): releases unpaid reservations whose hold ran out.
+    $router->get('/reservations/expire', 'ReservationController::expirePending');
 }
 
 // JSON API. CORS preflight (OPTIONS) requests are answered by the router itself.
@@ -62,6 +64,13 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/logout', 'AuthController::logout');
     $router->post('/refresh', 'AuthController::refresh');
     $router->get('/me', 'AuthController::me');
+    $router->post('/email/verify', 'AuthController::verifyEmail');
+    $router->post('/email/resend', 'AuthController::resendVerification');
+    $router->post('/password/forgot', 'AuthController::forgotPassword');
+    $router->post('/password/reset', 'AuthController::resetPassword');
+    // Linking Google needs a signed-in owner; it never happens automatically by matching email.
+    $router->post('/account/google/link', 'AuthController::linkGoogle');
+    $router->post('/account/google/unlink', 'AuthController::unlinkGoogle');
 
     // Customer profile
     $router->get('/profile', 'ProfileController::show');
@@ -94,9 +103,10 @@ $router->group(['prefix' => '/api'], function ($router) {
     // Payments are confirmed only by the gateway webhooks below, never by hand or by the browser.
     $router->post('/reservations/{id}/payment', 'PaymentController::createCheckout');
 
-    // PayMongo posts signed payment events directly to this endpoint.
-    $router->post('/paymongo/webhook', 'PaymentController::webhook');
+    // Xendit posts invoice events (PAID, SETTLED, EXPIRED) here, authenticated by X-Callback-Token.
     $router->post('/xendit/webhook', 'PaymentController::xenditWebhook');
+    // Paid attempts an administrator must act on: payment after cancellation or expiry, duplicates.
+    $router->get('/payments/review', 'PaymentController::reviewQueue');
     // Maintenance (admin only)
     $router->get('/maintenance', 'MaintenanceController::maintenanceRecords');
     $router->get('/maintenance/predictions', 'MaintenanceController::maintenancePredictions');

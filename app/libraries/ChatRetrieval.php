@@ -91,7 +91,7 @@ class ChatRetrieval
     public const ADMIN_SORTS = ['mileage_desc', 'mileage_asc'];
 
     public const VEHICLE_STATUSES     = ['available', 'rented', 'maintenance', 'unavailable'];
-    public const RESERVATION_STATUSES = ['pending', 'confirmed', 'cancelled', 'rejected', 'completed'];
+    public const RESERVATION_STATUSES = ['pending', 'confirmed', 'cancelled', 'rejected', 'completed', 'expired'];
 
     /** Car fields a customer may see; administrators also see ADMIN_VEHICLE_FIELDS. */
     public const PUBLIC_VEHICLE_FIELDS = [

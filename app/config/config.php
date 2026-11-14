@@ -64,7 +64,9 @@ $config['version']                 = '4.7.0';
 | -------------------------------------------------------------------
 | Values: development and production
 */
-$config['environment'] = getenv('APP_ENV') ?: 'development';
+// Defaults to production, so a server without APP_ENV never shows PHP errors to visitors.
+// Local development sets APP_ENV=development in .env.
+$config['environment'] = getenv('APP_ENV') ?: 'production';
 
 /*
 |--------------------------------------------------------------------------
@@ -113,8 +115,9 @@ $config['proxy_enabled']           = FALSE;
 |   3 = All
 |
 */
-$config['log_threshold']            = 0;
-$config['log_dir']                  = 'runtime/logs/';
+// 1 = errors and exceptions (default), 0 = off, 2 = debug, 3 = all. Set LOG_THRESHOLD to change it.
+$config['log_threshold']            = (int) (getenv('LOG_THRESHOLD') !== false ? getenv('LOG_THRESHOLD') : 1);
+$config['log_dir']                  = ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR;
 
 /*
 |--------------------------------------------------------------------------
@@ -411,4 +414,45 @@ $config['security_headers'] = [
         'max_age'         => 600,
     ],
 ];
+
+/*
+|--------------------------------------------------------------------------
+| Required production configuration
+|--------------------------------------------------------------------------
+| In production the application refuses to start while a critical secret is
+| missing or unsafe, instead of running with forgeable tokens or open webhooks.
+| The log and the command line name the missing variables; visitors only see
+| a generic error.
+*/
+if ($config['environment'] === 'production') {
+    $required = [
+        'DB_NAME', 'DB_USER', 'APP_KEY', 'JWT_SECRET', 'REFRESH_TOKEN_KEY', 'FRONTEND_ORIGIN', 'FRONTEND_URL',
+        'XENDIT_SECRET_KEY', 'XENDIT_CALLBACK_TOKEN', 'AI_SERVICE_API_KEY', 'MAIL_FROM_ADDRESS',
+    ];
+    $problems = array_values(array_filter($required, static function ($name) {
+        return trim((string) getenv($name)) === '';
+    }));
+    if (strlen((string) getenv('JWT_SECRET')) < 32) {
+        $problems[] = 'JWT_SECRET (at least 32 characters)';
+    }
+    if (strlen((string) getenv('AI_SERVICE_API_KEY')) < 32) {
+        $problems[] = 'AI_SERVICE_API_KEY (at least 32 characters)';
+    }
+    if ((string) getenv('JWT_SECRET') !== '' && getenv('JWT_SECRET') === getenv('REFRESH_TOKEN_KEY')) {
+        $problems[] = 'REFRESH_TOKEN_KEY (must differ from JWT_SECRET)';
+    }
+    if ($problems) {
+        $message = 'Refusing to start in production. Missing or unsafe configuration: ' . implode(', ', array_unique($problems));
+        error_log($message);
+        if (PHP_SAPI === 'cli') {
+            fwrite(STDERR, $message . PHP_EOL);
+        } else {
+            http_response_code(503);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'The server is not configured correctly.']);
+        }
+        exit(1);
+    }
+    unset($required, $problems, $message);
+}
 ?>

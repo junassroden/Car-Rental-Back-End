@@ -1,0 +1,35 @@
+# Second guard behind the Dockerfile's explicit COPY list: none of this may enter the build context.
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Customer data: verification photos, assessment evidence, uploaded vehicle images
+storage/private/user-verification/
+storage/private/assessment-evidence/
+public/uploads/
+
+# Runtime caches, sessions and logs
+runtime/cache/
+runtime/logs/
+runtime/session/
+*.log
+
+# Version control, editors, OS files
+.git/
+.gitignore
+.idea/
+.vscode/
+*.sublime-*
+.DS_Store
+Thumbs.db
+
+# Development-only files
+tests/
+database/
+changelog.txt
+vendor/
+composer.lock

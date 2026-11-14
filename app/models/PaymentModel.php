@@ -1,15 +1,26 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
+/**
+ * Payment attempts (checkout_payments) and the webhook events that settle them.
+ *
+ * Every checkout is its own row: a retry adds a new attempt and never overwrites an older
+ * invoice ID, so a payment made on any invoice the customer opened can always be matched.
+ * checkout_session_id is the external ID this system gives the provider; provider_invoice_id
+ * is the provider's own ID, used to expire an invoice through its API.
+ */
 class PaymentModel extends Model
 {
     protected $table = 'checkout_payments';
     protected $primary_key = 'id';
     protected $fillable = [
-        'reservation_id', 'checkout_session_id', 'checkout_url',
-        'reference_number', 'amount', 'status', 'webhook_event_hash', 'paid_at',
+        'reservation_id', 'provider', 'checkout_session_id', 'provider_invoice_id', 'checkout_url',
+        'reference_number', 'amount', 'currency', 'status', 'expires_at', 'webhook_event_hash',
+        'paid_at', 'paid_amount', 'review_status', 'review_reason',
     ];
     protected $timestamps = false;
+
+    const EVENTS = 'payment_webhook_events';
 
     public function latest_for_reservation($reservation_id)
     {
@@ -20,34 +31,39 @@ class PaymentModel extends Model
             ->row_array();
     }
 
+    /** An unexpired, unpaid attempt that can still be paid, or NULL. */
+    public function open_attempt($reservation_id)
+    {
+        return $this->db->table($this->table)
+            ->where('reservation_id', (int) $reservation_id)
+            ->where('status', 'pending')
+            ->where('expires_at', '>', date('Y-m-d H:i:s', time() + 120))
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->row_array();
+    }
+
+    /** Every unpaid attempt of a reservation that the provider may still accept. */
+    public function pending_attempts($reservation_id)
+    {
+        return $this->db->table($this->table)
+            ->where('reservation_id', (int) $reservation_id)
+            ->where('status', 'pending')
+            ->get_all();
+    }
+
     public function find_by_session($session_id)
     {
         return $this->find_by('checkout_session_id', $session_id);
     }
 
-    public function create_checkout(array $payment)
+    /** Adds a new attempt. Earlier attempts are left exactly as they are. */
+    public function create_attempt(array $attempt)
     {
-        return $this->insert($payment);
+        return $this->insert($attempt + ['status' => 'pending', 'currency' => 'PHP']);
     }
 
-    /**
-     * Replaces an unpaid attempt with a new checkout. A reservation keeps one payment row
-     * (checkout_payments_reservation_unique), so a retry reuses it. A paid row is never touched.
-     */
-    public function restart_checkout($id, array $checkout)
-    {
-        return (bool) $this->db->table($this->table)
-            ->where('id', (int) $id)
-            ->where('status', '<>', 'paid')
-            ->update($checkout + [
-                'status' => 'pending',
-                'paid_at' => null,
-                'webhook_event_hash' => null,
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
-    }
-
-    /** Marks a still-pending checkout as expired. Paid payments are left as they are. */
+    /** Marks a still-pending attempt as expired. A paid attempt is never changed. */
     public function mark_expired($session_id)
     {
         $this->db->table($this->table)
@@ -57,15 +73,65 @@ class PaymentModel extends Model
         return true;
     }
 
+    /** TRUE when the reservation still has an attempt the customer could pay. */
+    public function has_pending_attempt($reservation_id)
+    {
+        return (bool) $this->db->table($this->table)
+            ->where('reservation_id', (int) $reservation_id)
+            ->where('status', 'pending')
+            ->limit(1)
+            ->row_array();
+    }
+
     /**
-     * Records a gateway-verified payment and, in the same transaction, confirms the reservation
-     * it pays for. Safe to repeat: a payment already marked paid is not processed again.
-     * The reservation is confirmed only while it is still pending. A cancelled or rejected one
-     * stays as it is, and the paid record shows the administrator that a refund is needed.
-     * Pending reservations already hold their dates (ReservationModel::BLOCKING_STATUSES),
-     * so confirming one cannot create a double booking.
+     * Records a webhook event once. Returns FALSE when an identical event was already
+     * recorded, so a redelivered webhook is acknowledged without being processed again.
      */
-    public function mark_paid($session_id, $event_hash)
+    public function record_event($provider, $event_hash, $external_id, $event_status, $payment_id, $outcome)
+    {
+        $seen = $this->db->table(self::EVENTS)
+            ->select('id')
+            ->where('provider', $provider)
+            ->where('event_hash', $event_hash)
+            ->limit(1)
+            ->row_array();
+        if ($seen) {
+            return false;
+        }
+        try {
+            $this->db->table(self::EVENTS)->insert([
+                'provider' => $provider,
+                'event_hash' => $event_hash,
+                'external_id' => $external_id !== null ? substr((string) $external_id, 0, 100) : null,
+                'event_status' => $event_status !== null ? substr((string) $event_status, 0, 30) : null,
+                'payment_id' => $payment_id,
+                'outcome' => substr((string) $outcome, 0, 40),
+            ]);
+        } catch (Exception $exception) {
+            // A concurrent delivery of the same event won the unique key.
+            return false;
+        }
+        return true;
+    }
+
+    public function event_seen($provider, $event_hash)
+    {
+        return (bool) $this->db->table(self::EVENTS)
+            ->select('id')
+            ->where('provider', $provider)
+            ->where('event_hash', $event_hash)
+            ->limit(1)
+            ->row_array();
+    }
+
+    /**
+     * Records a provider-verified payment on its own attempt and settles the reservation in the
+     * same transaction. The money is always recorded, whichever attempt it came through and
+     * whatever happened to the reservation since; anything unusual is flagged for review.
+     *
+     * Returns 'paid' | 'confirmed' | 'review' | 'duplicate', or FALSE when the attempt is unknown.
+     */
+    public function mark_paid($session_id, $paid_amount, $event_hash, ReservationModel $reservations)
     {
         if (!$this->db->transaction()) {
             return false;
@@ -82,14 +148,18 @@ class PaymentModel extends Model
             }
             if ($payment['status'] === 'paid') {
                 $this->db->commit();
-                return true;
+                return 'duplicate';
             }
 
-            $reservation = $this->db->table('reservations')
-                ->select('id, status')
-                ->where('id', (int) $payment['reservation_id'])
-                ->for_update()
+            $otherPaid = (bool) $this->db->table($this->table)
+                ->select('id')
+                ->where('reservation_id', (int) $payment['reservation_id'])
+                ->where('status', 'paid')
+                ->where('id', '<>', (int) $payment['id'])
+                ->limit(1)
                 ->row_array();
+
+            $settlement = $reservations->settle_payment((int) $payment['reservation_id'], $otherPaid);
 
             $this->db->table($this->table)
                 ->where('id', (int) $payment['id'])
@@ -97,19 +167,30 @@ class PaymentModel extends Model
                     'status' => 'paid',
                     'webhook_event_hash' => $event_hash,
                     'paid_at' => date('Y-m-d H:i:s'),
+                    'paid_amount' => number_format((float) $paid_amount, 2, '.', ''),
+                    'review_status' => $settlement['review'] !== null ? 'needs_review' : null,
+                    'review_reason' => $settlement['review'] !== null ? substr($settlement['review'], 0, 255) : null,
                 ]);
-            if ($reservation && $reservation['status'] === 'pending') {
-                $this->db->table('reservations')
-                    ->where('id', (int) $reservation['id'])
-                    ->update(['status' => 'confirmed']);
-            }
+
             if (!$this->db->commit()) {
                 return false;
             }
-            return true;
+            return $settlement['outcome'];
         } catch (Exception $exception) {
             $this->db->roll_back();
             throw $exception;
         }
+    }
+
+    /** Paid attempts an administrator must act on (refunds, duplicates). Newest first. */
+    public function needing_review()
+    {
+        return $this->db->table($this->table)
+            ->select('checkout_payments.id, checkout_payments.reservation_id, checkout_payments.provider, checkout_payments.reference_number, checkout_payments.amount, checkout_payments.paid_amount, checkout_payments.paid_at, checkout_payments.review_reason, reservations.status AS reservation_status, users.full_name')
+            ->inner_join('reservations', 'reservations.id = checkout_payments.reservation_id')
+            ->inner_join('users', 'users.id = reservations.user_id')
+            ->where('checkout_payments.review_status', 'needs_review')
+            ->order_by('checkout_payments.paid_at', 'DESC')
+            ->get_all();
     }
 }

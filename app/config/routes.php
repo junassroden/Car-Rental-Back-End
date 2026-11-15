@@ -64,8 +64,6 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/logout', 'AuthController::logout');
     $router->post('/refresh', 'AuthController::refresh');
     $router->get('/me', 'AuthController::me');
-    $router->post('/email/verify', 'AuthController::verifyEmail');
-    $router->post('/email/resend', 'AuthController::resendVerification');
     $router->post('/password/forgot', 'AuthController::forgotPassword');
     $router->post('/password/reset', 'AuthController::resetPassword');
     // Linking Google needs a signed-in owner; it never happens automatically by matching email.

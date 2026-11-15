@@ -45,19 +45,6 @@ class UserModel extends Model
             ->row_array();
     }
 
-    public static function email_verified(array $user)
-    {
-        return !empty($user['email_verified_at']);
-    }
-
-    public function mark_email_verified($id)
-    {
-        return $this->db->table($this->table)
-            ->where('id', (int) $id)
-            ->where_null('email_verified_at')
-            ->update(['email_verified_at' => date('Y-m-d H:i:s')]);
-    }
-
     /** Sets a password the owner chose (password reset, or first password for a Google account). */
     public function set_password($id, $password)
     {

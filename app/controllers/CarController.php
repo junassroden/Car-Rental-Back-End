@@ -16,6 +16,8 @@ class CarController extends Controller
         'air_conditioning'        => 0,
         'gps_navigation'          => 0,
         'additional_features'     => [],
+
+        
         'status'                  => 'available',
     ];
 

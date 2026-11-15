@@ -182,6 +182,17 @@ Standard reservations are confirmed after the payment provider verifies payment.
 periods (more than seven days) are paid first and then wait for an administrator to approve or
 reject them. Rejected paid reservations require a refund to be arranged by an administrator.
 
+### Car image storage in Docker
+
+Car image files are stored under `public/uploads/cars`; the database stores only their
+`/uploads/cars/...` paths. The Docker image exposes that directory as a volume, but deployments
+must attach persistent storage there or uploaded photos will be lost when a container is replaced.
+For a cloud host, mount its persistent disk at `/var/www/html/public/uploads/cars`. For Docker,
+use a named volume mounted at the same path. Images uploaded before the persistent volume was
+configured may need to be uploaded again if they are no longer present in the old container.
+Back up the image directory separately from SQL backups; restoring the database alone does not
+restore image files.
+
 ### Database
 
 **File:** `app/config/database.php`

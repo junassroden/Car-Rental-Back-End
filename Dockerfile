@@ -22,8 +22,11 @@ WORKDIR /var/www/html
 RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
  
 # Fix permissions
-RUN chown -R www-data:www-data /var/www/html \
+RUN mkdir -p /var/www/html/public/uploads/cars \
+&& chown -R www-data:www-data /var/www/html \
 && chmod -R 755 /var/www/html
+
+VOLUME ["/var/www/html/public/uploads/cars"]
  
 # Point Apache document root to public/
 ENV APACHE_DOCUMENT_ROOT /var/www/html/public

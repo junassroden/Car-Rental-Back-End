@@ -102,12 +102,6 @@ class ChatFixtureSource implements ChatDataSource
         return $this->db['reassessments'];
     }
 
-    public function assessment_condition()
-    {
-        $this->guard('assessment_condition');
-        return $this->db['assessment_condition'] ?? [];
-    }
-
     public function component_inspections($vehicle_id, $limit)
     {
         $this->guard('component_inspections');

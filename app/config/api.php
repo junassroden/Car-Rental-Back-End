@@ -153,7 +153,7 @@ $config['refresh_token_table'] = 'refresh_tokens';
 | application's name or URL.
 |
 */
-$config['jwt_issuer'] = getenv('JWT_ISSUER') ?: 'driverent-api';
+$config['jwt_issuer'] = 'your-app';
 
 /*
 |--------------------------------------------------------------------------
@@ -164,7 +164,7 @@ $config['jwt_issuer'] = getenv('JWT_ISSUER') ?: 'driverent-api';
 |
 */
 
-$config['jwt_audience'] = getenv('JWT_AUDIENCE') ?: 'driverent-web';
+$config['jwt_audience'] = 'your-app-clients';
 
 /*
 |--------------------------------------------------------------------------

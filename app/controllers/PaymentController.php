@@ -13,6 +13,7 @@ class PaymentController extends Controller
     public function createCheckout($id)
     {
         $user = $this->requireUser();
+
         if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
             $this->response->send_json_error('Reservation not found.', 404);
             return;
@@ -26,15 +27,10 @@ class PaymentController extends Controller
             $this->response->send_json_error('Reservation not found.', 404);
             return;
         }
-
         // Payment confirms a pending reservation. Confirmed ones approved before automatic
         // confirmation may still be unpaid, so they can be paid too.
         if (!in_array($reservation['status'], ['pending', 'confirmed'], true)) {
             $this->response->send_json_error('Only reservations awaiting payment can be paid.', 409);
-            return;
-        }
-        if ($reservation['status'] === 'pending' && !ReservationModel::hold_active($reservation)) {
-            $this->response->send_json_error('The time to pay for this reservation has run out and its dates were released. Please make a new reservation.', 409);
             return;
         }
         if ($reservation['status'] === 'pending' && $reservation['start_date'] < date('Y-m-d')) {
@@ -58,48 +54,44 @@ class PaymentController extends Controller
             return;
         }
 
-        // An open invoice is reused, so a second click does not start a second payment.
-        $open = $this->PaymentModel->open_attempt((int) $reservation['id']);
-        if ($open && filter_var($open['checkout_url'], FILTER_VALIDATE_URL)) {
+        // An open invoice is reused, so a second click cannot start a second payment. Xendit
+        // invoices last 24 hours (XenditClient), so an older pending one is replaced.
+        $existing = $this->PaymentModel->latest_for_reservation((int) $reservation['id']);
+        if (
+            $existing && $existing['status'] === 'pending'
+            && filter_var($existing['checkout_url'], FILTER_VALIDATE_URL)
+            && strtotime($existing['created_at']) > time() - 23 * 3600
+        ) {
             $this->response->send_json_success([
-                'checkout_url' => $open['checkout_url'],
-                'checkout_session_id' => $open['checkout_session_id'],
-                'expires_at' => $open['expires_at'],
+                'checkout_url' => $existing['checkout_url'],
+                'checkout_session_id' => $existing['checkout_session_id'],
             ], 'Xendit checkout is ready.');
             return;
         }
-
-        // The invoice ends with the reservation hold; a confirmed but unpaid booking already
-        // holds its dates, so its invoice gets the provider's standard 24 hours.
-        $duration = $reservation['status'] === 'pending'
-            ? strtotime($reservation['expires_at']) - time()
-            : 86400;
 
         try {
             $client = $this->call->library('XenditClient', getenv('XENDIT_SECRET_KEY') ?: '');
             $checkout = $client->createInvoice(
                 $reservation,
-                getenv('FRONTEND_URL') ?: 'http://127.0.0.1:5173',
-                $duration
+                getenv('FRONTEND_URL') ?: 'http://127.0.0.1:5173'
             );
-            // Each invoice is a new attempt. Older attempts keep their IDs, so a payment made
-            // on any of them is still matched by the webhook.
-            $created = $this->PaymentModel->create_attempt([
-                'reservation_id' => (int) $reservation['id'],
-                'provider' => 'xendit',
+            $attempt = [
                 'checkout_session_id' => $checkout['id'],
-                'provider_invoice_id' => $checkout['provider_id'],
                 'checkout_url' => $checkout['url'],
                 'reference_number' => $checkout['reference_number'],
                 'amount' => $checkout['amount'],
-                'currency' => $checkout['currency'],
-                'expires_at' => $checkout['expires_at'],
-            ]);
+            ];
+            $created = $existing
+                ? $this->PaymentModel->restart_checkout((int) $existing['id'], $attempt)
+                : $this->PaymentModel->create_checkout($attempt + [
+                    'reservation_id' => (int) $reservation['id'],
+                    'status' => 'pending',
+                ]);
             if (!$created) {
-                throw new RuntimeException('The checkout attempt could not be stored.');
+                throw new RuntimeException('The checkout session could not be stored.');
             }
         } catch (Throwable $exception) {
-            error_log('Xendit checkout creation failed for reservation ' . (int) $reservation['id'] . ': ' . $exception->getMessage());
+            error_log('Xendit checkout creation failed: ' . $exception->getMessage());
             $this->response->send_json_error('Xendit checkout could not be started. Please try again later.', 503);
             return;
         }
@@ -107,16 +99,72 @@ class PaymentController extends Controller
         $this->response->send_json_success([
             'checkout_url' => $checkout['url'],
             'checkout_session_id' => $checkout['id'],
-            'expires_at' => $checkout['expires_at'],
         ], 'Xendit checkout is ready.', 201);
     }
 
-    /**
-     * Xendit invoice callback. Authenticated by the X-Callback-Token shared secret.
-     * Idempotent: an identical redelivery is acknowledged without processing, and a second
-     * PAID/SETTLED event for an attempt already paid changes nothing. Events may arrive late
-     * or out of order: an EXPIRED never undoes a payment, and a PAID after EXPIRED is recorded.
-     */
+    public function webhook()
+    {
+        $secret = trim((string) getenv('PAYMONGO_WEBHOOK_SECRET'));
+        $rawBody = $this->request->raw_body();
+        if ($secret === '' || $rawBody === '') {
+            $this->response->send_json_error('PayMongo webhook is not configured.', 503);
+            return;
+        }
+
+        $signature = $this->request->header('Paymongo-Signature') ?? $this->request->header('X-Paymongo-Signature') ?? '';
+        if (!$this->validSignature($rawBody, $signature, $secret)) {
+            $this->response->send_json_error('Invalid PayMongo webhook signature.', 401);
+            return;
+        }
+
+        $event = json_decode($rawBody, true);
+        $session = $event['data']['data'] ?? null;
+        if (
+            !is_array($event)
+            || ($event['data']['type'] ?? '') !== 'checkout_session.payment.paid'
+            || !is_array($session)
+            || !is_string($session['id'] ?? null)
+        ) {
+            $this->response->send_json_error('Unsupported PayMongo webhook event.', 422);
+            return;
+        }
+
+        $payment = $this->PaymentModel->find_by_session($session['id']);
+        if (!$payment || ($session['attributes']['reference_number'] ?? '') !== $payment['reference_number']) {
+            $this->response->send_json_error('The PayMongo checkout session does not match a reservation.', 404);
+            return;
+        }
+
+        $paidAmount = null;
+        foreach (($session['attributes']['payments'] ?? []) as $attempt) {
+            $attributes = $attempt['attributes'] ?? [];
+            if (
+                ($attributes['status'] ?? '') === 'paid'
+                && strtoupper((string) ($attributes['currency'] ?? '')) === 'PHP'
+            ) {
+                $paidAmount = $attributes['net_amount'] ?? null;
+                break;
+            }
+        }
+        if ((int) $paidAmount !== (int) round((float) $payment['amount'] * 100)) {
+            $this->response->send_json_error('The PayMongo payment amount could not be verified.', 422);
+            return;
+        }
+
+        try {
+            if (!$this->PaymentModel->mark_paid($session['id'], hash('sha256', $rawBody))) {
+                $this->response->send_json_error('The payment could not be recorded.', 500);
+                return;
+            }
+        } catch (Throwable $exception) {
+            error_log('PayMongo webhook processing failed: ' . $exception->getMessage());
+            $this->response->send_json_error('The payment could not be recorded.', 500);
+            return;
+        }
+
+        $this->response->send_json_success(null, 'Payment received.');
+    }
+
     public function xenditWebhook()
     {
         $token = trim((string) getenv('XENDIT_CALLBACK_TOKEN'));
@@ -127,86 +175,70 @@ class PaymentController extends Controller
         }
 
         $rawBody = $this->request->raw_body();
-        $eventHash = hash('sha256', $rawBody);
-        if ($this->PaymentModel->event_seen('xendit', $eventHash)) {
-            $this->response->send_json_success(null, 'Xendit event already processed.');
-            return;
-        }
-
         $event = json_decode($rawBody, true);
         $status = is_array($event) ? strtoupper((string) ($event['status'] ?? '')) : '';
-        $externalId = is_array($event) ? ($event['external_id'] ?? null) : null;
-        if (!in_array($status, ['PAID', 'SETTLED', 'EXPIRED'], true) || !is_string($externalId)) {
+        if (!in_array($status, ['PAID', 'SETTLED', 'EXPIRED'], true) || !is_string($event['external_id'] ?? null)) {
             $this->response->send_json_error('Unsupported Xendit webhook event.', 422);
             return;
         }
 
-        $payment = $this->PaymentModel->find_by_session($externalId);
+        $payment = $this->PaymentModel->find_by_session($event['external_id']);
         if (!$payment) {
             $this->response->send_json_error('The Xendit invoice does not match a reservation.', 404);
             return;
         }
-        // When the provider's own invoice ID was stored, the event must name the same invoice.
-        if (
-            !empty($payment['provider_invoice_id']) && isset($event['id'])
-            && !hash_equals((string) $payment['provider_invoice_id'], (string) $event['id'])
-        ) {
-            $this->response->send_json_error('The Xendit invoice ID does not match the payment attempt.', 422);
-            return;
-        }
 
+        // An expired invoice was never paid. The reservation stays pending so the customer can retry.
         if ($status === 'EXPIRED') {
-            $this->PaymentModel->mark_expired($externalId);
-            // The invoice ends with the reservation hold, so release any holds that have run out.
-            $this->ReservationModel->expire_stale(50);
-            $this->PaymentModel->record_event('xendit', $eventHash, $externalId, $status, (int) $payment['id'], 'expired');
+            $this->PaymentModel->mark_expired($event['external_id']);
             $this->response->send_json_success(null, 'Xendit invoice expiry recorded.');
             return;
         }
 
-        // PAID and SETTLED both mean the money was received. Currency and amount must be stated and match.
-        $currency = strtoupper((string) ($event['currency'] ?? ''));
-        $paidAmount = $event['paid_amount'] ?? null;
+        // PAID and SETTLED both mean the money was received. The amount must be stated and match.
+        $currency = strtoupper((string) ($event['currency'] ?? 'PHP'));
         if (
-            $currency !== strtoupper((string) ($payment['currency'] ?? 'PHP'))
-            || !is_numeric($paidAmount)
-            || abs((float) $paidAmount - (float) $payment['amount']) > 0.01
+            $currency !== 'PHP'
+            || !is_numeric($event['paid_amount'] ?? null)
+            || abs((float) $event['paid_amount'] - (float) $payment['amount']) > 0.01
         ) {
-            error_log('Xendit payment for attempt ' . (int) $payment['id'] . ' failed verification: currency ' . $currency . ', amount ' . (is_scalar($paidAmount) ? $paidAmount : 'missing'));
             $this->response->send_json_error('The Xendit payment amount could not be verified.', 422);
             return;
         }
 
         try {
-            $outcome = $this->PaymentModel->mark_paid($externalId, (float) $paidAmount, $eventHash, $this->ReservationModel);
-            if ($outcome === false) {
+            if (!$this->PaymentModel->mark_paid($event['external_id'], hash('sha256', $rawBody))) {
                 $this->response->send_json_error('The Xendit payment could not be recorded.', 500);
                 return;
             }
         } catch (Throwable $exception) {
-            error_log('Xendit webhook processing failed for attempt ' . (int) $payment['id'] . ': ' . $exception->getMessage());
+            error_log('Xendit webhook processing failed: ' . $exception->getMessage());
             $this->response->send_json_error('The Xendit payment could not be recorded.', 500);
             return;
-        }
-
-        $this->PaymentModel->record_event('xendit', $eventHash, $externalId, $status, (int) $payment['id'], $outcome);
-        if ($outcome === 'review') {
-            // Administrators see it in the payment review queue (GET /api/payments/review).
-            error_log('ADMIN REVIEW: payment attempt ' . (int) $payment['id'] . ' for reservation ' . (int) $payment['reservation_id'] . ' needs review.');
         }
 
         $this->response->send_json_success(null, 'Xendit payment received.');
     }
 
-    /** Paid attempts that need an administrator: payments after cancellation or expiry, duplicates. */
-    public function reviewQueue()
+    private function validSignature($rawBody, $header, $secret)
     {
-        $user = $this->requireUser();
-        if ($user['role'] !== 'admin') {
-            $this->response->send_json_error('Administrator access is required.', 403);
-            return;
+        $parts = [];
+        foreach (preg_split('/[,;]/', (string) $header) as $part) {
+            $pair = explode('=', trim($part), 2);
+            if (count($pair) === 2) {
+                $parts[$pair[0]] = $pair[1];
+            }
         }
-        $this->response->send_json_success($this->PaymentModel->needing_review(), 'Payments needing review retrieved.');
+
+        $timestamp = $parts['t'] ?? '';
+        $key = str_starts_with((string) getenv('PAYMONGO_SECRET_KEY'), 'sk_live_') ? 'li' : 'te';
+        $signature = $parts[$key] ?? '';
+        if (!ctype_digit($timestamp) || abs(time() - (int) $timestamp) > 300 || $signature === '') {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $timestamp . '.' . $rawBody, $secret);
+        return hash_equals($expected, $signature);
     }
 
     /** Returns the signed-in user, or sends a 401. */

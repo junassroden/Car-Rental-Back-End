@@ -139,6 +139,18 @@ check(run_tool('bookings.mine', ['reservation_id' => 52], $customer, $fixture)['
 $active = run_tool('bookings.mine', ['active' => true], $customer, $fixture, '2026-11-06')['data']['reservations'];
 check(count($active) === 1 && $active[0]['days_remaining'] === 2, 'an active rental shows the days remaining');
 check(run_tool('bookings.mine', [], $customer, $fixture)['data']['totals_by_status'] === ['pending' => 4500.0, 'completed' => 3400.0], 'recorded totals by status');
+$specialFixture = $fixture;
+$specialFixture['reservations'][] = [
+    'id' => 53, 'user_id' => 2, 'car_id' => 1, 'start_date' => '2026-11-10', 'end_date' => '2026-11-20',
+    'rental_days' => 10, 'daily_rate' => '1500.00', 'total_amount' => '15000.00',
+    'status' => 'awaiting_approval', 'payment_status' => 'paid',
+];
+$specialUpcoming = run_tool('bookings.mine', ['upcoming' => true], $customer, $specialFixture);
+check(array_column($specialUpcoming['data']['reservations'], 'id') === [41, 53], 'paid special reservations remain visible in upcoming bookings');
+$specialSummary = run_tool('reservations.summary', ['statuses' => ['awaiting_approval']], $admin, $specialFixture);
+check(array_column($specialSummary['data']['reservations'], 'id') === [53], 'administrators can filter paid special reservations awaiting approval');
+$specialPeriod = run_tool('vehicles.search', ['start_date' => '2026-11-12', 'end_date' => '2026-11-15'], $customer, $specialFixture);
+check(array_column(array_filter($specialPeriod['data']['vehicles'], static function ($car) { return $car['model'] === 'Vios'; }), 'available_for_period') === [false], 'special reservations block the car during their dates');
 // Monthly reassessment state, for administrators only.
 $assessed = $fixture + ['reassessments' => [
     ['id' => 1, 'make' => 'Toyota', 'model' => 'Vios', 'plate_number' => 'ABC 1234', 'assessed_on' => '2026-09-01',
@@ -177,6 +189,8 @@ check($status['current_mileage'] === 72100 && $status['service']['service_status
 check(run_tool('vehicles.status', ['models' => ['Vios']], $customer, $fixture)['status'] === 'denied', 'customers cannot read vehicle status');
 $revenue = run_tool('reservations.revenue', [], $admin, $fixture)['data']['by_status'];
 check($revenue['confirmed']['total'] === 10500.0 && $revenue['completed']['total'] === 3400.0 && $revenue['pending']['total'] === 4500.0, 'revenue by status from stored totals');
+$specialRevenue = run_tool('reservations.revenue', [], $admin, $specialFixture)['data'];
+check($specialRevenue['by_status']['awaiting_approval']['total'] === 15000.0 && $specialRevenue['booked_total'] === 33400.0, 'paid special rentals remain in booked revenue');
 $util = run_tool('fleet.utilization', ['from' => '2026-11-01', 'to' => '2026-11-30'], $admin, $fixture)['data'];
 $byModel = array_column($util['vehicles'], 'booked_days', 'model');
 check($util['window_days'] === 29 && $byModel['Fortuner'] === 3 && $byModel['Vios'] === 3 && $byModel['Hiace'] === 0, 'utilisation counts booked days in the window');

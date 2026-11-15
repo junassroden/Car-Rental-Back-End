@@ -156,6 +156,32 @@ lavalust/
 
 ## Configuration
 
+### DriveRent reservation flow
+
+Install the PHP dependencies from this directory before starting the API:
+
+```powershell
+composer install
+```
+
+For an existing database, apply the reservation email tracking migration once. Migrations are
+disabled by default; enable them only for the migration command, then disable them again:
+
+```powershell
+$env:MIGRATION_ENABLED = "true"
+php lava migration run
+Remove-Item Env:MIGRATION_ENABLED
+```
+
+The canonical `database/schema.sql` already includes the email tracking column for new databases.
+Set the SMTP values in `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_ENCRYPTION`, `MAIL_FROM_ADDRESS`, and `MAIL_FROM_NAME`) to send accepted agreements and
+pickup dates. Keep credentials out of source control.
+
+Standard reservations are confirmed after the payment provider verifies payment. Special rental
+periods (more than seven days) are paid first and then wait for an administrator to approve or
+reject them. Rejected paid reservations require a refund to be arranged by an administrator.
+
 ### Database
 
 **File:** `app/config/database.php`

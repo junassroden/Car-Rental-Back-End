@@ -11,25 +11,26 @@ class ReservationModel extends Model
         'user_id', 'car_id', 'start_date', 'end_date', 'rental_days',
         'daily_rate', 'total_amount', 'status', 'special_duration_request',
         'contract_text', 'contract_version', 'contract_accepted_at', 'payment_required',
-        'checked_out_at', 'returned_at', 'variant_id',
+        'checked_out_at', 'returned_at', 'variant_id', 'agreement_email_sent_at',
     ];
 
     // created_at uses the column default and updated_at is ON UPDATE CURRENT_TIMESTAMP.
     protected $timestamps = false;
 
-    const STATUSES = ['pending', 'confirmed', 'cancelled', 'rejected', 'completed'];
+    const STATUSES = ['pending', 'awaiting_approval', 'confirmed', 'cancelled', 'rejected', 'completed'];
 
     // Reservation statuses that block a car for the requested dates.
-    const BLOCKING_STATUSES = ['pending', 'confirmed'];
+    const BLOCKING_STATUSES = ['pending', 'awaiting_approval', 'confirmed'];
 
     // Status changes an admin may make, keyed by the current status. A pending reservation is
     // awaiting payment and is confirmed only by a verified payment (PaymentModel::mark_paid).
     const ADMIN_TRANSITIONS = [
-        'pending'   => ['cancelled'],
-        'confirmed' => ['cancelled'],
+        'pending'           => ['cancelled'],
+        'awaiting_approval' => ['confirmed', 'rejected'],
+        'confirmed'         => ['cancelled'],
     ];
 
-    const DETAIL_COLUMNS = 'reservations.variant_id, car_color_variants.color AS variant_color, reservations.id, reservations.user_id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.special_duration_request, reservations.contract_text, reservations.contract_version, reservations.contract_accepted_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, reservations.created_at, reservations.updated_at, cars.make, cars.model, cars.year, cars.category, cars.plate_number, cars.primary_image, cars.security_deposit, users.full_name, users.username, users.email';
+    const DETAIL_COLUMNS = 'reservations.variant_id, reservations.agreement_email_sent_at, car_color_variants.color AS variant_color, reservations.id, reservations.user_id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.special_duration_request, reservations.contract_text, reservations.contract_version, reservations.contract_accepted_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, reservations.created_at, reservations.updated_at, cars.make, cars.model, cars.year, cars.category, cars.plate_number, cars.primary_image, cars.security_deposit, users.full_name, users.username, users.email';
 
     const MAX_AMOUNT = 99999999.99;
 
@@ -168,7 +169,7 @@ class ReservationModel extends Model
      * Creates a pending reservation after locking the car and checking for overlaps.
      * Returns ['status' => 'created', 'id' => ...] or ['status' => <reason>].
      */
-    public function create_reservation($user_id, $car_id, $start_date, $end_date, $rental_days, $special_request, $accept_contract, $variant_id = null)
+    public function create_reservation($user_id, $car_id, $start_date, $end_date, $rental_days, $special_request, $accept_contract, $variant_id = null, $agreement_fingerprint = null)
     {
         if (!$this->db->transaction()) {
             return ['status' => 'start_failed'];
@@ -238,6 +239,7 @@ class ReservationModel extends Model
                 'contract_version' => RentalAgreement::VERSION,
                 'contract_accepted_at' => $acceptedAt,
                 'payment_required' => $total_amount > 0 ? 1 : 0,
+                'agreement_email_sent_at' => null,
                 'variant_id'   => $variant ? (int) $variant['id'] : null,
             ]);
             if (!$id) {
@@ -259,7 +261,14 @@ class ReservationModel extends Model
                 'rental_days' => $rental_days,
                 'daily_rate' => number_format($daily_rate, 2, '.', ''),
                 'total_amount' => number_format($total_amount, 2, '.', ''),
+                'special_duration_request' => $rental_days > 7 ? 1 : 0,
             ], $car + ['variant_color' => $variant['color'] ?? ''], $renter, $acceptedAt);
+            if (
+                !is_string($agreement_fingerprint)
+                || !hash_equals(RentalAgreement::fingerprint($contract), strtolower($agreement_fingerprint))
+            ) {
+                return $this->abort(['status' => 'agreement_changed']);
+            }
             $this->db->table($this->table)
                 ->where('id', (int) $id)
                 ->update(['contract_text' => $contract]);
@@ -310,6 +319,13 @@ class ReservationModel extends Model
             if ($status === 'cancelled' && $this->has_paid_payment($id)) {
                 return $this->abort('payment_refund_required');
             }
+            if (
+                $reservation['status'] === 'awaiting_approval'
+                && $status === 'confirmed'
+                && !$this->has_paid_payment($id)
+            ) {
+                return $this->abort('payment_required');
+            }
 
             if ($status === 'confirmed') {
                 $car = $this->db->table('cars')
@@ -340,11 +356,20 @@ class ReservationModel extends Model
         }
     }
 
+    public function mark_agreement_email_sent($id)
+    {
+        return (bool) $this->db->table($this->table)
+            ->where('id', (int) $id)
+            ->where_null('agreement_email_sent_at')
+            ->update(['agreement_email_sent_at' => date('Y-m-d H:i:s')]);
+    }
+
     public function update_vehicle_use($id, $is_admin, $action)
     {
         if (!$is_admin) {
             return 'admin_forbidden';
         }
+
         if (!in_array($action, ['checkout', 'return'], true)) {
             return 'invalid_transition';
         }

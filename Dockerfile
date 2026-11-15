@@ -7,6 +7,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libcurl4-openssl-dev \
     && docker-php-ext-install curl pdo pdo_mysql \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
  
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
@@ -16,6 +18,8 @@ RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/Allo
  
 # Copy app files
 COPY . /var/www/html/
+WORKDIR /var/www/html
+RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
  
 # Fix permissions
 RUN chown -R www-data:www-data /var/www/html \

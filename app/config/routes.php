@@ -87,8 +87,10 @@ $router->group(['prefix' => '/api'], function ($router) {
     // Reservations
     $router->get('/reservations', 'ReservationController::reservations');
     $router->get('/reservations/{id}', 'ReservationController::reservation');
+    $router->post('/reservations/agreement-preview', 'ReservationController::agreementPreview');
     $router->post('/reservations', 'ReservationController::createReservation');
     $router->patch('/reservations/{id}', 'ReservationController::updateReservation');
+    $router->post('/reservations/{id}/agreement-email', 'ReservationController::sendAgreementEmail');
     $router->post('/reservations/{id}/checkout', 'ReservationController::vehicleCheckout');
     $router->post('/reservations/{id}/return', 'ReservationController::vehicleReturn');
     // Payments are confirmed only by the gateway webhooks below, never by hand or by the browser.

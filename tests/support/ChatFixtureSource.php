@@ -44,7 +44,7 @@ class ChatFixtureSource implements ChatDataSource
         $this->guard('booked_vehicle_ids');
         $ids = [];
         foreach ($this->db['reservations'] as $row) {
-            if (in_array($row['status'], ['pending', 'confirmed'], true) && $row['start_date'] < $end_date && $row['end_date'] > $start_date) {
+            if (in_array($row['status'], ['pending', 'awaiting_approval', 'confirmed'], true) && $row['start_date'] < $end_date && $row['end_date'] > $start_date) {
                 $ids[] = (int) $row['car_id'];
             }
         }

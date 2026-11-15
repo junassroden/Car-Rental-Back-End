@@ -11,6 +11,12 @@ class PaymentModel extends Model
     ];
     protected $timestamps = false;
 
+    public function __construct()
+    {
+        parent::__construct();
+        $this->call->library('ReservationPolicy');
+    }
+
     public function latest_for_reservation($reservation_id)
     {
         return $this->db->table($this->table)
@@ -58,9 +64,10 @@ class PaymentModel extends Model
     }
 
     /**
-     * Records a gateway-verified payment and, in the same transaction, confirms the reservation
-     * it pays for. Safe to repeat: a payment already marked paid is not processed again.
-     * The reservation is confirmed only while it is still pending. A cancelled or rejected one
+     * Records a gateway-verified payment and confirms standard reservations in the same
+     * transaction. Special-duration reservations wait for administrator approval.
+     * Safe to repeat: a payment already marked paid is not processed again.
+     * A pending reservation moves to the policy-selected status. A cancelled or rejected one
      * stays as it is, and the paid record shows the administrator that a refund is needed.
      * Pending reservations already hold their dates (ReservationModel::BLOCKING_STATUSES),
      * so confirming one cannot create a double booking.
@@ -86,7 +93,7 @@ class PaymentModel extends Model
             }
 
             $reservation = $this->db->table('reservations')
-                ->select('id, status')
+                ->select('id, status, special_duration_request')
                 ->where('id', (int) $payment['reservation_id'])
                 ->for_update()
                 ->row_array();
@@ -101,7 +108,7 @@ class PaymentModel extends Model
             if ($reservation && $reservation['status'] === 'pending') {
                 $this->db->table('reservations')
                     ->where('id', (int) $reservation['id'])
-                    ->update(['status' => 'confirmed']);
+                    ->update(['status' => ReservationPolicy::status_after_payment((bool) $reservation['special_duration_request'])]);
             }
             if (!$this->db->commit()) {
                 return false;

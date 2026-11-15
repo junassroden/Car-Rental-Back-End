@@ -8,6 +8,7 @@ class PaymentController extends Controller
         parent::__construct();
         $this->security_headers->apply_api();
         $this->call->model(['PaymentModel', 'ReservationModel']);
+        $this->call->library('ReservationMailer');
     }
 
     public function createCheckout($id)
@@ -27,8 +28,8 @@ class PaymentController extends Controller
             $this->response->send_json_error('Reservation not found.', 404);
             return;
         }
-        // Payment confirms a pending reservation. Confirmed ones approved before automatic
-        // confirmation may still be unpaid, so they can be paid too.
+        // Payment confirms standard pending reservations; special requests move to approval.
+        // Confirmed reservations may still be unpaid if they were approved before payment.
         if (!in_array($reservation['status'], ['pending', 'confirmed'], true)) {
             $this->response->send_json_error('Only reservations awaiting payment can be paid.', 409);
             return;
@@ -162,6 +163,11 @@ class PaymentController extends Controller
             return;
         }
 
+        if ($this->sendConfirmationEmail($payment['reservation_id']) === false) {
+            $this->response->send_json_error('Payment was recorded, but the agreement email could not be sent. The payment provider may retry.', 503);
+            return;
+        }
+
         $this->response->send_json_success(null, 'Payment received.');
     }
 
@@ -217,7 +223,17 @@ class PaymentController extends Controller
             return;
         }
 
+        if ($this->sendConfirmationEmail($payment['reservation_id']) === false) {
+            $this->response->send_json_error('Payment was recorded, but the agreement email could not be sent. The payment provider may retry.', 503);
+            return;
+        }
+
         $this->response->send_json_success(null, 'Xendit payment received.');
+    }
+
+    private function sendConfirmationEmail($reservationId)
+    {
+        return $this->ReservationMailer->send_confirmation_if_ready((int) $reservationId, $this->ReservationModel) !== 'failed';
     }
 
     private function validSignature($rawBody, $header, $secret)

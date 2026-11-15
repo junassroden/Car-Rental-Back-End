@@ -17,7 +17,7 @@ interface ChatDataSource
     /** Car rows the viewer may see: every car for an admin, only available ones otherwise. */
     public function vehicles($is_admin);
 
-    /** Ids of cars with a pending or confirmed reservation overlapping [start, end). */
+    /** Ids of cars with a pending, awaiting-approval, or confirmed reservation overlapping [start, end). */
     public function booked_vehicle_ids($start_date, $end_date);
 
     /** ['total_count' => int, 'reservations' => rows] for one user, newest first. */
@@ -78,7 +78,7 @@ class ChatRetrieval
     public const ADMIN_SORTS = ['mileage_desc', 'mileage_asc'];
 
     public const VEHICLE_STATUSES     = ['available', 'rented', 'maintenance', 'unavailable'];
-    public const RESERVATION_STATUSES = ['pending', 'confirmed', 'cancelled', 'rejected', 'completed'];
+    public const RESERVATION_STATUSES = ['pending', 'awaiting_approval', 'confirmed', 'cancelled', 'rejected', 'completed'];
 
     /** Car fields a customer may see; administrators also see ADMIN_VEHICLE_FIELDS. */
     public const PUBLIC_VEHICLE_FIELDS = [
@@ -488,7 +488,7 @@ class ChatRetrieval
             if ($args['reservation_id'] !== null && (int) $row['id'] !== $args['reservation_id']) {
                 return false;
             }
-            $blocking = in_array($status, ['pending', 'confirmed'], true);
+            $blocking = in_array($status, ['pending', 'awaiting_approval', 'confirmed'], true);
             if ($args['upcoming'] && !($blocking && (string) $row['end_date'] > $today)) {
                 return false;
             }
@@ -525,7 +525,7 @@ class ChatRetrieval
             $start = new DateTimeImmutable((string) $row['start_date']);
             $end   = new DateTimeImmutable((string) $row['end_date']);
             $now   = new DateTimeImmutable($today);
-            $blocking = in_array((string) $row['status'], ['pending', 'confirmed'], true);
+            $blocking = in_array((string) $row['status'], ['pending', 'awaiting_approval', 'confirmed'], true);
             $out['is_active'] = $blocking && $start <= $now && $end > $now;
             $out['days_until_pickup'] = $blocking && $start > $now ? (int) $now->diff($start)->format('%a') : null;
             $out['days_remaining'] = $out['is_active'] ? (int) $now->diff($end)->format('%a') : null;
@@ -590,7 +590,7 @@ class ChatRetrieval
             }
             $current = $next = null;
             foreach ($reservations as $row) {
-                if ((int) ($row['car_id'] ?? 0) !== $id || !in_array((string) $row['status'], ['pending', 'confirmed'], true)) {
+                if ((int) ($row['car_id'] ?? 0) !== $id || !in_array((string) $row['status'], ['pending', 'awaiting_approval', 'confirmed'], true)) {
                     continue;
                 }
                 $summary = array_intersect_key($row, array_flip(['id', 'start_date', 'end_date', 'status', 'customer_name']));
@@ -623,14 +623,14 @@ class ChatRetrieval
         }
         ksort($by_status);
         $booked = 0.0;
-        foreach (['pending', 'confirmed', 'completed'] as $status) {
+        foreach (['pending', 'awaiting_approval', 'confirmed', 'completed'] as $status) {
             $booked = round($booked + ($by_status[$status]['total'] ?? 0), 2);
         }
         return ['by_status' => $by_status, 'booked_total' => $booked, 'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP',
                 'basis' => 'Stored reservation totals; the system records no payments.'];
     }
 
-    /** Booked days per car within [from, to] (default: the 30 days up to today) from pending, confirmed and completed reservations. */
+    /** Booked days per car within [from, to] from pending, awaiting-approval, confirmed and completed reservations. */
     private static function utilization(array $args, ChatDataSource $source, $today)
     {
         $to   = new DateTimeImmutable($args['to'] ?? $today);
@@ -638,7 +638,7 @@ class ChatRetrieval
         $window = max(1, (int) $from->diff($to)->format('%a'));
         $booked = [];
         foreach ($source->reservations_all(200)['reservations'] as $row) {
-            if (!in_array((string) $row['status'], ['pending', 'confirmed', 'completed'], true)) {
+            if (!in_array((string) $row['status'], ['pending', 'awaiting_approval', 'confirmed', 'completed'], true)) {
                 continue;
             }
             $start = max($from, new DateTimeImmutable((string) $row['start_date']));

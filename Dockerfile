@@ -4,7 +4,7 @@ FROM php:${PHP_VERSION}-apache
  
 # Install cURL and PDO MySQL for Google AI requests and database access
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcurl4-openssl-dev \
+    && apt-get install -y --no-install-recommends libcurl4-openssl-dev unzip \
     && docker-php-ext-install curl pdo pdo_mysql \
     && rm -rf /var/lib/apt/lists/*
 

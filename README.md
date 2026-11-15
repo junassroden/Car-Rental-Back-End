@@ -174,9 +174,11 @@ Remove-Item Env:MIGRATION_ENABLED
 ```
 
 The canonical `database/schema.sql` already includes the email tracking column for new databases.
-Set the SMTP values in `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
-`SMTP_ENCRYPTION`, `MAIL_FROM_ADDRESS`, and `MAIL_FROM_NAME`) to send accepted agreements and
-pickup dates. Keep credentials out of source control.
+For hosted deployments that block outbound SMTP, configure Brevo transactional email over HTTPS:
+set `BREVO_API_KEY`, `MAIL_FROM_ADDRESS`, and `MAIL_FROM_NAME` in the backend environment, and
+verify that sender address in Brevo. When `BREVO_API_KEY` is set, the backend uses the Brevo API;
+otherwise, it falls back to SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and
+`SMTP_ENCRYPTION`). Keep credentials out of source control.
 
 Standard reservations are confirmed after the payment provider verifies payment. Special rental
 periods (more than seven days) are paid first and then wait for an administrator to approve or

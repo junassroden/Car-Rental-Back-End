@@ -289,7 +289,7 @@ class ReservationController extends Controller
             $emailResult = $this->ReservationMailer->send_confirmation_if_ready((int) $id, $this->ReservationModel);
         }
         $message = $emailResult === 'failed'
-            ? 'Reservation approved, but the agreement email could not be sent. Check SMTP settings and retry the email.'
+            ? 'Reservation approved, but the agreement email could not be sent. Check email delivery settings and retry the email.'
             : ($emailResult === 'sent'
                 ? 'Reservation approved and agreement emailed.'
                 : 'Reservation status updated successfully.');
@@ -311,7 +311,7 @@ class ReservationController extends Controller
         $this->call->library('ReservationMailer');
         $result = $this->ReservationMailer->send_confirmation_if_ready((int) $id, $this->ReservationModel);
         if ($result === 'failed') {
-            $this->response->send_json_error('The agreement email could not be sent. Check SMTP settings and try again.', 503);
+            $this->response->send_json_error('The agreement email could not be sent. Check email delivery settings and try again.', 503);
             return;
         }
         if ($result === 'not_ready') {

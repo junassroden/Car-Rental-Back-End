@@ -86,6 +86,11 @@ class ChatDatabaseSource implements ChatDataSource
         }, $this->assessments->fleet_overview());
     }
 
+    public function assessment_condition()
+    {
+        return $this->assessments->chat_condition();
+    }
+
     public function model_feature_vehicles()
     {
         return array_map(static function ($vehicle) {

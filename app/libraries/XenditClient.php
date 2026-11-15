@@ -1,5 +1,5 @@
 <?php
-
+//for the Xendit API
 class XenditClient
 {
     const INVOICE_URL = 'https://api.xendit.co/v2/invoices';

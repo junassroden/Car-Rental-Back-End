@@ -134,6 +134,31 @@ class CarModel extends Model
             ->pagination($per_page, $page)
             ->result_array();
 
+        if ($cars) {
+            $carIds = array_map(static function ($car) {
+                return (int) $car['id'];
+            }, $cars);
+            $images = $this->db->table('car_images')
+                ->select('car_id, image_path')
+                ->in('car_id', $carIds)
+                ->order_by('is_primary', 'DESC')
+                ->order_by('id', 'ASC')
+                ->get_all();
+            $imageByCar = [];
+            foreach ($images as $image) {
+                $carId = (int) $image['car_id'];
+                if (!isset($imageByCar[$carId])) {
+                    $imageByCar[$carId] = $image['image_path'];
+                }
+            }
+            foreach ($cars as &$car) {
+                if (empty($car['primary_image'])) {
+                    $car['primary_image'] = $imageByCar[(int) $car['id']] ?? null;
+                }
+            }
+            unset($car);
+        }
+
         return [
             'cars' => $cars,
             'meta' => [

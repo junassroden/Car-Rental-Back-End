@@ -185,8 +185,9 @@ reject them. Rejected paid reservations require a refund to be arranged by an ad
 ### Car image storage in Docker
 
 Car image files are stored under `public/uploads/cars`; the database stores only their
-`/uploads/cars/...` paths. The Docker image exposes that directory as a volume, but deployments
-must attach persistent storage there or uploaded photos will be lost when a container is replaced.
+`/uploads/cars/...` paths. Apache serves the backend from `public/`, so these paths resolve to the
+uploaded files. The Docker image exposes that directory as a volume, but deployments must attach
+persistent storage there or uploaded photos will be lost when a container is replaced.
 For a cloud host, mount its persistent disk at `/var/www/html/public/uploads/cars`. For Docker,
 use a named volume mounted at the same path. Images uploaded before the persistent volume was
 configured may need to be uploaded again if they are no longer present in the old container.

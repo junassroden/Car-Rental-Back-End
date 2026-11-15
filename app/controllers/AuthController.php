@@ -47,22 +47,12 @@ class AuthController extends Controller
         }
         $this->cache->delete($accountKey);
 
-        // Only someone who knows the password learns that the address is unverified.
-        if (!UserModel::email_verified($user)) {
-            $this->response->send_json_error(
-                'Verify your email address before signing in. Check your inbox for the verification link, or send a new one.',
-                403,
-                ['code' => 'email_not_verified']
-            );
-            return;
-        }
-
         $this->sendTokens($user, 'Login successful.');
     }
 
     /**
      * Signs in with a Google ID token. An account already linked to this Google identity signs
-     * in, and a new email creates a verified customer account. An email that already belongs to
+     * in, and a new email creates a customer account. An email that already belongs to
      * an unlinked account is never linked automatically: the owner signs in with their password
      * (or resets it) and links Google from their profile (POST /api/account/google/link).
      */
@@ -108,10 +98,6 @@ class AuthController extends Controller
         if (!$user || (int) $user['is_active'] !== 1) {
             $this->response->send_json_error('This account is inactive or could not be found.', 403);
             return;
-        }
-        // An address Google has verified is proven, even on an account that predates verification.
-        if (!UserModel::email_verified($user) && strtolower((string) $user['email']) === $email) {
-            $this->UserModel->mark_email_verified((int) $user['id']);
         }
 
         $this->sendTokens($user, 'Google sign-in successful.');
@@ -310,62 +296,14 @@ class AuthController extends Controller
         }
 
         try {
-            $id = $this->UserModel->create_customer(trim($this->request->post('full_name')), $email, (string) $this->request->post('password'));
+            $this->UserModel->create_customer(trim($this->request->post('full_name')), $email, (string) $this->request->post('password'));
         } catch (Exception $exception) {
             error_log('Account registration failed: ' . $exception->getMessage());
             $this->response->send_json_error('The account could not be created. Please try again.', 500);
             return;
         }
 
-        $this->sendVerificationEmail($this->UserModel->find((int) $id));
-        $this->response->send_json_success(null, 'Account created. We sent a verification link to your email address. Verify it, then sign in.', 201);
-    }
-
-    /** Confirms an email address with the token from the verification link. */
-    public function verifyEmail()
-    {
-        $this->call->library('api');
-        $this->api->rate_limit('verify_email_' . (string) $this->request->server('REMOTE_ADDR'), 30, 900);
-
-        $token = $this->requestPayload()['token'] ?? '';
-        $this->call->model('AccountTokenModel');
-        if (!$this->db->transaction()) {
-            $this->response->send_json_error('The email address could not be verified. Please try again.', 500);
-            return;
-        }
-        try {
-            $userId = $this->AccountTokenModel->consume($token, 'verify_email');
-            if ($userId === null) {
-                $this->db->roll_back();
-                $this->response->send_json_error('This verification link is invalid, expired, or already used. Request a new one from the sign-in page.', 410);
-                return;
-            }
-            $this->UserModel->mark_email_verified($userId);
-            $this->db->commit();
-        } catch (Throwable $exception) {
-            $this->db->roll_back();
-            error_log('Email verification failed: ' . $exception->getMessage());
-            $this->response->send_json_error('The email address could not be verified. Please try again.', 500);
-            return;
-        }
-        $this->response->send_json_success(null, 'Your email address is verified. You can now sign in.');
-    }
-
-    /** Sends a new verification link. The response is the same whether or not the address exists. */
-    public function resendVerification()
-    {
-        $this->call->library('api');
-        $this->api->rate_limit('resend_verify_ip_' . (string) $this->request->server('REMOTE_ADDR'), 10, 3600);
-
-        $email = strtolower(trim((string) ($this->requestPayload()['email'] ?? '')));
-        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $this->api->rate_limit('resend_verify_acct_' . hash('sha256', $email), 3, 900);
-            $user = $this->UserModel->find_by_email($email);
-            if ($user && (int) $user['is_active'] === 1 && !UserModel::email_verified($user)) {
-                $this->sendVerificationEmail($user);
-            }
-        }
-        $this->response->send_json_success(null, 'If that address belongs to an unverified account, a new verification link is on its way.');
+        $this->response->send_json_success(null, 'Account created. You can now sign in.', 201);
     }
 
     /** Starts a password reset. The response is the same whether or not the address exists. */
@@ -395,10 +333,7 @@ class AuthController extends Controller
         $this->response->send_json_success(null, 'If that address belongs to an account, a password reset link is on its way.');
     }
 
-    /**
-     * Sets a new password with a reset token. Using the link proves the owner controls the
-     * address, so it becomes verified, and every existing session is signed out.
-     */
+    /** Sets a new password with a reset token and signs out every existing session. */
     public function resetPassword()
     {
         $this->call->library('api');
@@ -424,7 +359,6 @@ class AuthController extends Controller
                 return;
             }
             $this->UserModel->set_password($userId, $password);
-            $this->UserModel->mark_email_verified($userId);
             $this->UserModel->revoke_sessions($userId);
             $this->db->commit();
         } catch (Throwable $exception) {
@@ -511,23 +445,6 @@ class AuthController extends Controller
             "Too many sign-in attempts. Please wait {$minutes} minute(s) and try again, or reset your password.",
             429,
             ['code' => 'too_many_attempts', 'retry_after' => $seconds]
-        );
-    }
-
-    private function sendVerificationEmail($user)
-    {
-        if (!$user) {
-            return;
-        }
-        $this->call->model('AccountTokenModel');
-        $token = $this->AccountTokenModel->issue((int) $user['id'], 'verify_email');
-        $this->sendAccountEmail(
-            $user,
-            'Verify your email address',
-            "Welcome! Confirm that this is your email address by opening this link within 24 hours:\n"
-            . $this->frontendUrl('/auth/verify-email?token=' . $token) . "\n\n"
-            . 'If you did not create an account, ignore this email.',
-            'verification'
         );
     }
 

@@ -2,7 +2,7 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /**
- * Single-use, expiring tokens for email verification and password reset (account_tokens).
+ * Single-use, expiring tokens for password reset (account_tokens).
  * The plain token is only ever sent to the user; the table stores its SHA-256 hash.
  */
 class AccountTokenModel extends Model
@@ -13,7 +13,6 @@ class AccountTokenModel extends Model
     protected $timestamps = false;
 
     const PURPOSES = [
-        'verify_email' => 86400,   // 24 hours
         'password_reset' => 3600,  // 1 hour
     ];
 

@@ -16,6 +16,36 @@ class UserModel extends Model
     // created_at uses the column default and updated_at is set in update_profile().
     protected $timestamps = false;
 
+    /**
+     * One row per customer for the administrator chat: name, sign-up date, whether the driver's licence and the
+     * verification photo are on file (never the licence number, the photo or any contact detail), and booking
+     * counts and the verified amount paid. Read-only.
+     */
+    public function chat_customers()
+    {
+        return $this->db->raw(
+            "SELECT users.id, users.full_name, users.username, users.created_at, users.is_active,
+                    (users.driver_license_number IS NOT NULL AND users.driver_license_number <> '') AS has_licence,
+                    (users.driver_license_expiry IS NOT NULL AND users.driver_license_expiry < CURDATE()) AS licence_expired,
+                    (users.verification_photo_filename IS NOT NULL AND users.verification_photo_filename <> '') AS has_photo,
+                    COUNT(reservations.id) AS reservations,
+                    COALESCE(SUM(reservations.status = 'completed'), 0) AS completed,
+                    COALESCE(SUM(reservations.status = 'cancelled'), 0) AS cancelled,
+                    COALESCE(SUM(reservations.status = 'expired'), 0) AS expired,
+                    COALESCE(SUM(reservations.status IN ('pending', 'confirmed')), 0) AS active,
+                    COALESCE(SUM(paid.amount), 0) AS paid_total
+             FROM users
+             LEFT JOIN reservations ON reservations.user_id = users.id
+             LEFT JOIN (
+                 SELECT reservation_id, SUM(COALESCE(paid_amount, amount)) AS amount
+                 FROM checkout_payments WHERE status = 'paid' GROUP BY reservation_id
+             ) paid ON paid.reservation_id = reservations.id
+             WHERE users.role = 'customer'
+             GROUP BY users.id
+             ORDER BY users.id ASC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     /** The active user with this ID, or NULL. */
     public function find_active($id)
     {

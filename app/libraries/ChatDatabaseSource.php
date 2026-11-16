@@ -16,9 +16,11 @@ class ChatDatabaseSource implements ChatDataSource
     private $maintenance;
     private $components;
     private $assessments;
+    private $payments;
+    private $users;
     private $vehicleRows = [];
 
-    /** @param array $models ['cars' => CarModel, 'reservations' => ReservationModel, 'maintenance' => MaintenanceModel, 'components' => ComponentMaintenanceModel, 'assessments' => VehicleAssessmentModel] */
+    /** @param array $models ['cars' => CarModel, 'reservations' => ReservationModel, 'maintenance' => MaintenanceModel, 'components' => ComponentMaintenanceModel, 'assessments' => VehicleAssessmentModel, 'payments' => PaymentModel, 'users' => UserModel] */
     public function __construct(array $models)
     {
         $this->cars         = $models['cars'];
@@ -26,6 +28,18 @@ class ChatDatabaseSource implements ChatDataSource
         $this->maintenance  = $models['maintenance'];
         $this->components   = $models['components'];
         $this->assessments  = $models['assessments'];
+        $this->payments     = $models['payments'];
+        $this->users        = $models['users'];
+    }
+
+    public function payment_attempts()
+    {
+        return $this->payments->chat_attempts(ChatRetrieval::AGGREGATE_ROWS);
+    }
+
+    public function customers_overview()
+    {
+        return $this->users->chat_customers();
     }
 
     public function vehicles($is_admin)

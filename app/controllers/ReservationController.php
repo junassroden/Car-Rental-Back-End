@@ -47,6 +47,35 @@ class ReservationController extends Controller
         );
     }
 
+    /**
+     * Rental demand for the Demand Intelligence page (administrators): the same summary the chat's demand.summary
+     * retrieval gives, so the page and the assistant always agree. ?months=3..24 sets the history window (default 12).
+     */
+    public function demand()
+    {
+        $user = $this->requireUser();
+        if ($user['role'] !== 'admin') {
+            $this->response->send_json_error('Administrator access is required.', 403);
+            return;
+        }
+
+        $this->call->model('CarModel');
+        $this->call->library(['ChatRetrieval']);
+        $source = $this->call->library('ChatDatabaseSource', ['cars' => $this->CarModel, 'reservations' => $this->ReservationModel]);
+        $months = $this->request->get('months');
+        $result = ChatRetrieval::execute(
+            ['retrievals' => [['tool' => 'demand.summary', 'args' => ['months' => is_numeric($months) ? (int) $months : null]]]],
+            ['role' => 'admin', 'user_id' => (int) $user['id']],
+            $source
+        )[0];
+        if (($result['status'] ?? null) !== 'ok') {
+            $this->response->send_json_error('Demand data could not be loaded.', 500);
+            return;
+        }
+
+        $this->response->send_json_success($result['data'], 'Demand summary retrieved successfully.');
+    }
+
     public function reservation($id)
     {
         $user = $this->requireUser();

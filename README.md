@@ -164,8 +164,8 @@ Install the PHP dependencies from this directory before starting the API:
 composer install
 ```
 
-For an existing database, apply the reservation email tracking migration once. Migrations are
-disabled by default; enable them only for the migration command, then disable them again:
+For an existing database, apply pending migrations after deployment. Migrations are disabled by
+default; enable them only for the migration command, then disable them again:
 
 ```powershell
 $env:MIGRATION_ENABLED = "true"
@@ -184,17 +184,17 @@ Standard reservations are confirmed after the payment provider verifies payment.
 periods (more than seven days) are paid first and then wait for an administrator to approve or
 reject them. Rejected paid reservations require a refund to be arranged by an administrator.
 
-### Car image storage in Docker
+### Vehicle image storage
 
-Car image files are stored under `public/uploads/cars`; the database stores only their
-`/uploads/cars/...` paths. Apache serves the backend from `public/`, so these paths resolve to the
-uploaded files. The Docker image exposes that directory as a volume, but deployments must attach
-persistent storage there or uploaded photos will be lost when a container is replaced.
-For a cloud host, mount its persistent disk at `/var/www/html/public/uploads/cars`. For Docker,
-use a named volume mounted at the same path. Images uploaded before the persistent volume was
-configured may need to be uploaded again if they are no longer present in the old container.
-Back up the image directory separately from SQL backups; restoring the database alone does not
-restore image files.
+Vehicle photos submitted in the admin panel are uploaded by the backend to ImageKit. The database
+stores each ImageKit delivery URL and file ID; the frontend displays the URL directly, while admin
+deletions remove the hosted file as well. Configure `IMAGEKIT_PRIVATE_KEY` in the backend
+environment and optionally set `IMAGEKIT_UPLOAD_FOLDER` (defaults to `/caren/cars`). Keep the
+private key out of source control and do not expose it to the frontend.
+
+Run the pending database migration before uploading images so the backend can store ImageKit file
+IDs. Existing local image paths are not copied automatically; re-upload any photos that are already
+missing from the backend filesystem through the admin panel.
 
 ### Database
 

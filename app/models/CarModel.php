@@ -35,6 +35,7 @@ class CarModel extends Model
         }
 
         $car['images'] = $this->db->table('car_images')
+            ->select('id, car_id, image_path, is_primary, variant_id, created_at')
             ->where('car_id', $id)
             ->order_by('is_primary', 'DESC')
             ->order_by('id', 'ASC')

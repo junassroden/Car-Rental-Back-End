@@ -156,6 +156,46 @@ lavalust/
 
 ## Configuration
 
+### DriveRent reservation flow
+
+Install the PHP dependencies from this directory before starting the API:
+
+```powershell
+composer install
+```
+
+For an existing database, apply pending migrations after deployment. Migrations are disabled by
+default; enable them only for the migration command, then disable them again:
+
+```powershell
+$env:MIGRATION_ENABLED = "true"
+php lava migration run
+Remove-Item Env:MIGRATION_ENABLED
+```
+
+The canonical `database/schema.sql` already includes the email tracking column for new databases.
+For hosted deployments that block outbound SMTP, configure Brevo transactional email over HTTPS:
+set `BREVO_API_KEY`, `MAIL_FROM_ADDRESS`, and `MAIL_FROM_NAME` in the backend environment, and
+verify that sender address in Brevo. When `BREVO_API_KEY` is set, the backend uses the Brevo API;
+otherwise, it falls back to SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and
+`SMTP_ENCRYPTION`). Keep credentials out of source control.
+
+Standard reservations are confirmed after the payment provider verifies payment. Special rental
+periods (more than seven days) are paid first and then wait for an administrator to approve or
+reject them. Rejected paid reservations require a refund to be arranged by an administrator.
+
+### Vehicle image storage
+
+Vehicle photos submitted in the admin panel are uploaded by the backend to ImageKit. The database
+stores each ImageKit delivery URL and file ID; the frontend displays the URL directly, while admin
+deletions remove the hosted file as well. Configure `IMAGEKIT_PRIVATE_KEY` in the backend
+environment and optionally set `IMAGEKIT_UPLOAD_FOLDER` (defaults to `/caren/cars`). Keep the
+private key out of source control and do not expose it to the frontend.
+
+Run the pending database migration before uploading images so the backend can store ImageKit file
+IDs. Existing local image paths are not copied automatically; re-upload any photos that are already
+missing from the backend filesystem through the admin panel.
+
 ### Database
 
 **File:** `app/config/database.php`

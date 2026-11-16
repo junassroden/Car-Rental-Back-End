@@ -35,9 +35,12 @@ class CarModel extends Model
         }
 
         $car['images'] = $this->db->table('car_images')
+            ->select('id, car_id, image_path, is_primary, variant_id, created_at')
             ->where('car_id', $id)
+            ->order_by('is_primary', 'DESC')
             ->order_by('id', 'ASC')
             ->result_array();
+        $car['primary_image'] = $this->available_image_path($car['primary_image'] ?? null, $car['images']);
         $car['variants'] = $this->db->table('car_color_variants')
             ->select('id, color, stock')
             ->where('car_id', $id)
@@ -139,22 +142,21 @@ class CarModel extends Model
                 return (int) $car['id'];
             }, $cars);
             $images = $this->db->table('car_images')
-                ->select('car_id, image_path')
+                ->select('car_id, image_path, is_primary')
                 ->in('car_id', $carIds)
                 ->order_by('is_primary', 'DESC')
                 ->order_by('id', 'ASC')
                 ->get_all();
-            $imageByCar = [];
+            $imagesByCar = [];
             foreach ($images as $image) {
                 $carId = (int) $image['car_id'];
-                if (!isset($imageByCar[$carId])) {
-                    $imageByCar[$carId] = $image['image_path'];
-                }
+                $imagesByCar[$carId][] = $image;
             }
             foreach ($cars as &$car) {
-                if (empty($car['primary_image'])) {
-                    $car['primary_image'] = $imageByCar[(int) $car['id']] ?? null;
-                }
+                $car['primary_image'] = $this->available_image_path(
+                    $car['primary_image'] ?? null,
+                    $imagesByCar[(int) $car['id']] ?? []
+                );
             }
             unset($car);
         }
@@ -168,6 +170,43 @@ class CarModel extends Model
                 'last_page'    => max(1, (int) ceil($total / $per_page)),
             ],
         ];
+    }
+
+    private function available_image_path($primary, array $images)
+    {
+        foreach ($images as $image) {
+            if (!empty($image['is_primary']) && $this->image_exists($image['image_path'] ?? null)) {
+                return $image['image_path'];
+            }
+        }
+
+        if ($this->image_exists($primary)) {
+            return $primary;
+        }
+
+        foreach ($images as $image) {
+            if ($this->image_exists($image['image_path'] ?? null)) {
+                return $image['image_path'];
+            }
+        }
+
+        return null;
+    }
+
+    private function image_exists($path)
+    {
+        if (!is_string($path) || trim($path) === '') {
+            return false;
+        }
+        if (preg_match('~^https?://~i', $path)) {
+            return true;
+        }
+
+        $urlPath = parse_url($path, PHP_URL_PATH);
+        $filename = basename(is_string($urlPath) ? $urlPath : $path);
+        $directory = ROOT_DIR . 'public' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'cars';
+
+        return $filename !== '' && is_file($directory . DIRECTORY_SEPARATOR . $filename);
     }
 
     /**

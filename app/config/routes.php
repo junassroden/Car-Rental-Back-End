@@ -96,8 +96,10 @@ $router->group(['prefix' => '/api'], function ($router) {
     // Demand Intelligence (administrators); before "{id}" so "demand" is not read as a reservation id.
     $router->get('/reservations/demand', 'ReservationController::demand');
     $router->get('/reservations/{id}', 'ReservationController::reservation');
+    $router->post('/reservations/agreement-preview', 'ReservationController::agreementPreview');
     $router->post('/reservations', 'ReservationController::createReservation');
     $router->patch('/reservations/{id}', 'ReservationController::updateReservation');
+    $router->post('/reservations/{id}/agreement-email', 'ReservationController::sendAgreementEmail');
     $router->post('/reservations/{id}/checkout', 'ReservationController::vehicleCheckout');
     $router->post('/reservations/{id}/return', 'ReservationController::vehicleReturn');
     // Payments are confirmed only by the gateway webhooks below, never by hand or by the browser.

@@ -20,8 +20,10 @@ class ReservationController extends Controller
         'duration_too_long'   => ['Rentals cannot exceed 21 days.', 422],
         'special_request_required' => ['Rentals longer than 7 days must be submitted as a special-duration request.', 422],
         'contract_not_accepted' => ['Accept the rental agreement before submitting your reservation.', 422],
+        'agreement_changed' => ['The reservation details changed after the agreement preview. Please review the updated agreement and try again.', 409],
         'amount_too_large'    => ['The selected rental period exceeds the maximum supported amount.', 422],
         'payment_required'    => ['A verified payment is required before vehicle handover.', 409],
+        'agreement_email_not_ready' => ['The agreement email is available after a paid reservation is confirmed.', 409],
         'payment_refund_required' => ['A paid reservation cannot be cancelled here. Contact an administrator to arrange a refund.', 409],
         'vehicle_in_use'      => ['A vehicle in use must be marked returned before its reservation can be cancelled.', 409],
         'checkout_not_due'    => ['Vehicle handover is only available during the approved rental period.', 409],
@@ -34,7 +36,7 @@ class ReservationController extends Controller
     {
         parent::__construct();
         $this->security_headers->apply_api();
-        $this->call->model(['ReservationModel', 'PaymentModel']);
+        $this->call->model(['ReservationModel', 'PaymentModel', 'CarModel']);
     }
 
     public function reservations()
@@ -93,6 +95,110 @@ class ReservationController extends Controller
         $this->response->send_json_success($reservation, 'Reservation retrieved successfully.');
     }
 
+    public function agreementPreview()
+    {
+        $user = $this->requireUser();
+        if ($user['role'] === 'admin') {
+            $this->response->send_json_error('Customer access is required.', 403);
+            return;
+        }
+
+        $input = $this->requestPayload();
+        $this->validateInput($input, [
+            'car_id|Vehicle'         => 'required|pattern[int]|greater_than_equal_to[1]',
+            'start_date|Pickup date' => 'required|pattern[date_ymd]',
+            'end_date|Return date'   => 'required|pattern[date_ymd]',
+        ]);
+
+        $carId = (int) $input['car_id'];
+        $startDate = $input['start_date'];
+        $endDate = $input['end_date'];
+        $start = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
+        $end = DateTimeImmutable::createFromFormat('!Y-m-d', $endDate);
+        if (
+            !$start || $start->format('Y-m-d') !== $startDate
+            || !$end || $end->format('Y-m-d') !== $endDate
+            || $startDate < date('Y-m-d') || $endDate <= $startDate
+        ) {
+            $this->response->send_json_error('Enter valid future rental dates.', 422);
+            return;
+        }
+
+        $car = $this->CarModel->find_with_images($carId);
+        if (!$car) {
+            $this->response->send_json_error('Vehicle not found.', 404);
+            return;
+        }
+        if ($car['status'] !== 'available') {
+            $this->response->send_json_error('This vehicle is not currently available.', 409);
+            return;
+        }
+
+        $rentalDays = (int) $start->diff($end)->format('%r%a');
+        $specialRequest = filter_var($input['special_request'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $durationError = ReservationPolicy::duration_error(
+            $rentalDays,
+            (int) $car['minimum_rental_duration'],
+            $specialRequest
+        );
+        if ($durationError !== null) {
+            $message = self::ERRORS[$durationError][0] ?? 'The selected rental period is invalid.';
+            $this->response->send_json_error($message, 422);
+            return;
+        }
+
+        $variant = null;
+        if ($car['variants']) {
+            $variantId = filter_var($input['variant_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            foreach ($car['variants'] as $option) {
+                if ($variantId && (int) $option['id'] === (int) $variantId) {
+                    $variant = $option;
+                    break;
+                }
+            }
+            if (!$variant) {
+                $this->response->send_json_error('Choose a colour offered for this vehicle.', 422);
+                return;
+            }
+        }
+
+        $selectedVariantId = $variant ? (int) $variant['id'] : null;
+        if (!$this->ReservationModel->is_available_for_dates($carId, $startDate, $endDate, $selectedVariantId)) {
+            $this->response->send_json_error('This vehicle is not available for those dates.', 409);
+            return;
+        }
+
+        $dailyRate = round((float) $car['daily_rental_price'], 2);
+        $totalAmount = round($dailyRate * $rentalDays, 2);
+        if (!is_finite($totalAmount) || $totalAmount > ReservationModel::MAX_AMOUNT) {
+            $this->response->send_json_error('The selected rental period exceeds the maximum supported amount.', 422);
+            return;
+        }
+
+        $contract = RentalAgreement::generate([
+            'id' => 0,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'rental_days' => $rentalDays,
+            'daily_rate' => number_format($dailyRate, 2, '.', ''),
+            'total_amount' => number_format($totalAmount, 2, '.', ''),
+            'special_duration_request' => $rentalDays > 7 ? 1 : 0,
+        ], $car + ['variant_color' => $variant['color'] ?? ''], [
+            'full_name' => $user['full_name'],
+            'username' => $user['username'],
+            'email' => $user['email'],
+        ], null);
+
+        $this->response->send_json_success(
+            [
+                'contract_text' => $contract,
+                'agreement_fingerprint' => RentalAgreement::fingerprint($contract),
+                'total_amount' => number_format($totalAmount, 2, '.', ''),
+            ],
+            'Rental agreement preview generated.'
+        );
+    }
+
     public function createReservation()
     {
         $user = $this->requireUser();
@@ -112,6 +218,7 @@ class ReservationController extends Controller
         $endDate   = $input['end_date'] ?? null;
         $specialRequest = filter_var($input['special_request'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $acceptContract = filter_var($input['accept_contract'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $agreementFingerprint = $input['agreement_fingerprint'] ?? null;
         $start     = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
         $end       = DateTimeImmutable::createFromFormat('!Y-m-d', $endDate);
 
@@ -139,6 +246,11 @@ class ReservationController extends Controller
             $this->response->send_json_error('The return date must be after the pickup date.', 422);
             return;
         }
+        if (!is_string($agreementFingerprint) || !preg_match('/^[a-f0-9]{64}$/i', $agreementFingerprint)) {
+            $this->response->send_json_error('Review the rental agreement before submitting your reservation.', 422);
+            return;
+        }
+        $agreementFingerprint = strtolower($agreementFingerprint);
 
         try {
             $result = $this->ReservationModel->create_reservation(
@@ -149,7 +261,8 @@ class ReservationController extends Controller
                 $rentalDays,
                 $specialRequest,
                 $acceptContract,
-                $variantId
+                $variantId,
+                $agreementFingerprint
             );
         } catch (Exception $exception) {
             error_log('Reservation creation failed: ' . $exception->getMessage());
@@ -165,7 +278,9 @@ class ReservationController extends Controller
 
         $this->response->send_json_success(
             $this->ReservationModel->find_with_details($result['id']),
-            'Reservation created. Complete payment to confirm it.',
+            $rentalDays > ReservationPolicy::STANDARD_MAXIMUM_DAYS
+                ? 'Reservation created. Complete payment to submit it for administrator approval.'
+                : 'Reservation created. Complete payment to confirm it.',
             201
         );
     }
@@ -205,7 +320,46 @@ class ReservationController extends Controller
             $this->voidOpenInvoices((int) $id);
         }
 
-        $this->response->send_json_success($this->ReservationModel->find_with_details((int) $id), 'Reservation status updated successfully.');
+        $emailResult = null;
+        if ($status === 'confirmed') {
+            $this->call->library('ReservationMailer');
+            $emailResult = $this->ReservationMailer->send_confirmation_if_ready((int) $id, $this->ReservationModel);
+        }
+        $message = $emailResult === 'failed'
+            ? 'Reservation approved, but the agreement email could not be sent. Check email delivery settings and retry the email.'
+            : ($emailResult === 'sent'
+                ? 'Reservation approved and agreement emailed.'
+                : 'Reservation status updated successfully.');
+        $this->response->send_json_success($this->ReservationModel->find_with_details((int) $id), $message);
+    }
+
+    public function sendAgreementEmail($id)
+    {
+        $user = $this->requireUser();
+        if ($user['role'] !== 'admin') {
+            $this->response->send_json_error('Administrator access is required.', 403);
+            return;
+        }
+        if (!filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) {
+            $this->response->send_json_error('Reservation not found.', 404);
+            return;
+        }
+
+        $this->call->library('ReservationMailer');
+        $result = $this->ReservationMailer->send_confirmation_if_ready((int) $id, $this->ReservationModel);
+        if ($result === 'failed') {
+            $this->response->send_json_error('The agreement email could not be sent. Check email delivery settings and try again.', 503);
+            return;
+        }
+        if ($result === 'not_ready') {
+            $this->response->send_json_error(self::ERRORS['agreement_email_not_ready'][0], self::ERRORS['agreement_email_not_ready'][1]);
+            return;
+        }
+
+        $this->response->send_json_success(
+            $this->ReservationModel->find_with_details((int) $id),
+            $result === 'sent' ? 'Agreement email sent.' : 'The agreement email was already sent.'
+        );
     }
 
     /**

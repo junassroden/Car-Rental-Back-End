@@ -19,4 +19,9 @@ class ReservationPolicy
         }
         return null;
     }
+
+    public static function status_after_payment($special_request)
+    {
+        return $special_request ? 'awaiting_approval' : 'confirmed';
+    }
 }

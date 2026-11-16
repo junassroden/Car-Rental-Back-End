@@ -34,8 +34,8 @@ class XenditClient
             'description' => trim($reservation['make'] . ' ' . $reservation['model']) . ' rental #' . $reservationId,
             'invoice_duration' => $duration,
             // The redirect only tells the page which reservation to show. Payment is confirmed by the webhook.
-            'success_redirect_url' => rtrim($frontendUrl, '/') . '/users/reservations?payment=success&reservation=' . $reservationId,
-            'failure_redirect_url' => rtrim($frontendUrl, '/') . '/users/reservations?payment=cancelled&reservation=' . $reservationId,
+            'success_redirect_url' => rtrim($frontendUrl, '/') . '/users/payments?payment=success&reservation=' . $reservationId,
+            'failure_redirect_url' => rtrim($frontendUrl, '/') . '/users/payments?payment=cancelled&reservation=' . $reservationId,
             'should_send_email' => false,
         ];
         if (filter_var($reservation['email'] ?? null, FILTER_VALIDATE_EMAIL)) {

@@ -5,23 +5,28 @@ class CarImageModel extends Model
 {
     protected $table       = 'car_images';
     protected $primary_key = 'id';
-    protected $fillable    = ['car_id', 'image_path', 'variant_id'];
+    protected $fillable    = ['car_id', 'image_path', 'imagekit_file_id', 'variant_id'];
     protected $timestamps  = false;
 
-    /** Inserts one row per image path in a single transaction and returns the new rows. */
-    public function create_images($car_id, array $image_paths, $variant_id = null)
+    /** Inserts one row per hosted image and returns the new rows. */
+    public function create_images($car_id, array $images, $variant_id = null)
     {
         $this->db->transaction();
 
         try {
-            $images = [];
-            foreach ($image_paths as $image_path) {
-                $id       = $this->insert(['car_id' => (int) $car_id, 'image_path' => $image_path, 'variant_id' => $variant_id]);
-                $images[] = $this->find($id);
+            $savedImages = [];
+            foreach ($images as $image) {
+                $id = $this->insert([
+                    'car_id' => (int) $car_id,
+                    'image_path' => $image['url'],
+                    'imagekit_file_id' => $image['file_id'],
+                    'variant_id' => $variant_id,
+                ]);
+                $savedImages[] = $this->find($id);
             }
             $this->db->commit();
 
-            return $images;
+            return $savedImages;
         } catch (Exception $exception) {
             $this->db->roll_back();
             throw $exception;

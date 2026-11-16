@@ -8,6 +8,7 @@ class PaymentController extends Controller
         parent::__construct();
         $this->security_headers->apply_api();
         $this->call->model(['PaymentModel', 'ReservationModel']);
+        $this->call->library('ReservationMailer');
     }
 
     public function createCheckout($id)
@@ -27,8 +28,8 @@ class PaymentController extends Controller
             return;
         }
 
-        // Payment confirms a pending reservation. Confirmed ones approved before automatic
-        // confirmation may still be unpaid, so they can be paid too.
+        // Payment confirms a pending reservation; a special-duration request (8 to 21 days) then waits for
+        // administrator approval. Confirmed ones approved before automatic confirmation may still be unpaid.
         if (!in_array($reservation['status'], ['pending', 'confirmed'], true)) {
             $this->response->send_json_error('Only reservations awaiting payment can be paid.', 409);
             return;
@@ -194,8 +195,25 @@ class PaymentController extends Controller
             // Administrators see it in the payment review queue (GET /api/payments/review).
             error_log('ADMIN REVIEW: payment attempt ' . (int) $payment['id'] . ' for reservation ' . (int) $payment['reservation_id'] . ' needs review.');
         }
+        if ($outcome !== 'review') {
+            // The payment is recorded and this event is marked processed, so a failed email is logged for the
+            // rental team rather than failing the webhook (a redelivery would be skipped as already processed).
+            $this->sendConfirmationEmail((int) $payment['reservation_id']);
+        }
 
         $this->response->send_json_success(null, 'Xendit payment received.');
+    }
+
+    /** Emails the rental agreement once the reservation is paid; a failure is logged, never thrown. */
+    private function sendConfirmationEmail($reservationId)
+    {
+        try {
+            if ($this->ReservationMailer->send_confirmation_if_ready((int) $reservationId, $this->ReservationModel) === 'failed') {
+                error_log('Agreement email for reservation ' . (int) $reservationId . ' could not be sent.');
+            }
+        } catch (Throwable $exception) {
+            error_log('Agreement email for reservation ' . (int) $reservationId . ' failed: ' . $exception->getMessage());
+        }
     }
 
     /** Paid attempts that need an administrator: payments after cancellation or expiry, duplicates. */

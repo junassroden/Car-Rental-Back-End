@@ -23,7 +23,7 @@ class CarController extends Controller
 
     const NULLABLE = ['plate_number', 'color', 'description'];
 
-    /** Public folder the vehicle images are saved in. */
+    /** Temporary staging folder used while validating images before ImageKit upload. */
     private $imageDirectory;
 
     public function __construct()
@@ -132,11 +132,17 @@ class CarController extends Controller
             return;
         }
 
+        $cleanupFailed = false;
         foreach ($images as $image) {
-            $this->removeImageFile($image['image_path']);
+            if (!$this->removeStoredImage($image)) {
+                $cleanupFailed = true;
+            }
         }
 
-        $this->response->send_json_success(null, 'Vehicle deleted successfully.');
+        $message = $cleanupFailed
+            ? 'Vehicle deleted, but one or more hosted images could not be removed. Check the backend logs and ImageKit files.'
+            : 'Vehicle deleted successfully.';
+        $this->response->send_json_success(null, $message);
     }
 
     public function uploadImages($id)
@@ -152,11 +158,17 @@ class CarController extends Controller
             return;
         }
 
-        // Save every file first; if one fails, remove the ones already saved.
+        $imageKit = $this->call->library('ImageKitStorage');
+        if (!$imageKit->is_configured()) {
+            $this->response->send_json_error('Image storage is not configured. Set IMAGEKIT_PRIVATE_KEY on the backend.', 503);
+            return;
+        }
+
         // A new Upload per file: the loader caches library instances,
         // so $this->call->library('upload', $file) would reuse the first file.
         $this->call->library('upload');
-        $stored = [];
+        $remoteImages = [];
+        $stagedFiles = [];
         foreach ($files as $file) {
             $upload = new Upload($file);
             $upload->set_dir($this->imageDirectory)
@@ -167,7 +179,8 @@ class CarController extends Controller
                 ->encrypt_name();
 
             if (!$upload->do_upload()) {
-                array_map([$this, 'removeImageFile'], $stored);
+                $this->cleanupStagedFiles($stagedFiles);
+                $this->cleanupRemoteImages($remoteImages, $imageKit);
                 $this->response->send_json_error(
                     'Images must be valid JPEG, PNG, or WebP files no larger than 5 MB each.',
                     422,
@@ -175,21 +188,39 @@ class CarController extends Controller
                 );
                 return;
             }
-            $stored[] = $upload->get_filename();
+            $filename = $upload->get_filename();
+            $stagedFiles[] = $filename;
+
+            try {
+                $remoteImages[] = $imageKit->upload_file(
+                    $this->imageDirectory . DIRECTORY_SEPARATOR . $filename,
+                    $filename
+                );
+                $this->removeLocalImageFile($filename);
+                $stagedFiles = array_values(array_diff($stagedFiles, [$filename]));
+            } catch (Throwable $exception) {
+                error_log('ImageKit vehicle image upload failed: ' . $exception->getMessage());
+                $this->cleanupStagedFiles($stagedFiles);
+                $this->cleanupRemoteImages($remoteImages, $imageKit);
+                $this->response->send_json_error('Vehicle images could not be uploaded to ImageKit. Check backend logs and ImageKit settings.', 502);
+                return;
+            }
         }
 
         try {
-            $saved = $this->CarImageModel->create_images($id, array_map(static function ($filename) {
-                return '/uploads/cars/' . $filename;
-            }, $stored), $variantId);
-        } catch (Exception $exception) {
-            array_map([$this, 'removeImageFile'], $stored);
+            $saved = $this->CarImageModel->create_images($id, $remoteImages, $variantId);
+        } catch (Throwable $exception) {
+            $this->cleanupRemoteImages($remoteImages, $imageKit);
             error_log('Vehicle image save failed: ' . $exception->getMessage());
             $this->response->send_json_error('The vehicle images could not be saved.', 500);
             return;
         }
 
-        $this->response->send_json_success($saved, 'Vehicle images uploaded successfully.', 201);
+        $clientImages = array_map(static function ($image) {
+            unset($image['imagekit_file_id']);
+            return $image;
+        }, $saved);
+        $this->response->send_json_success($clientImages, 'Vehicle images uploaded successfully.', 201);
     }
 
     /** Links a photo to a colour, or makes it a general photo when variant_id is empty. */
@@ -275,9 +306,12 @@ class CarController extends Controller
             return;
         }
 
-        $this->removeImageFile($image['image_path']);
+        $removed = $this->removeStoredImage($image);
+        $message = $removed
+            ? 'Vehicle image deleted successfully.'
+            : 'Vehicle image removed from the listing, but its ImageKit file could not be removed. Check backend logs and ImageKit files.';
 
-        $this->response->send_json_success($this->CarModel->find_with_images((int) $id), 'Vehicle image deleted successfully.');
+        $this->response->send_json_success($this->CarModel->find_with_images((int) $id), $message);
     }
 
     /* ---------------------------------------------------------------
@@ -296,9 +330,57 @@ class CarController extends Controller
             && $startDate >= date('Y-m-d');
     }
 
-    private function removeImageFile($path)
+    private function removeStoredImage(array $image)
     {
-        @unlink($this->imageDirectory . DIRECTORY_SEPARATOR . basename($path));
+        if (!empty($image['imagekit_file_id'])) {
+            try {
+                $imageKit = $this->call->library('ImageKitStorage');
+                $imageKit->delete_file($image['imagekit_file_id']);
+                return true;
+            } catch (Throwable $exception) {
+                error_log('ImageKit vehicle image cleanup failed: ' . $exception->getMessage());
+                return false;
+            }
+        }
+
+        $path = (string) ($image['image_path'] ?? '');
+        if (preg_match('~^https?://~i', $path)) {
+            return true;
+        }
+
+        return $this->removeLocalImageFile($path);
+    }
+
+    private function removeLocalImageFile($filename)
+    {
+        $path = $this->imageDirectory . DIRECTORY_SEPARATOR . basename((string) $filename);
+        if (!is_file($path)) {
+            return true;
+        }
+        if (!unlink($path)) {
+            error_log('Could not remove staged vehicle image: ' . $path);
+            return false;
+        }
+
+        return true;
+    }
+
+    private function cleanupStagedFiles(array $filenames)
+    {
+        foreach ($filenames as $filename) {
+            $this->removeLocalImageFile($filename);
+        }
+    }
+
+    private function cleanupRemoteImages(array $images, $imageKit)
+    {
+        foreach ($images as $image) {
+            try {
+                $imageKit->delete_file($image['file_id']);
+            } catch (Throwable $exception) {
+                error_log('ImageKit vehicle image rollback failed: ' . $exception->getMessage());
+            }
+        }
     }
 
     private function listCars($availableOnly)

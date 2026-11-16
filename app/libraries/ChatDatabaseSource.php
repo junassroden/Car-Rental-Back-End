@@ -23,13 +23,15 @@ class ChatDatabaseSource implements ChatDataSource
     /** @param array $models ['cars' => CarModel, 'reservations' => ReservationModel, 'maintenance' => MaintenanceModel, 'components' => ComponentMaintenanceModel, 'assessments' => VehicleAssessmentModel, 'payments' => PaymentModel, 'users' => UserModel] */
     public function __construct(array $models)
     {
+        // Cars and reservations are always needed; the rest only by the retrievals that read them
+        // (ReservationController::demand passes just the two).
         $this->cars         = $models['cars'];
         $this->reservations = $models['reservations'];
-        $this->maintenance  = $models['maintenance'];
-        $this->components   = $models['components'];
-        $this->assessments  = $models['assessments'];
-        $this->payments     = $models['payments'];
-        $this->users        = $models['users'];
+        $this->maintenance  = $models['maintenance'] ?? null;
+        $this->components   = $models['components'] ?? null;
+        $this->assessments  = $models['assessments'] ?? null;
+        $this->payments     = $models['payments'] ?? null;
+        $this->users        = $models['users'] ?? null;
     }
 
     public function payment_attempts()

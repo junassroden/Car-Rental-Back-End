@@ -25,7 +25,7 @@ class ChatController extends Controller
     {
         parent::__construct();
         $this->security_headers->apply_api();
-        $this->call->model(['CarModel', 'MaintenanceModel', 'ReservationModel', 'ComponentMaintenanceModel', 'VehicleAssessmentModel']);
+        $this->call->model(['CarModel', 'MaintenanceModel', 'ReservationModel', 'ComponentMaintenanceModel', 'VehicleAssessmentModel', 'PaymentModel']);
         $this->call->library(['AiServiceClient', 'ComponentMaintenanceRules', 'ReservationPolicy', 'ChatRetrieval']);
     }
 
@@ -126,6 +126,8 @@ class ChatController extends Controller
             'maintenance'  => $this->MaintenanceModel,
             'components'   => $this->ComponentMaintenanceModel,
             'assessments'  => $this->VehicleAssessmentModel,
+            'payments'     => $this->PaymentModel,
+            'users'        => $this->UserModel,
         ]);
         try {
             // Names in this database, so the AI service recognises makes and models it has never seen.

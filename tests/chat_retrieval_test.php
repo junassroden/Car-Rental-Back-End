@@ -30,7 +30,7 @@ function names(array $result)
 
 // --- Permissions -------------------------------------------------------------
 foreach (['reservations.summary', 'fleet.status_counts', 'maintenance.records', 'maintenance.due', 'maintenance.recurring',
-          'maintenance.inspections', 'maintenance.model_inputs'] as $tool) {
+          'maintenance.inspections', 'maintenance.model_inputs', 'payments.summary', 'customers.summary'] as $tool) {
     $result = run_tool($tool, [], $customer, $fixture);
     check($result['status'] === 'denied' && !isset($result['data']), "customer must be denied {$tool}");
     check(run_tool($tool, [], $admin, $fixture)['status'] === 'ok', "admin may use {$tool}");
@@ -206,6 +206,54 @@ check(array_sum(array_column($summary['by_customer'], 'reservations')) === $summ
 $util = run_tool('fleet.utilization', ['from' => '2026-11-01', 'to' => '2026-11-30'], $admin, $fixture)['data'];
 $byModel = array_column($util['vehicles'], 'booked_days', 'model');
 check($util['window_days'] === 29 && $byModel['Fortuner'] === 3 && $byModel['Vios'] === 3 && $byModel['Hiace'] === 0, 'utilisation counts booked days in the window');
+
+// --- Payments and customers (administrators) ------------------------------------------
+$billing = $fixture;
+$billing['payments'] = [
+    ['id' => 1, 'reservation_id' => 41, 'reference_number' => 'INV-1', 'amount' => '4500.00', 'status' => 'expired', 'created_at' => '2026-10-29 09:00:00'],
+    ['id' => 2, 'reservation_id' => 41, 'reference_number' => 'INV-2', 'amount' => '4500.00', 'status' => 'pending', 'created_at' => '2026-10-30 10:00:00'],
+    ['id' => 3, 'reservation_id' => 52, 'reference_number' => 'INV-3', 'amount' => '10500.00', 'paid_amount' => '10500.00', 'status' => 'paid',
+     'created_at' => '2026-10-30 11:00:00', 'paid_at' => '2026-10-30 11:05:00'],
+    ['id' => 4, 'reservation_id' => 17, 'reference_number' => 'INV-4', 'amount' => '3400.00', 'paid_amount' => '3400.00', 'status' => 'paid',
+     'created_at' => '2026-09-01 08:00:00', 'paid_at' => '2026-09-01 08:02:00', 'review_status' => 'needs_review',
+     'review_reason' => 'Paid after the reservation was cancelled. Refund the customer.'],
+];
+$billing['users'][1] += ['created_at' => '2026-10-20 08:00:00', 'has_licence' => true, 'has_photo' => true];
+$billing['users'][2] += ['created_at' => '2026-09-01 08:00:00', 'has_licence' => false, 'has_photo' => false, 'email' => 'ben@example.com'];
+$pay = run_tool('payments.summary', [], $admin, $billing)['data'];
+check($pay['counts_by_status'] === ['pending' => 1, 'paid' => 2, 'expired' => 1] && $pay['paid_total'] === 13900.0, 'payment counts and amount received');
+check($pay['needing_review_count'] === 1 && $pay['needing_review'][0]['reservation_id'] === 17, 'payments needing review are listed');
+check($pay['matching'][0]['id'] === 4 && $pay['matching'][0]['customer_name'] === 'Ana Santos', 'attempts come newest first with the customer name');
+$window = run_tool('payments.summary', ['from' => '2026-10-30', 'to' => '2026-10-30', 'statuses' => ['paid']], $admin, $billing)['data'];
+check($window['attempts'] === 2 && $window['matching_count'] === 1 && $window['paid_total'] === 10500.0, 'payments narrowed to a day and a status');
+check(run_tool('payments.summary', ['reservation_id' => 41], $admin, $billing)['data']['attempts'] === 2, 'payments of one reservation');
+check(run_tool('payments.summary', ['statuses' => ['refunded']], $admin, $billing)['data']['matching_count'] === 4, 'an unknown payment status is ignored');
+check(!array_key_exists('checkout_url', $pay['matching'][0]), 'checkout links are not sent to the chat');
+
+$people = run_tool('customers.summary', [], $admin, $billing)['data'];
+check($people['total_customers'] === 2 && $people['with_bookings'] === 2, 'customer totals leave out administrators');
+check($people['customers'][0]['name'] === 'Ana Santos' && $people['customers'][0]['reservations'] === 2, 'customers ranked by bookings');
+check($people['without_verified_licence'] === 1, 'customers without a licence and photo on file are counted');
+$spend = run_tool('customers.summary', ['sort' => 'spend'], $admin, $billing)['data']['customers'];
+check($spend[0]['name'] === 'Ben Cruz' && $spend[0]['paid_total'] === 10500.0, 'customers ranked by verified payments');
+$new = run_tool('customers.summary', ['from' => '2026-10-01', 'to' => '2026-10-31'], $admin, $billing)['data'];
+check($new['joined_in_period'] === 1 && $new['customers'][0]['name'] === 'Ana Santos', 'customers who joined in a period');
+check(array_column(run_tool('customers.summary', ['missing_licence' => true], $admin, $billing)['data']['customers'], 'name') === ['Ben Cruz'],
+      'customers missing a licence are listed');
+check(strpos(json_encode($people), 'ben@example.com') === false, 'customer contact details never reach the chat');
+
+// --- Overdue returns ----------------------------------------------------------------
+$late = $fixture;
+foreach ($late['reservations'] as &$row) {
+    if ((int) $row['id'] === 52) {
+        $row = array_merge($row, ['start_date' => '2026-10-20', 'end_date' => '2026-10-27', 'checked_out_at' => '2026-10-20 09:00:00', 'returned_at' => null]);
+    }
+}
+unset($row);
+$overdue = run_tool('reservations.summary', ['overdue' => true], $admin, $late)['data'];
+check($overdue['total_count'] === 1 && $overdue['reservations'][0]['id'] === 52 && $overdue['reservations'][0]['days_overdue'] === 4,
+      'a handed-over rental past its return date is overdue, with the days late');
+check(run_tool('reservations.summary', ['overdue' => true], $admin, $fixture)['data']['total_count'] === 0, 'no overdue rentals without a handover');
 
 // --- Duplicate names and model names with hyphens ------------------------------------
 $dupes = $fixture;

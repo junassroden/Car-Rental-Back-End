@@ -122,6 +122,59 @@ class ChatFixtureSource implements ChatDataSource
         return $this->db['maintenance_records'];
     }
 
+    /** Fixture "payments" rows (shaped like PaymentModel::chat_attempts), with reservation status, customer and car, newest first. */
+    public function payment_attempts()
+    {
+        $this->guard('payment_attempts');
+        $names = array_column($this->db['users'], 'full_name', 'id');
+        $reservations = array_column($this->db['reservations'], null, 'id');
+        $rows = array_map(function ($payment) use ($names, $reservations) {
+            $reservation = $reservations[$payment['reservation_id']] ?? [];
+            $car = $reservation ? $this->with_car($reservation) : [];
+            return $payment + ['currency' => 'PHP', 'paid_amount' => null, 'paid_at' => null, 'expires_at' => null,
+                               'review_status' => null, 'review_reason' => null, 'reference_number' => '',
+                               'reservation_status' => $reservation['status'] ?? null,
+                               'customer_name' => $names[$reservation['user_id'] ?? 0] ?? null,
+                               'make' => $car['make'] ?? null, 'model' => $car['model'] ?? null];
+        }, $this->db['payments'] ?? []);
+        usort($rows, static function ($a, $b) { return $b['id'] <=> $a['id']; });
+        return $rows;
+    }
+
+    /** One row per fixture user who is not an admin, shaped like UserModel::chat_customers. */
+    public function customers_overview()
+    {
+        $this->guard('customers_overview');
+        $paid = [];
+        foreach ($this->db['payments'] ?? [] as $payment) {
+            if ($payment['status'] === 'paid') {
+                $paid[$payment['reservation_id']] = ($paid[$payment['reservation_id']] ?? 0) + (float) ($payment['paid_amount'] ?? $payment['amount']);
+            }
+        }
+        $rows = [];
+        foreach ($this->db['users'] as $user) {
+            if (($user['role'] ?? 'customer') !== 'customer') {
+                continue;
+            }
+            $mine = array_values(array_filter($this->db['reservations'], static function ($row) use ($user) {
+                return (int) $row['user_id'] === (int) $user['id'];
+            }));
+            $count = static function ($statuses) use ($mine) {
+                return count(array_filter($mine, static function ($row) use ($statuses) { return in_array($row['status'], $statuses, true); }));
+            };
+            $rows[] = [
+                'id' => (int) $user['id'], 'full_name' => $user['full_name'] ?? '', 'username' => $user['username'] ?? '',
+                'created_at' => $user['created_at'] ?? '2026-01-01 00:00:00', 'is_active' => $user['is_active'] ?? 1,
+                'has_licence' => (int) !empty($user['has_licence']), 'licence_expired' => (int) !empty($user['licence_expired']),
+                'has_photo' => (int) !empty($user['has_photo']), 'reservations' => count($mine),
+                'completed' => $count(['completed']), 'cancelled' => $count(['cancelled']), 'expired' => $count(['expired']),
+                'active' => $count(['pending', 'confirmed']),
+                'paid_total' => array_sum(array_map(static function ($row) use ($paid) { return $paid[$row['id']] ?? 0; }, $mine)),
+            ];
+        }
+        return $rows;
+    }
+
     public function model_feature_vehicles()
     {
         $this->guard('model_feature_vehicles');

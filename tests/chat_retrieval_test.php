@@ -242,6 +242,41 @@ check(array_column(run_tool('customers.summary', ['missing_licence' => true], $a
       'customers missing a licence are listed');
 check(strpos(json_encode($people), 'ben@example.com') === false, 'customer contact details never reach the chat');
 
+// --- Demand (administrators) -----------------------------------------------------------
+// A year of generated bookings on car 1: one 3-day rental starting on the 3rd of each month from 2025-11 to 2026-10, booked
+// 5 days ahead, plus one cancelled and one expired booking, and one confirmed booking next month (today is 2026-10-31).
+$demand = $fixture;
+$demand['reservations'] = [];
+for ($i = 0; $i < 12; $i++) {
+    $start = (new DateTimeImmutable('2025-11-03'))->modify("+{$i} months");
+    $demand['reservations'][] = ['id' => 100 + $i, 'user_id' => 2, 'car_id' => 1, 'start_date' => $start->format('Y-m-d'),
+                                 'end_date' => $start->modify('+3 days')->format('Y-m-d'), 'rental_days' => 3, 'daily_rate' => '1500.00',
+                                 'total_amount' => '4500.00', 'status' => 'completed', 'created_at' => $start->modify('-5 days')->format('Y-m-d 09:00:00')];
+}
+$demand['reservations'][] = ['id' => 200, 'user_id' => 2, 'car_id' => 1, 'start_date' => '2026-10-20', 'end_date' => '2026-10-23', 'rental_days' => 3,
+                             'daily_rate' => '1500.00', 'total_amount' => '4500.00', 'status' => 'cancelled', 'created_at' => '2026-10-10 09:00:00'];
+$demand['reservations'][] = ['id' => 201, 'user_id' => 3, 'car_id' => 2, 'start_date' => '2026-10-25', 'end_date' => '2026-10-28', 'rental_days' => 3,
+                             'daily_rate' => '3500.00', 'total_amount' => '10500.00', 'status' => 'expired', 'created_at' => '2026-10-24 09:00:00'];
+$demand['reservations'][] = ['id' => 202, 'user_id' => 3, 'car_id' => 2, 'start_date' => '2026-11-10', 'end_date' => '2026-11-14', 'rental_days' => 4,
+                             'daily_rate' => '3500.00', 'total_amount' => '14000.00', 'status' => 'confirmed', 'created_at' => '2026-10-30 09:00:00'];
+$summary = run_tool('demand.summary', [], $admin, $demand)['data'];
+$byMonth = array_column($summary['by_month'], null, 'month');
+check(count($summary['by_month']) === 15 && $byMonth['2026-10']['booked_days'] === 3 && $byMonth['2026-11']['booked_days'] === 4,
+      'booked days per month, the last 12 months and the next 3');
+check($byMonth['2026-10']['cancelled'] === 1 && $byMonth['2026-10']['expired'] === 1 && $byMonth['2026-10']['bookings'] === 1,
+      'cancelled and expired bookings are counted apart from demand');
+// History counts completed months only: 2025-11 to 2026-09, since October is still running.
+check($summary['on_the_books']['next_30_days'] === 4 && $summary['history_months'] === 11, 'days already booked ahead, and months of history');
+check(array_sum($summary['pickups_by_weekday']) === 13 && $summary['lead_time_days']['median'] === 5, 'pickups per weekday and how far ahead people book');
+check($summary['cancellation_rate_percent'] === 7.1 && $summary['expiry_rate_percent'] === 7.1, 'cancellation and expiry rates over past months');
+check(count($summary['forecast']) === 3 && $summary['forecast'][0]['month'] === '2026-11' && $summary['forecast'][0]['expected_booked_days'] === 3
+      && $summary['forecast'][0]['basis'] === 'same month in earlier years', 'a forecast from the same month last year once there is enough history');
+$recent = $demand;
+$recent['reservations'] = array_slice($demand['reservations'], 10);
+check(run_tool('demand.summary', [], $admin, $recent)['data']['forecast'] === null, 'no forecast with under six months of history');
+check(run_tool('demand.summary', ['month' => '2026-12'], $admin, $demand)['data']['asked_month']['month'] === '2026-12', 'a month asked about');
+check(run_tool('demand.summary', [], $customer, $demand)['status'] === 'denied', 'customers may not read demand');
+
 // --- Overdue returns ----------------------------------------------------------------
 $late = $fixture;
 foreach ($late['reservations'] as &$row) {

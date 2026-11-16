@@ -93,6 +93,8 @@ $router->group(['prefix' => '/api'], function ($router) {
 
     // Reservations
     $router->get('/reservations', 'ReservationController::reservations');
+    // Demand Intelligence (administrators); before "{id}" so "demand" is not read as a reservation id.
+    $router->get('/reservations/demand', 'ReservationController::demand');
     $router->get('/reservations/{id}', 'ReservationController::reservation');
     $router->post('/reservations', 'ReservationController::createReservation');
     $router->patch('/reservations/{id}', 'ReservationController::updateReservation');

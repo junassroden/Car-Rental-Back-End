@@ -183,6 +183,25 @@ class PaymentModel extends Model
     }
 
     /** Paid attempts an administrator must act on (refunds, duplicates). Newest first. */
+    /**
+     * Payment attempts for the administrator chat, newest first: status, amounts, dates and review state, with the
+     * reservation's status, the customer's name (never contact details) and the car. Read-only.
+     */
+    public function chat_attempts($limit = 5000)
+    {
+        return $this->db->table($this->table)
+            ->select('checkout_payments.id, checkout_payments.reservation_id, checkout_payments.provider, checkout_payments.reference_number, '
+                . 'checkout_payments.amount, checkout_payments.paid_amount, checkout_payments.currency, checkout_payments.status, '
+                . 'checkout_payments.created_at, checkout_payments.paid_at, checkout_payments.expires_at, checkout_payments.review_status, '
+                . 'checkout_payments.review_reason, reservations.status AS reservation_status, users.full_name AS customer_name, cars.make, cars.model')
+            ->inner_join('reservations', 'reservations.id = checkout_payments.reservation_id')
+            ->inner_join('users', 'users.id = reservations.user_id')
+            ->inner_join('cars', 'cars.id = reservations.car_id')
+            ->order_by('checkout_payments.id', 'DESC')
+            ->pagination(max(1, min((int) $limit, 5000)), 1)
+            ->get_all();
+    }
+
     public function needing_review()
     {
         return $this->db->table($this->table)

@@ -101,7 +101,12 @@ class ChatRetrieval
         'assessments.condition'    => ['admin'],
         'payments.summary'         => ['admin'],
         'customers.summary'        => ['admin'],
+        'demand.summary'           => ['admin'],
     ];
+    // Booked statuses count as demand; cancelled and expired ones only feed the cancellation and expiry rates.
+    public const DEMAND_STATUSES = ['pending', 'confirmed', 'completed'];
+    // A forecast is shown only from this many months of booking history.
+    public const FORECAST_MIN_MONTHS = 6;
     public const PAYMENT_STATUSES = ['pending', 'paid', 'expired'];
     public const CUSTOMER_SORTS   = ['bookings', 'spend', 'cancellations', 'newest'];
     public const SORTS       = ['price_asc', 'price_desc', 'year_desc', 'year_asc'];
@@ -256,6 +261,12 @@ class ChatRetrieval
             $clean['review_only'] = ($args['review_only'] ?? false) === true;
             $clean['reservation_id'] = self::int_in($args['reservation_id'] ?? null, 1, PHP_INT_MAX);
         }
+        if ($tool === 'demand.summary') {
+            $clean['months'] = self::int_in($args['months'] ?? null, 3, 24) ?? 12;
+            // A month asked about ("what demand do you expect in December?"), as YYYY-MM.
+            $month = is_string($args['month'] ?? null) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $args['month']) ? $args['month'] : null;
+            $clean['month'] = $month;
+        }
         if ($tool === 'customers.summary') {
             $clean['sort'] = in_array($args['sort'] ?? null, self::CUSTOMER_SORTS, true) ? $args['sort'] : 'bookings';
             $clean['missing_licence'] = ($args['missing_licence'] ?? false) === true;
@@ -360,6 +371,8 @@ class ChatRetrieval
                 return self::payments_summary($args, $source, $today);
             case 'customers.summary':
                 return self::customers_summary($args, $source, $today);
+            case 'demand.summary':
+                return self::demand_summary($args, $source, $today);
         }
 
         return [];
@@ -418,6 +431,140 @@ class ChatRetrieval
                 'needing_review_count' => count($review), 'needing_review' => array_map($trim, array_slice($review, 0, self::TOP_ROWS)),
                 'matching_count' => count($matching), 'matching' => array_map($trim, array_slice($matching, 0, $args['limit'])),
                 'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP', 'today' => $today];
+    }
+
+    /**
+     * Rental demand (administrators), from the reservations only: booked days, bookings and booked value per month for
+     * the last N months and the next three, pickups per weekday, booked days per category, how far ahead people book,
+     * cancellation and expiry rates, and the days already booked in the next 30, 60 and 90 days. A forecast for the next
+     * three months is added only with FORECAST_MIN_MONTHS months of history: the average of the same calendar month in
+     * earlier years, or else of the last three full months, with the lowest and highest of those as its range.
+     */
+    private static function demand_summary(array $args, ChatDataSource $source, $today)
+    {
+        $data = $source->reservations_all(self::AGGREGATE_ROWS);
+        $rows = $data['reservations'];
+        $vehicles = $source->vehicles(true);
+        $category_of = [];
+        $fleet_by_category = [];
+        foreach ($vehicles as $vehicle) {
+            $category = trim((string) ($vehicle['category'] ?? '')) ?: 'Other';
+            $category_of[(int) $vehicle['id']] = $category;
+            $fleet_by_category[$category] = ($fleet_by_category[$category] ?? 0) + 1;
+        }
+        $now = new DateTimeImmutable($today);
+        $current = $now->format('Y-m');
+        $months = [];
+        for ($offset = -$args['months'] + 1; $offset <= 3; $offset++) {
+            $key = $now->modify('first day of this month')->modify(($offset >= 0 ? '+' : '') . $offset . ' months')->format('Y-m');
+            $months[$key] = ['month' => $key, 'bookings' => 0, 'booked_days' => 0, 'booked_value' => 0.0, 'cancelled' => 0, 'expired' => 0,
+                             'future' => $key > $current];
+        }
+        $weekdays = array_fill_keys(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'], 0);
+        $category_days = array_fill_keys(array_keys($fleet_by_category), 0);
+        $lead_times = [];
+        $ahead = ['next_30_days' => 0, 'next_60_days' => 0, 'next_90_days' => 0];
+        $history = [];
+        $window_start = $now->modify('-89 days')->format('Y-m-d');
+        foreach ($rows as $row) {
+            $status = (string) $row['status'];
+            $start = (string) $row['start_date'];
+            $end = (string) $row['end_date'];
+            $month = substr($start, 0, 7);
+            if (isset($months[$month]) && $status === 'cancelled') {
+                $months[$month]['cancelled']++;
+            }
+            if (isset($months[$month]) && $status === 'expired') {
+                $months[$month]['expired']++;
+            }
+            if (!in_array($status, self::DEMAND_STATUSES, true)) {
+                continue;
+            }
+            if ($month < $current) {
+                $history[$month] = true;
+            }
+            if (isset($months[$month])) {
+                $months[$month]['bookings']++;
+                $months[$month]['booked_value'] = round($months[$month]['booked_value'] + (float) ($row['total_amount'] ?? 0), 2);
+            }
+            $weekdays[(new DateTimeImmutable($start))->format('l')]++;
+            if (!empty($row['created_at'])) {
+                $lead_times[] = max(0, (int) round((strtotime($start) - strtotime(substr((string) $row['created_at'], 0, 10))) / 86400));
+            }
+            // Booked days are counted in the month and window they fall in: [start, end), the return day excluded.
+            for ($day = new DateTimeImmutable($start); $day->format('Y-m-d') < $end; $day = $day->modify('+1 day')) {
+                $date = $day->format('Y-m-d');
+                $key = $day->format('Y-m');
+                if (isset($months[$key])) {
+                    $months[$key]['booked_days']++;
+                }
+                if ($date >= $window_start && $date <= $today) {
+                    $category = $category_of[(int) $row['car_id']] ?? 'Other';
+                    $category_days[$category] = ($category_days[$category] ?? 0) + 1;
+                }
+                $days_ahead = (int) $now->diff($day)->format('%r%a');
+                foreach ([30, 60, 90] as $span) {
+                    if ($days_ahead >= 0 && $days_ahead < $span) {
+                        $ahead['next_' . $span . '_days']++;
+                    }
+                }
+            }
+        }
+
+        $by_category = [];
+        foreach ($category_days as $category => $days) {
+            $fleet = $fleet_by_category[$category] ?? 0;
+            $by_category[] = ['category' => $category, 'vehicles' => $fleet, 'booked_days_last_90' => $days,
+                              'utilization_percent' => $fleet ? round(100 * $days / ($fleet * 90), 1) : null];
+        }
+        usort($by_category, static function ($a, $b) { return $b['booked_days_last_90'] <=> $a['booked_days_last_90']; });
+
+        // Rates cover the months up to and including this one: a cancellation this month counts.
+        $past = array_values(array_filter($months, static function ($item) use ($current) { return $item['month'] <= $current; }));
+        $all = array_sum(array_column($past, 'bookings')) + array_sum(array_column($past, 'cancelled')) + array_sum(array_column($past, 'expired'));
+        sort($lead_times);
+        $history_months = count($history);
+
+        $forecast = null;
+        if ($history_months >= self::FORECAST_MIN_MONTHS) {
+            $forecast = [];
+            $booked = [];
+            foreach ($rows as $row) {
+                if (!in_array((string) $row['status'], self::DEMAND_STATUSES, true)) {
+                    continue;
+                }
+                for ($day = new DateTimeImmutable((string) $row['start_date']); $day->format('Y-m-d') < (string) $row['end_date']; $day = $day->modify('+1 day')) {
+                    $booked[$day->format('Y-m')] = ($booked[$day->format('Y-m')] ?? 0) + 1;
+                }
+            }
+            for ($offset = 1; $offset <= 3; $offset++) {
+                $target = $now->modify('first day of this month')->modify('+' . $offset . ' months');
+                $same_month = [];
+                for ($year = 1; $year <= 3; $year++) {
+                    $key = $target->modify('-' . $year . ' years')->format('Y-m');
+                    if (isset($booked[$key])) {
+                        $same_month[] = $booked[$key];
+                    }
+                }
+                $basis = $same_month ? 'same month in earlier years' : 'last three full months';
+                $values = $same_month ?: array_map(static function ($back) use ($now, $booked) {
+                    return $booked[$now->modify('first day of this month')->modify('-' . $back . ' months')->format('Y-m')] ?? 0;
+                }, [1, 2, 3]);
+                $forecast[] = ['month' => $target->format('Y-m'), 'expected_booked_days' => (int) round(array_sum($values) / count($values)),
+                               'low' => min($values), 'high' => max($values), 'basis' => $basis, 'already_booked' => $months[$target->format('Y-m')]['booked_days'] ?? 0];
+            }
+        }
+
+        return [
+            'today' => $today, 'currency' => 'PHP', 'fleet_size' => count($vehicles), 'history_months' => $history_months,
+            'forecast_min_months' => self::FORECAST_MIN_MONTHS, 'by_month' => array_values($months), 'pickups_by_weekday' => $weekdays,
+            'by_category' => $by_category, 'on_the_books' => $ahead,
+            'lead_time_days' => $lead_times ? ['median' => $lead_times[intdiv(count($lead_times), 2)], 'bookings' => count($lead_times)] : null,
+            'cancellation_rate_percent' => $all ? round(100 * array_sum(array_column($past, 'cancelled')) / $all, 1) : null,
+            'expiry_rate_percent' => $all ? round(100 * array_sum(array_column($past, 'expired')) / $all, 1) : null,
+            'asked_month' => $args['month'] !== null ? ($months[$args['month']] ?? ['month' => $args['month'], 'outside_window' => true]) : null,
+            'forecast' => $forecast,
+        ];
     }
 
     /**

@@ -58,6 +58,19 @@ interface ChatDataSource
      * outcomes => [category_key => [result => count]] (verified outcomes only).
      */
     public function assessment_condition();
+
+    /**
+     * Payment attempts, newest first (PaymentModel::chat_attempts): id, reservation_id, reference_number, amount,
+     * paid_amount, currency, status (pending|paid|expired), created_at, paid_at, expires_at, review_status,
+     * review_reason, reservation_status, customer_name, make, model.
+     */
+    public function payment_attempts();
+
+    /**
+     * One row per customer (UserModel::chat_customers): id, full_name, username, created_at, is_active, has_licence,
+     * licence_expired, has_photo, reservations, completed, cancelled, expired, active, paid_total. No contact details.
+     */
+    public function customers_overview();
 }
 
 class ChatRetrieval
@@ -86,7 +99,11 @@ class ChatRetrieval
         'fleet.utilization'        => ['admin'],
         'assessments.due'          => ['admin'],
         'assessments.condition'    => ['admin'],
+        'payments.summary'         => ['admin'],
+        'customers.summary'        => ['admin'],
     ];
+    public const PAYMENT_STATUSES = ['pending', 'paid', 'expired'];
+    public const CUSTOMER_SORTS   = ['bookings', 'spend', 'cancellations', 'newest'];
     public const SORTS       = ['price_asc', 'price_desc', 'year_desc', 'year_asc'];
     public const ADMIN_SORTS = ['mileage_desc', 'mileage_asc'];
 
@@ -223,6 +240,8 @@ class ChatRetrieval
             $clean['statuses'] = array_values(array_intersect(self::strings($args['statuses'] ?? []), self::RESERVATION_STATUSES));
             $clean['upcoming'] = ($args['upcoming'] ?? false) === true;
             $clean['active']   = ($args['active'] ?? false) === true;
+            // Handed over, not yet returned, and past the return date.
+            $clean['overdue']  = ($args['overdue'] ?? false) === true;
             $clean['reservation_id'] = self::int_in($args['reservation_id'] ?? null, 1, PHP_INT_MAX);
             foreach (['pickup_on', 'return_on', 'from', 'to'] as $key) {
                 $clean[$key] = self::date_or_null($args[$key] ?? null);
@@ -232,7 +251,17 @@ class ChatRetrieval
             $clean['customer_name'] = $name !== '' && strlen($name) <= 60 ? $name : null;
         }
 
-        if (in_array($tool, ['maintenance.costs', 'reservations.revenue', 'fleet.utilization'], true)) {
+        if ($tool === 'payments.summary') {
+            $clean['statuses'] = array_values(array_intersect(self::strings($args['statuses'] ?? []), self::PAYMENT_STATUSES));
+            $clean['review_only'] = ($args['review_only'] ?? false) === true;
+            $clean['reservation_id'] = self::int_in($args['reservation_id'] ?? null, 1, PHP_INT_MAX);
+        }
+        if ($tool === 'customers.summary') {
+            $clean['sort'] = in_array($args['sort'] ?? null, self::CUSTOMER_SORTS, true) ? $args['sort'] : 'bookings';
+            $clean['missing_licence'] = ($args['missing_licence'] ?? false) === true;
+        }
+
+        if (in_array($tool, ['maintenance.costs', 'reservations.revenue', 'fleet.utilization', 'payments.summary', 'customers.summary'], true)) {
             $clean['from'] = self::date_or_null($args['from'] ?? null);
             $clean['to']   = self::date_or_null($args['to'] ?? null);
             if ($clean['from'] !== null && $clean['to'] !== null && $clean['to'] < $clean['from']) {
@@ -327,9 +356,114 @@ class ChatRetrieval
 
             case 'fleet.utilization':
                 return self::utilization($args, $source, $today);
+            case 'payments.summary':
+                return self::payments_summary($args, $source, $today);
+            case 'customers.summary':
+                return self::customers_summary($args, $source, $today);
         }
 
         return [];
+    }
+
+    /**
+     * Payment attempts (administrators): counts by status, the amount received, attempts needing review (paid after
+     * cancellation or expiry, duplicates) and the matching attempts newest first. [from, to] keeps attempts started
+     * or paid on those dates; statuses, review_only and reservation_id narrow the list.
+     */
+    private static function payments_summary(array $args, ChatDataSource $source, $today)
+    {
+        $in_window = static function ($row) use ($args) {
+            if ($args['from'] === null && $args['to'] === null) {
+                return true;
+            }
+            foreach (['created_at', 'paid_at'] as $field) {
+                $date = substr((string) ($row[$field] ?? ''), 0, 10);
+                if ($date !== '' && ($args['from'] === null || $date >= $args['from']) && ($args['to'] === null || $date <= $args['to'])) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        $rows = array_values(array_filter($source->payment_attempts(), $in_window));
+        if ($args['reservation_id'] !== null) {
+            $rows = array_values(array_filter($rows, static function ($row) use ($args) {
+                return (int) $row['reservation_id'] === $args['reservation_id'];
+            }));
+        }
+
+        $counts = array_fill_keys(self::PAYMENT_STATUSES, 0);
+        $paid_total = 0.0;
+        $review = [];
+        foreach ($rows as $row) {
+            $status = (string) $row['status'];
+            $counts[$status] = ($counts[$status] ?? 0) + 1;
+            if ($status === 'paid') {
+                $paid_total = round($paid_total + (float) ($row['paid_amount'] ?? $row['amount']), 2);
+            }
+            if (($row['review_status'] ?? null) === 'needs_review') {
+                $review[] = $row;
+            }
+        }
+        $matching = array_values(array_filter($rows, static function ($row) use ($args) {
+            return (!$args['statuses'] || in_array((string) $row['status'], $args['statuses'], true))
+                && (!$args['review_only'] || ($row['review_status'] ?? null) === 'needs_review');
+        }));
+        $fields = ['id', 'reservation_id', 'reference_number', 'amount', 'paid_amount', 'currency', 'status', 'created_at', 'paid_at',
+                   'expires_at', 'review_reason', 'reservation_status', 'customer_name', 'make', 'model'];
+        $trim = static function ($row) use ($fields) {
+            return array_intersect_key($row, array_flip($fields));
+        };
+        // The total is stated in answers, so the amount check must find it in these records.
+        return ['counts_by_status' => $counts, 'attempts' => count($rows), 'paid_total' => $paid_total,
+                'needing_review_count' => count($review), 'needing_review' => array_map($trim, array_slice($review, 0, self::TOP_ROWS)),
+                'matching_count' => count($matching), 'matching' => array_map($trim, array_slice($matching, 0, $args['limit'])),
+                'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP', 'today' => $today];
+    }
+
+    /**
+     * Customers (administrators): how many there are and joined in [from, to], how many lack a driver's licence or
+     * verification photo on file, and the customers ranked by bookings, verified spend, cancellations or sign-up date.
+     * Names only: no email, phone, address or licence number ever leaves the database.
+     */
+    private static function customers_summary(array $args, ChatDataSource $source, $today)
+    {
+        $rows = array_map(static function ($row) {
+            return [
+                'id' => (int) $row['id'],
+                'name' => trim((string) ($row['full_name'] ?? '')) !== '' ? (string) $row['full_name'] : (string) $row['username'],
+                'joined_on' => substr((string) $row['created_at'], 0, 10),
+                'active_account' => (int) $row['is_active'] === 1,
+                'has_licence' => (bool) (int) $row['has_licence'],
+                'licence_expired' => (bool) (int) $row['licence_expired'],
+                'has_photo' => (bool) (int) $row['has_photo'],
+                'reservations' => (int) $row['reservations'],
+                'completed' => (int) $row['completed'],
+                'cancelled' => (int) $row['cancelled'],
+                'expired' => (int) $row['expired'],
+                'active' => (int) $row['active'],
+                'paid_total' => round((float) $row['paid_total'], 2),
+            ];
+        }, $source->customers_overview());
+
+        $joined = array_values(array_filter($rows, static function ($row) use ($args) {
+            return ($args['from'] === null || $row['joined_on'] >= $args['from']) && ($args['to'] === null || $row['joined_on'] <= $args['to']);
+        }));
+        $unverified = array_values(array_filter($rows, static function ($row) {
+            return !$row['has_licence'] || !$row['has_photo'] || $row['licence_expired'];
+        }));
+        $key = ['bookings' => 'reservations', 'spend' => 'paid_total', 'cancellations' => 'cancelled', 'newest' => 'joined_on'][$args['sort']];
+        $ranked = $args['missing_licence'] ? $unverified : $joined;
+        usort($ranked, static function ($a, $b) use ($key) {
+            return [$b[$key], $b['reservations']] <=> [$a[$key], $a['reservations']];
+        });
+
+        return ['total_customers' => count($rows),
+                'active_accounts' => count(array_filter($rows, static function ($row) { return $row['active_account']; })),
+                'joined_in_period' => ($args['from'] !== null || $args['to'] !== null) ? count($joined) : null,
+                'without_verified_licence' => count($unverified),
+                'with_bookings' => count(array_filter($rows, static function ($row) { return $row['reservations'] > 0; })),
+                'sort' => $args['sort'], 'customers' => array_slice($ranked, 0, $args['limit']),
+                'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP', 'today' => $today];
     }
 
     /** Vehicle search or price quote over the cars the viewer may see. */
@@ -533,6 +667,9 @@ class ChatRetrieval
             if ($args['active'] && !($blocking && $row['start_date'] <= $today && $row['end_date'] > $today)) {
                 return false;
             }
+            if ($args['overdue'] && !(!empty($row['checked_out_at']) && empty($row['returned_at']) && (string) $row['end_date'] < $today)) {
+                return false;
+            }
             if ($args['pickup_on'] !== null && $row['start_date'] !== $args['pickup_on']) {
                 return false;
             }
@@ -571,6 +708,7 @@ class ChatRetrieval
             $out['payment_status'] = isset($row['payment_status']) ? (string) $row['payment_status'] : null;
             $out['handed_over'] = !empty($row['checked_out_at']);
             $out['returned'] = !empty($row['returned_at']);
+            $out['days_overdue'] = $out['handed_over'] && !$out['returned'] && $end < $now ? (int) $end->diff($now)->format('%a') : null;
             return $out;
         }, array_slice($rows, 0, $args['limit']));
 

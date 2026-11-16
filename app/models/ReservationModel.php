@@ -158,7 +158,7 @@ class ReservationModel extends Model
      */
     public function chat_context_all($limit = 200)
     {
-        $columns = 'reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.expires_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, cars.make, cars.model, users.full_name AS customer_name';
+        $columns = 'reservations.id, reservations.car_id, reservations.start_date, reservations.end_date, reservations.rental_days, reservations.daily_rate, reservations.total_amount, reservations.status, reservations.expires_at, reservations.payment_required, reservations.checked_out_at, reservations.returned_at, reservations.created_at, cars.make, cars.model, users.full_name AS customer_name';
         $total = (int) $this->db->table($this->table)->count();
         $records = $this->db->table($this->table)
             ->select($columns)

@@ -27,7 +27,7 @@ class CarImageModel extends Model
             $this->db->commit();
 
             return $savedImages;
-        } catch (Exception $exception) {
+        } catch (Throwable $exception) {
             $this->db->roll_back();
             throw $exception;
         }

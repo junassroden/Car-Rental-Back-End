@@ -19,13 +19,38 @@ class MaintenanceModel extends Model
     const DONE_STATUSES = ['completed', 'done', 'recorded'];
 
     const EDITABLE = [
-        'maintenanceType', 'description', 'maintenanceDate', 'cost',
+        'maintenanceType', 'description', 'serviceItems', 'maintenanceDate', 'cost',
         'maintenanceStatus', 'nextMaintenanceDate', 'odometerReading',
     ];
 
+    /**
+     * Service items a visit can include. The keys are the AI service-need model's
+     * targets (automotive_ai_service/data_pipeline/service_need.py TARGETS, including
+     * its "whell" spelling); keep both lists identical.
+     */
+    const SERVICE_ITEMS = [
+        'engine_oil'                    => 'Engine oil',
+        'oil_filter'                    => 'Oil filter',
+        'washer_plug_drain'             => 'Drain plug washer',
+        'air_clean_filter'              => 'Air filter',
+        'dust_and_pollen_filter'        => 'Cabin dust and pollen filter',
+        'fuel_filter'                   => 'Fuel filter',
+        'spark_plug'                    => 'Spark plugs',
+        'coolant'                       => 'Coolant',
+        'brake_fluid'                   => 'Brake fluid',
+        'brake_and_clutch_oil'          => 'Brake and clutch fluid',
+        'brake_pads'                    => 'Brake pads',
+        'clutch'                        => 'Clutch',
+        'transmission_fluid'            => 'Transmission fluid',
+        'whell_alignment_and_balancing' => 'Wheel alignment and balancing',
+    ];
+
+    /** Plate prefixes of simulated and demonstration cars, never exported as real visits. */
+    const NON_FLEET_PLATE_PREFIXES = ['SAMPLE-', 'DEMO-'];
+
     protected $table       = 'tblvehicle_maintenance';
     protected $primary_key = 'maintenanceID';
-    protected $fillable    = ['vehicleID', 'maintenanceType', 'description', 'maintenanceDate', 'cost', 'maintenanceStatus', 'nextMaintenanceDate', 'odometerReading', 'updated_at'];
+    protected $fillable    = ['vehicleID', 'maintenanceType', 'description', 'serviceItems', 'maintenanceDate', 'cost', 'maintenanceStatus', 'nextMaintenanceDate', 'odometerReading', 'updated_at'];
     protected $timestamps  = false;
 
     /* ---------------------------------------------------------------
@@ -36,16 +61,142 @@ class MaintenanceModel extends Model
     public function records($vehicle_id = null)
     {
         $query = $this->db->table($this->table)
-            ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.maintenanceType, tblvehicle_maintenance.description, tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.cost, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.nextMaintenanceDate, tblvehicle_maintenance.odometerReading, tblvehicle_maintenance.created_at, tblvehicle_maintenance.updated_at, cars.make, cars.model, cars.plate_number, cars.current_mileage')
+            ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.maintenanceType, tblvehicle_maintenance.description, tblvehicle_maintenance.serviceItems, tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.cost, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.nextMaintenanceDate, tblvehicle_maintenance.odometerReading, tblvehicle_maintenance.created_at, tblvehicle_maintenance.updated_at, cars.make, cars.model, cars.plate_number, cars.current_mileage')
             ->inner_join('cars', 'cars.id = tblvehicle_maintenance.vehicleID');
 
         if ($vehicle_id !== null) {
             $query->where('tblvehicle_maintenance.vehicleID', (int) $vehicle_id);
         }
 
-        return $query->order_by('tblvehicle_maintenance.maintenanceDate', 'DESC')
+        $records = $query->order_by('tblvehicle_maintenance.maintenanceDate', 'DESC')
             ->order_by('tblvehicle_maintenance.maintenanceID', 'DESC')
             ->get_all();
+
+        return array_map([self::class, 'decode_items'], $records);
+    }
+
+    /**
+     * Real fleet service visits for the AI service-need model: completed visits with
+     * an odometer reading and a recorded item list, on cars that are not SAMPLE-/DEMO-.
+     * Every row lists all SERVICE_ITEMS as 0/1, so an unticked item is a recorded "not done".
+     */
+    public function service_need_dataset()
+    {
+        $query = $this->db->table($this->table)
+            ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.serviceItems, tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.odometerReading, tblvehicle_maintenance.description, cars.make, cars.model, cars.year, cars.category, cars.fuel_type, cars.plate_number')
+            ->inner_join('cars', 'cars.id = tblvehicle_maintenance.vehicleID')
+            ->where_not_null('tblvehicle_maintenance.serviceItems')
+            ->where_not_null('tblvehicle_maintenance.odometerReading')
+            ->where_not_null('tblvehicle_maintenance.maintenanceDate')
+            ->order_by('tblvehicle_maintenance.vehicleID', 'ASC')
+            ->order_by('tblvehicle_maintenance.maintenanceDate', 'ASC')
+            ->order_by('tblvehicle_maintenance.maintenanceID', 'ASC')
+            ->get_all();
+
+        $visits = [];
+        $excluded = ['not_completed' => 0, 'sample_or_demo' => 0];
+        foreach ($query as $row) {
+            if (!in_array(strtolower((string) $row['maintenanceStatus']), self::DONE_STATUSES, true)) {
+                $excluded['not_completed']++;
+                continue;
+            }
+            if (self::is_non_fleet($row)) {
+                $excluded['sample_or_demo']++;
+                continue;
+            }
+            $done = self::decode_items($row)['serviceItems'] ?? [];
+            $visit = [
+                'visit_id'    => (int) $row['maintenanceID'],
+                'vehicle_id'  => (int) $row['vehicleID'],
+                'make'        => $row['make'],
+                'model'       => $row['model'],
+                'year'        => $row['year'] === null ? null : (int) $row['year'],
+                'category'    => $row['category'],
+                'fuel_type'   => $row['fuel_type'],
+                'visit_date'  => $row['maintenanceDate'],
+                'odometer_km' => (int) $row['odometerReading'],
+            ];
+            foreach (array_keys(self::SERVICE_ITEMS) as $item) {
+                $visit[$item] = in_array($item, $done, true) ? 1 : 0;
+            }
+            $visits[] = $visit;
+        }
+
+        $models = array_unique(array_map(static function ($visit) {
+            return strtolower(trim($visit['make'] . ' ' . $visit['model']));
+        }, $visits));
+
+        return [
+            'schema_version' => 1,
+            'service_items'  => array_keys(self::SERVICE_ITEMS),
+            'summary'        => [
+                'visits'         => count($visits),
+                'vehicles'       => count(array_unique(array_column($visits, 'vehicle_id'))),
+                'vehicle_models' => count($models),
+                'excluded'       => $excluded,
+            ],
+            'visits'         => $visits,
+        ];
+    }
+
+    /**
+     * Validates a service-item list (array or JSON array of SERVICE_ITEMS keys) and
+     * returns it as a sorted JSON string, or NULL for "not recorded". Throws
+     * InvalidArgumentException for unknown items.
+     */
+    public static function normalize_service_items($value)
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value)) {
+            $value = json_decode($value, true);
+        }
+        if (!is_array($value)) {
+            throw new InvalidArgumentException('Service items must be a list.');
+        }
+
+        $items = [];
+        foreach ($value as $item) {
+            if (!is_string($item) || !array_key_exists($item, self::SERVICE_ITEMS)) {
+                throw new InvalidArgumentException('Unknown service item: ' . substr((string) (is_scalar($item) ? $item : gettype($item)), 0, 40) . '.');
+            }
+            $items[$item] = true;
+        }
+        $items = array_keys($items);
+        sort($items);
+
+        return json_encode($items);
+    }
+
+    private static function decode_items(array $record)
+    {
+        if (array_key_exists('serviceItems', $record)) {
+            $items = $record['serviceItems'] === null ? null : json_decode((string) $record['serviceItems'], true);
+            $record['serviceItems'] = is_array($items) ? array_values($items) : null;
+        }
+        return $record;
+    }
+
+    private static function is_non_fleet(array $row)
+    {
+        $plate = strtoupper((string) ($row['plate_number'] ?? ''));
+        foreach (self::NON_FLEET_PLATE_PREFIXES as $prefix) {
+            if (strpos($plate, $prefix) === 0) {
+                return true;
+            }
+        }
+        return stripos((string) ($row['description'] ?? ''), '[SAMPLE DATA') !== false;
+    }
+
+    /** Service items are evidence of what was done, so they need the odometer they were done at. */
+    private static function assert_items_have_odometer($items, $status, $odometer)
+    {
+        $listed = is_array($items) ? $items !== [] : ($items !== null && $items !== '[]');
+        if ($listed && in_array(strtolower((string) $status), self::DONE_STATUSES, true)
+            && ($odometer === null || $odometer === '')) {
+            throw new InvalidArgumentException('Enter the odometer reading for a completed service with service items.');
+        }
     }
 
     /**
@@ -79,7 +230,8 @@ class MaintenanceModel extends Model
 
     public function find_record($id)
     {
-        return $this->find((int) $id);
+        $record = $this->find((int) $id);
+        return $record ? self::decode_items($record) : $record;
     }
 
     /** Inserts a record (and raises the car's mileage, in the same transaction) and returns it. Throws InvalidArgumentException for bad input. */
@@ -93,8 +245,10 @@ class MaintenanceModel extends Model
             'cost'                => number_format(isset($data['cost']) ? (float) $data['cost'] : 0.0, 2, '.', ''),
             'maintenanceStatus'   => trim((string) ($data['maintenanceStatus'] ?? 'completed')),
             'nextMaintenanceDate' => $data['nextMaintenanceDate'] ?? null,
-            'odometerReading'     => isset($data['odometerReading']) ? (int) $data['odometerReading'] : null,
+            'odometerReading'     => isset($data['odometerReading']) && $data['odometerReading'] !== '' ? (int) $data['odometerReading'] : null,
+            'serviceItems'        => self::normalize_service_items($data['serviceItems'] ?? null),
         ];
+        self::assert_items_have_odometer($record['serviceItems'], $record['maintenanceStatus'], $record['odometerReading']);
 
         if ($record['vehicleID'] < 1) {
             throw new InvalidArgumentException('A valid vehicle is required.');
@@ -142,6 +296,15 @@ class MaintenanceModel extends Model
         if (array_key_exists('cost', $update)) {
             $update['cost'] = number_format((float) $update['cost'], 2, '.', '');
         }
+        if (array_key_exists('serviceItems', $update)) {
+            $update['serviceItems'] = self::normalize_service_items($update['serviceItems']);
+        }
+        if (array_key_exists('odometerReading', $update) && $update['odometerReading'] === '') {
+            $update['odometerReading'] = null;
+        }
+        // Checked against the record as it will be after this update.
+        $after = $update + $record;
+        self::assert_items_have_odometer($after['serviceItems'] ?? null, $after['maintenanceStatus'] ?? '', $after['odometerReading'] ?? null);
 
         $this->db->transaction();
         try {

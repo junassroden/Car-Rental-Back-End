@@ -28,10 +28,24 @@ class MaintenanceController extends Controller
         $vehicles = $this->MaintenanceModel->vehicle_overview();
 
         $this->response->send_json_success([
-            'summary'  => $this->MaintenanceModel->overview_summary($vehicles),
-            'vehicles' => $vehicles,
-            'records'  => $this->MaintenanceModel->records(),
+            'summary'       => $this->MaintenanceModel->overview_summary($vehicles),
+            'vehicles'      => $vehicles,
+            'records'       => $this->MaintenanceModel->records(),
+            'service_items' => MaintenanceModel::SERVICE_ITEMS,
         ], 'Maintenance records retrieved successfully.');
+    }
+
+    /**
+     * GET /api/maintenance/service-need/dataset
+     * Real fleet service visits (completed, with odometer and item list; SAMPLE-/DEMO-
+     * cars excluded) for retraining the AI service-need model.
+     */
+    public function serviceNeedDataset()
+    {
+        $this->response->send_json_success(
+            $this->MaintenanceModel->service_need_dataset(),
+            'Service-need training visits retrieved successfully.'
+        );
     }
 
     public function maintenancePredictions()

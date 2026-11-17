@@ -118,6 +118,7 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/maintenance/records', 'MaintenanceController::createMaintenanceRecord');
     $router->patch('/maintenance/records/{id}', 'MaintenanceController::updateMaintenanceRecord');
     $router->patch('/maintenance/mileage', 'MaintenanceController::updateVehicleMileage');
+    $router->get('/maintenance/service-need/dataset', 'MaintenanceController::serviceNeedDataset');
 
     // Component-level inspection and schedules for the 3D view (active administrators only).
     $router->get('/maintenance/vehicles/{id}/components', 'ComponentMaintenanceController::components');

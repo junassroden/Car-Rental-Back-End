@@ -53,6 +53,8 @@ class MaintenanceModel extends Model
     protected $fillable    = ['vehicleID', 'maintenanceType', 'description', 'serviceItems', 'maintenanceDate', 'cost', 'maintenanceStatus', 'nextMaintenanceDate', 'odometerReading', 'updated_at'];
     protected $timestamps  = false;
 
+    private $serviceItemsColumnAvailable;
+
     /* ---------------------------------------------------------------
      * Records
      * ------------------------------------------------------------- */
@@ -60,8 +62,11 @@ class MaintenanceModel extends Model
     /** Maintenance records with their car, newest first; optionally for one car. */
     public function records($vehicle_id = null)
     {
+        $serviceItemsSelection = $this->supports_service_items()
+            ? ', tblvehicle_maintenance.serviceItems'
+            : '';
         $query = $this->db->table($this->table)
-            ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.maintenanceType, tblvehicle_maintenance.description, tblvehicle_maintenance.serviceItems, tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.cost, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.nextMaintenanceDate, tblvehicle_maintenance.odometerReading, tblvehicle_maintenance.created_at, tblvehicle_maintenance.updated_at, cars.make, cars.model, cars.plate_number, cars.current_mileage')
+            ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.maintenanceType, tblvehicle_maintenance.description' . $serviceItemsSelection . ', tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.cost, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.nextMaintenanceDate, tblvehicle_maintenance.odometerReading, tblvehicle_maintenance.created_at, tblvehicle_maintenance.updated_at, cars.make, cars.model, cars.plate_number, cars.current_mileage')
             ->inner_join('cars', 'cars.id = tblvehicle_maintenance.vehicleID');
 
         if ($vehicle_id !== null) {
@@ -82,6 +87,20 @@ class MaintenanceModel extends Model
      */
     public function service_need_dataset()
     {
+        if (!$this->supports_service_items()) {
+            return [
+                'schema_version' => 1,
+                'service_items'  => array_keys(self::SERVICE_ITEMS),
+                'summary'        => [
+                    'visits' => 0,
+                    'vehicles' => 0,
+                    'vehicle_models' => 0,
+                    'excluded' => ['not_completed' => 0, 'sample_or_demo' => 0],
+                ],
+                'visits' => [],
+            ];
+        }
+
         $query = $this->db->table($this->table)
             ->select('tblvehicle_maintenance.maintenanceID, tblvehicle_maintenance.vehicleID, tblvehicle_maintenance.serviceItems, tblvehicle_maintenance.maintenanceDate, tblvehicle_maintenance.maintenanceStatus, tblvehicle_maintenance.odometerReading, tblvehicle_maintenance.description, cars.make, cars.model, cars.year, cars.category, cars.fuel_type, cars.plate_number')
             ->inner_join('cars', 'cars.id = tblvehicle_maintenance.vehicleID')
@@ -246,9 +265,14 @@ class MaintenanceModel extends Model
             'maintenanceStatus'   => trim((string) ($data['maintenanceStatus'] ?? 'completed')),
             'nextMaintenanceDate' => $data['nextMaintenanceDate'] ?? null,
             'odometerReading'     => isset($data['odometerReading']) && $data['odometerReading'] !== '' ? (int) $data['odometerReading'] : null,
-            'serviceItems'        => self::normalize_service_items($data['serviceItems'] ?? null),
         ];
-        self::assert_items_have_odometer($record['serviceItems'], $record['maintenanceStatus'], $record['odometerReading']);
+        $serviceItems = self::normalize_service_items($data['serviceItems'] ?? null);
+        if ($this->supports_service_items()) {
+            $record['serviceItems'] = $serviceItems;
+        } elseif ($serviceItems !== null && $serviceItems !== '[]') {
+            throw new InvalidArgumentException('Service-item tracking is unavailable until the database is upgraded.');
+        }
+        self::assert_items_have_odometer($serviceItems, $record['maintenanceStatus'], $record['odometerReading']);
 
         if ($record['vehicleID'] < 1) {
             throw new InvalidArgumentException('A valid vehicle is required.');
@@ -297,10 +321,21 @@ class MaintenanceModel extends Model
             $update['cost'] = number_format((float) $update['cost'], 2, '.', '');
         }
         if (array_key_exists('serviceItems', $update)) {
-            $update['serviceItems'] = self::normalize_service_items($update['serviceItems']);
+            $serviceItems = self::normalize_service_items($update['serviceItems']);
+            if ($this->supports_service_items()) {
+                $update['serviceItems'] = $serviceItems;
+            } else {
+                if ($serviceItems !== null && $serviceItems !== '[]') {
+                    throw new InvalidArgumentException('Service-item tracking is unavailable until the database is upgraded.');
+                }
+                unset($update['serviceItems']);
+            }
         }
         if (array_key_exists('odometerReading', $update) && $update['odometerReading'] === '') {
             $update['odometerReading'] = null;
+        }
+        if (!$update) {
+            return ['record' => $record, 'updated' => false];
         }
         // Checked against the record as it will be after this update.
         $after = $update + $record;
@@ -602,6 +637,19 @@ class MaintenanceModel extends Model
         }
 
         return $history;
+    }
+
+    public function supports_service_items()
+    {
+        if ($this->serviceItemsColumnAvailable === null) {
+            $count = $this->db->raw(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+                [$this->table, 'serviceItems']
+            )->fetchColumn();
+            $this->serviceItemsColumnAvailable = (int) $count > 0;
+        }
+
+        return $this->serviceItemsColumnAvailable;
     }
 
     private static function empty_history()

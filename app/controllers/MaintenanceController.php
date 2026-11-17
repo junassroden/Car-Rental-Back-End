@@ -26,12 +26,14 @@ class MaintenanceController extends Controller
     public function maintenanceRecords()
     {
         $vehicles = $this->MaintenanceModel->vehicle_overview();
+        $serviceItemsAvailable = $this->MaintenanceModel->supports_service_items();
 
         $this->response->send_json_success([
             'summary'       => $this->MaintenanceModel->overview_summary($vehicles),
             'vehicles'      => $vehicles,
             'records'       => $this->MaintenanceModel->records(),
-            'service_items' => MaintenanceModel::SERVICE_ITEMS,
+            'service_items' => $serviceItemsAvailable ? MaintenanceModel::SERVICE_ITEMS : [],
+            'service_items_available' => $serviceItemsAvailable,
         ], 'Maintenance records retrieved successfully.');
     }
 

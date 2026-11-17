@@ -46,24 +46,6 @@ class AuthController extends Controller
             return;
         }
         $this->cache->delete($accountKey);
-        if (empty($user['email_verified_at'])) {
-            try {
-                if (!$this->sendVerificationEmail($user)) {
-                    $this->response->send_json_error('Your verification email could not be sent. Please try again later.', 503);
-                    return;
-                }
-            } catch (Throwable $exception) {
-                error_log('Email verification resend failed for user ' . (int) $user['id'] . ': ' . $exception->getMessage());
-                $this->response->send_json_error('Your verification email could not be sent. Please try again later.', 503);
-                return;
-            }
-            $this->response->send_json_error(
-                'Verify your email address using the link we sent before signing in.',
-                403,
-                ['code' => 'email_verification_required']
-            );
-            return;
-        }
 
         $this->sendTokens($user, 'Login successful.');
     }

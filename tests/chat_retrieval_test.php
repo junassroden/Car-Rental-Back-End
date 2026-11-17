@@ -30,7 +30,7 @@ function names(array $result)
 
 // --- Permissions -------------------------------------------------------------
 foreach (['reservations.summary', 'fleet.status_counts', 'maintenance.records', 'maintenance.due', 'maintenance.recurring',
-          'maintenance.inspections', 'maintenance.model_inputs'] as $tool) {
+          'maintenance.inspections', 'maintenance.model_inputs', 'payments.summary', 'customers.summary'] as $tool) {
     $result = run_tool($tool, [], $customer, $fixture);
     check($result['status'] === 'denied' && !isset($result['data']), "customer must be denied {$tool}");
     check(run_tool($tool, [], $admin, $fixture)['status'] === 'ok', "admin may use {$tool}");
@@ -164,6 +164,23 @@ check($due['data']['vehicles'][0]['due_on'] === '2026-10-01' && $due['data']['ve
 check(run_tool('assessments.due', ['models' => ['Vios']], $admin, $assessed)['data']['counts'] === ['overdue' => 1], 'reassessment filtered by model');
 check(run_tool('assessments.due', [], $customer, $assessed)['status'] === 'denied', 'customers cannot see reassessments');
 
+// Assessment condition (latest ratings, trend, findings, verified outcomes) for the administrator chat.
+$condition = $fixture + ['assessment_condition' => [
+    ['id' => 1, 'make' => 'Toyota', 'model' => 'Vios', 'plate_number' => 'NAB 1234', 'assessed_on' => '2026-10-20', 'overall_screening' => 'critical',
+     'systems' => [['category_key' => 'brakes', 'category' => 'Brakes', 'rating' => 'critical', 'rating_score' => 1, 'previous_rating' => 'fair', 'previous_score' => 3]],
+     'findings' => [['category_key' => 'brakes', 'severity' => 'critical', 'is_safety' => true, 'observation' => 'Brake pedal not firm.', 'recommended_action' => 'Do not drive.']],
+     'outcomes' => ['brakes' => ['confirmed_failure' => 2]]],
+    ['id' => 2, 'make' => 'Toyota', 'model' => 'Fortuner', 'plate_number' => 'XYZ 5678', 'assessed_on' => '2026-10-21', 'overall_screening' => 'monitor',
+     'systems' => [], 'findings' => [], 'outcomes' => []],
+]];
+$cond = run_tool('assessments.condition', [], $admin, $condition);
+check($cond['status'] === 'ok' && count($cond['data']['vehicles']) === 2, 'assessment condition for every assessed vehicle');
+check($cond['data']['vehicles'][0]['systems'][0]['previous_rating'] === 'fair', 'assessment condition keeps the previous rating for the trend');
+check(count(run_tool('assessments.condition', ['models' => ['Fortuner']], $admin, $condition)['data']['vehicles']) === 1, 'assessment condition filtered by model');
+check(run_tool('assessments.condition', [], $customer, $condition)['status'] === 'denied', 'customers cannot see assessment condition');
+$failing = $condition + ['fail' => ['assessment_condition']];
+check(run_tool('assessments.condition', [], $admin, $failing)['status'] === 'error', 'a database failure is reported, not hidden');
+
 // Payment state reaches the chat; payment references and checkout links do not.
 $paidFixture = $fixture;
 foreach ($paidFixture['reservations'] as &$row) {
@@ -189,11 +206,103 @@ check($status['current_mileage'] === 72100 && $status['service']['service_status
 check(run_tool('vehicles.status', ['models' => ['Vios']], $customer, $fixture)['status'] === 'denied', 'customers cannot read vehicle status');
 $revenue = run_tool('reservations.revenue', [], $admin, $fixture)['data']['by_status'];
 check($revenue['confirmed']['total'] === 10500.0 && $revenue['completed']['total'] === 3400.0 && $revenue['pending']['total'] === 4500.0, 'revenue by status from stored totals');
+// Booked value per car and per customer, over every reservation; cancelled and rejected ones carry no value.
+$fullRevenue = run_tool('reservations.revenue', [], $admin, $fixture)['data'];
+$bookedSum = array_sum(array_column($fullRevenue['by_vehicle'], 'booked'));
+check(abs($bookedSum - $fullRevenue['booked_total']) < 0.01, 'per-vehicle booked value adds up to the booked total');
+check(abs(array_sum(array_column($fullRevenue['by_customer'], 'booked')) - $fullRevenue['booked_total']) < 0.01, 'per-customer booked value adds up to the booked total');
+check($fullRevenue['by_vehicle'][0]['booked'] >= end($fullRevenue['by_vehicle'])['booked'], 'per-vehicle value sorted highest first');
+check($fullRevenue['paid_total'] === 0.0, 'no verified payments in the fixture');
+$summary = run_tool('reservations.summary', [], $admin, $fixture)['data'];
+check(array_sum(array_column($summary['by_customer'], 'reservations')) === $summary['rows_counted'], 'customer ranking counts every reservation');
 $specialRevenue = run_tool('reservations.revenue', [], $admin, $specialFixture)['data'];
 check($specialRevenue['by_status']['awaiting_approval']['total'] === 15000.0 && $specialRevenue['booked_total'] === 33400.0, 'paid special rentals remain in booked revenue');
 $util = run_tool('fleet.utilization', ['from' => '2026-11-01', 'to' => '2026-11-30'], $admin, $fixture)['data'];
 $byModel = array_column($util['vehicles'], 'booked_days', 'model');
 check($util['window_days'] === 29 && $byModel['Fortuner'] === 3 && $byModel['Vios'] === 3 && $byModel['Hiace'] === 0, 'utilisation counts booked days in the window');
+
+// --- Payments and customers (administrators) ------------------------------------------
+$billing = $fixture;
+$billing['payments'] = [
+    ['id' => 1, 'reservation_id' => 41, 'reference_number' => 'INV-1', 'amount' => '4500.00', 'status' => 'expired', 'created_at' => '2026-10-29 09:00:00'],
+    ['id' => 2, 'reservation_id' => 41, 'reference_number' => 'INV-2', 'amount' => '4500.00', 'status' => 'pending', 'created_at' => '2026-10-30 10:00:00'],
+    ['id' => 3, 'reservation_id' => 52, 'reference_number' => 'INV-3', 'amount' => '10500.00', 'paid_amount' => '10500.00', 'status' => 'paid',
+     'created_at' => '2026-10-30 11:00:00', 'paid_at' => '2026-10-30 11:05:00'],
+    ['id' => 4, 'reservation_id' => 17, 'reference_number' => 'INV-4', 'amount' => '3400.00', 'paid_amount' => '3400.00', 'status' => 'paid',
+     'created_at' => '2026-09-01 08:00:00', 'paid_at' => '2026-09-01 08:02:00', 'review_status' => 'needs_review',
+     'review_reason' => 'Paid after the reservation was cancelled. Refund the customer.'],
+];
+$billing['users'][1] += ['created_at' => '2026-10-20 08:00:00', 'has_licence' => true, 'has_photo' => true];
+$billing['users'][2] += ['created_at' => '2026-09-01 08:00:00', 'has_licence' => false, 'has_photo' => false, 'email' => 'ben@example.com'];
+$pay = run_tool('payments.summary', [], $admin, $billing)['data'];
+check($pay['counts_by_status'] === ['pending' => 1, 'paid' => 2, 'expired' => 1] && $pay['paid_total'] === 13900.0, 'payment counts and amount received');
+check($pay['needing_review_count'] === 1 && $pay['needing_review'][0]['reservation_id'] === 17, 'payments needing review are listed');
+check($pay['matching'][0]['id'] === 4 && $pay['matching'][0]['customer_name'] === 'Ana Santos', 'attempts come newest first with the customer name');
+$window = run_tool('payments.summary', ['from' => '2026-10-30', 'to' => '2026-10-30', 'statuses' => ['paid']], $admin, $billing)['data'];
+check($window['attempts'] === 2 && $window['matching_count'] === 1 && $window['paid_total'] === 10500.0, 'payments narrowed to a day and a status');
+check(run_tool('payments.summary', ['reservation_id' => 41], $admin, $billing)['data']['attempts'] === 2, 'payments of one reservation');
+check(run_tool('payments.summary', ['statuses' => ['refunded']], $admin, $billing)['data']['matching_count'] === 4, 'an unknown payment status is ignored');
+check(!array_key_exists('checkout_url', $pay['matching'][0]), 'checkout links are not sent to the chat');
+
+$people = run_tool('customers.summary', [], $admin, $billing)['data'];
+check($people['total_customers'] === 2 && $people['with_bookings'] === 2, 'customer totals leave out administrators');
+check($people['customers'][0]['name'] === 'Ana Santos' && $people['customers'][0]['reservations'] === 2, 'customers ranked by bookings');
+check($people['without_verified_licence'] === 1, 'customers without a licence and photo on file are counted');
+$spend = run_tool('customers.summary', ['sort' => 'spend'], $admin, $billing)['data']['customers'];
+check($spend[0]['name'] === 'Ben Cruz' && $spend[0]['paid_total'] === 10500.0, 'customers ranked by verified payments');
+$new = run_tool('customers.summary', ['from' => '2026-10-01', 'to' => '2026-10-31'], $admin, $billing)['data'];
+check($new['joined_in_period'] === 1 && $new['customers'][0]['name'] === 'Ana Santos', 'customers who joined in a period');
+check(array_column(run_tool('customers.summary', ['missing_licence' => true], $admin, $billing)['data']['customers'], 'name') === ['Ben Cruz'],
+      'customers missing a licence are listed');
+check(strpos(json_encode($people), 'ben@example.com') === false, 'customer contact details never reach the chat');
+
+// --- Demand (administrators) -----------------------------------------------------------
+// A year of generated bookings on car 1: one 3-day rental starting on the 3rd of each month from 2025-11 to 2026-10, booked
+// 5 days ahead, plus one cancelled and one expired booking, and one confirmed booking next month (today is 2026-10-31).
+$demand = $fixture;
+$demand['reservations'] = [];
+for ($i = 0; $i < 12; $i++) {
+    $start = (new DateTimeImmutable('2025-11-03'))->modify("+{$i} months");
+    $demand['reservations'][] = ['id' => 100 + $i, 'user_id' => 2, 'car_id' => 1, 'start_date' => $start->format('Y-m-d'),
+                                 'end_date' => $start->modify('+3 days')->format('Y-m-d'), 'rental_days' => 3, 'daily_rate' => '1500.00',
+                                 'total_amount' => '4500.00', 'status' => 'completed', 'created_at' => $start->modify('-5 days')->format('Y-m-d 09:00:00')];
+}
+$demand['reservations'][] = ['id' => 200, 'user_id' => 2, 'car_id' => 1, 'start_date' => '2026-10-20', 'end_date' => '2026-10-23', 'rental_days' => 3,
+                             'daily_rate' => '1500.00', 'total_amount' => '4500.00', 'status' => 'cancelled', 'created_at' => '2026-10-10 09:00:00'];
+$demand['reservations'][] = ['id' => 201, 'user_id' => 3, 'car_id' => 2, 'start_date' => '2026-10-25', 'end_date' => '2026-10-28', 'rental_days' => 3,
+                             'daily_rate' => '3500.00', 'total_amount' => '10500.00', 'status' => 'expired', 'created_at' => '2026-10-24 09:00:00'];
+$demand['reservations'][] = ['id' => 202, 'user_id' => 3, 'car_id' => 2, 'start_date' => '2026-11-10', 'end_date' => '2026-11-14', 'rental_days' => 4,
+                             'daily_rate' => '3500.00', 'total_amount' => '14000.00', 'status' => 'confirmed', 'created_at' => '2026-10-30 09:00:00'];
+$summary = run_tool('demand.summary', [], $admin, $demand)['data'];
+$byMonth = array_column($summary['by_month'], null, 'month');
+check(count($summary['by_month']) === 15 && $byMonth['2026-10']['booked_days'] === 3 && $byMonth['2026-11']['booked_days'] === 4,
+      'booked days per month, the last 12 months and the next 3');
+check($byMonth['2026-10']['cancelled'] === 1 && $byMonth['2026-10']['expired'] === 1 && $byMonth['2026-10']['bookings'] === 1,
+      'cancelled and expired bookings are counted apart from demand');
+// History counts completed months only: 2025-11 to 2026-09, since October is still running.
+check($summary['on_the_books']['next_30_days'] === 4 && $summary['history_months'] === 11, 'days already booked ahead, and months of history');
+check(array_sum($summary['pickups_by_weekday']) === 13 && $summary['lead_time_days']['median'] === 5, 'pickups per weekday and how far ahead people book');
+check($summary['cancellation_rate_percent'] === 7.1 && $summary['expiry_rate_percent'] === 7.1, 'cancellation and expiry rates over past months');
+check(count($summary['forecast']) === 3 && $summary['forecast'][0]['month'] === '2026-11' && $summary['forecast'][0]['expected_booked_days'] === 3
+      && $summary['forecast'][0]['basis'] === 'same month in earlier years', 'a forecast from the same month last year once there is enough history');
+$recent = $demand;
+$recent['reservations'] = array_slice($demand['reservations'], 10);
+check(run_tool('demand.summary', [], $admin, $recent)['data']['forecast'] === null, 'no forecast with under six months of history');
+check(run_tool('demand.summary', ['month' => '2026-12'], $admin, $demand)['data']['asked_month']['month'] === '2026-12', 'a month asked about');
+check(run_tool('demand.summary', [], $customer, $demand)['status'] === 'denied', 'customers may not read demand');
+
+// --- Overdue returns ----------------------------------------------------------------
+$late = $fixture;
+foreach ($late['reservations'] as &$row) {
+    if ((int) $row['id'] === 52) {
+        $row = array_merge($row, ['start_date' => '2026-10-20', 'end_date' => '2026-10-27', 'checked_out_at' => '2026-10-20 09:00:00', 'returned_at' => null]);
+    }
+}
+unset($row);
+$overdue = run_tool('reservations.summary', ['overdue' => true], $admin, $late)['data'];
+check($overdue['total_count'] === 1 && $overdue['reservations'][0]['id'] === 52 && $overdue['reservations'][0]['days_overdue'] === 4,
+      'a handed-over rental past its return date is overdue, with the days late');
+check(run_tool('reservations.summary', ['overdue' => true], $admin, $fixture)['data']['total_count'] === 0, 'no overdue rentals without a handover');
 
 // --- Duplicate names and model names with hyphens ------------------------------------
 $dupes = $fixture;

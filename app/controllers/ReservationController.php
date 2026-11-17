@@ -29,13 +29,14 @@ class ReservationController extends Controller
         'checkout_not_due'    => ['Vehicle handover is only available during the approved rental period.', 409],
         'vehicle_not_checked_out' => ['This vehicle has not been checked out.', 409],
         'admin_forbidden'     => ['Administrator access is required.', 403],
+        'too_many_pending'    => ['You already have unpaid reservations waiting for payment. Pay for or cancel one before booking another.', 409],
     ];
 
     public function __construct()
     {
         parent::__construct();
         $this->security_headers->apply_api();
-        $this->call->model(['ReservationModel', 'CarModel']);
+        $this->call->model(['ReservationModel', 'PaymentModel', 'CarModel']);
     }
 
     public function reservations()
@@ -46,6 +47,35 @@ class ReservationController extends Controller
             $this->ReservationModel->for_user($user['id'], $user['role'] === 'admin'),
             'Reservations retrieved successfully.'
         );
+    }
+
+    /**
+     * Rental demand for the Demand Intelligence page (administrators): the same summary the chat's demand.summary
+     * retrieval gives, so the page and the assistant always agree. ?months=3..24 sets the history window (default 12).
+     */
+    public function demand()
+    {
+        $user = $this->requireUser();
+        if ($user['role'] !== 'admin') {
+            $this->response->send_json_error('Administrator access is required.', 403);
+            return;
+        }
+
+        $this->call->model('CarModel');
+        $this->call->library(['ChatRetrieval']);
+        $source = $this->call->library('ChatDatabaseSource', ['cars' => $this->CarModel, 'reservations' => $this->ReservationModel]);
+        $months = $this->request->get('months');
+        $result = ChatRetrieval::execute(
+            ['retrievals' => [['tool' => 'demand.summary', 'args' => ['months' => is_numeric($months) ? (int) $months : null]]]],
+            ['role' => 'admin', 'user_id' => (int) $user['id']],
+            $source
+        )[0];
+        if (($result['status'] ?? null) !== 'ok') {
+            $this->response->send_json_error('Demand data could not be loaded.', 500);
+            return;
+        }
+
+        $this->response->send_json_success($result['data'], 'Demand summary retrieved successfully.');
     }
 
     public function reservation($id)
@@ -283,6 +313,13 @@ class ReservationController extends Controller
             return;
         }
 
+        // The reservation is cancelled whatever happens next. Its open invoices are then expired
+        // at Xendit so they can no longer be paid; a payment that still gets through is recorded
+        // by the webhook and flagged for refund review.
+        if ($status === 'cancelled') {
+            $this->voidOpenInvoices((int) $id);
+        }
+
         $emailResult = null;
         if ($status === 'confirmed') {
             $this->call->library('ReservationMailer');
@@ -323,6 +360,59 @@ class ReservationController extends Controller
             $this->ReservationModel->find_with_details((int) $id),
             $result === 'sent' ? 'Agreement email sent.' : 'The agreement email was already sent.'
         );
+    }
+
+    /**
+     * Scheduled job, command line only: `php lava reservations expire`.
+     * Releases every unpaid reservation whose hold has run out and expires its open invoices.
+     * Idempotent and safe to run late or more than once.
+     */
+    public function expirePending()
+    {
+        if (PHP_SAPI !== 'cli') {
+            $this->response->send_json_error('Not found.', 404);
+            return;
+        }
+
+        $total = 0;
+        do {
+            $expired = $this->ReservationModel->expire_stale(500);
+            foreach ($expired as $reservationId) {
+                $this->voidOpenInvoices($reservationId);
+            }
+            $total += count($expired);
+        } while (count($expired) === 500);
+
+        echo 'Expired ' . $total . ' unpaid reservation(s) at ' . date('Y-m-d H:i:s') . PHP_EOL;
+    }
+
+    /**
+     * Asks Xendit to expire each unpaid invoice of a reservation. An attempt is marked expired
+     * only when Xendit confirms it; on any failure it stays pending and a later webhook or job
+     * run settles it.
+     */
+    private function voidOpenInvoices($reservationId)
+    {
+        $attempts = $this->PaymentModel->pending_attempts($reservationId);
+        if (!$attempts) {
+            return;
+        }
+
+        $client = null;
+        foreach ($attempts as $attempt) {
+            if (($attempt['provider'] ?? '') !== 'xendit' || empty($attempt['provider_invoice_id'])) {
+                error_log('Reservation ' . $reservationId . ': attempt ' . (int) $attempt['id'] . ' has no Xendit invoice ID and could not be expired automatically.');
+                continue;
+            }
+            try {
+                $client = $client ?: $this->call->library('XenditClient', getenv('XENDIT_SECRET_KEY') ?: '');
+                if ($client->expireInvoice($attempt['provider_invoice_id']) === 'expired') {
+                    $this->PaymentModel->mark_expired($attempt['checkout_session_id']);
+                }
+            } catch (Throwable $exception) {
+                error_log('Reservation ' . $reservationId . ': Xendit invoice for attempt ' . (int) $attempt['id'] . ' could not be expired: ' . $exception->getMessage());
+            }
+        }
     }
 
     public function vehicleCheckout($id)

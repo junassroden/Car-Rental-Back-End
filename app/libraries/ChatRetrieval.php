@@ -49,12 +49,37 @@ interface ChatDataSource
      * id, make, model, plate_number, assessed_on, reassessment => [status, due_on, days_until_due].
      */
     public function reassessment_overview();
+
+    /**
+     * One row per assessed car (VehicleAssessmentModel::chat_condition): id, make, model, year, plate_number, status,
+     * current_mileage, assessed_on, odometer_km, overall_screening, safety_warning_count,
+     * systems => [category_key, category, rating, rating_score, screening_status, previous_rating, previous_score],
+     * findings => [category_key, severity, is_safety, observation, recommended_action],
+     * outcomes => [category_key => [result => count]] (verified outcomes only).
+     */
+    public function assessment_condition();
+
+    /**
+     * Payment attempts, newest first (PaymentModel::chat_attempts): id, reservation_id, reference_number, amount,
+     * paid_amount, currency, status (pending|paid|expired), created_at, paid_at, expires_at, review_status,
+     * review_reason, reservation_status, customer_name, make, model.
+     */
+    public function payment_attempts();
+
+    /**
+     * One row per customer (UserModel::chat_customers): id, full_name, username, created_at, is_active, has_licence,
+     * licence_expired, has_photo, reservations, completed, cancelled, expired, active, paid_total. No contact details.
+     */
+    public function customers_overview();
 }
 
 class ChatRetrieval
 {
     public const MAX_REQUESTS = 4;
     public const MAX_RENTAL_DAYS = 365;
+    // Reservations read for totals, rankings and utilisation (lists in chat are limited separately).
+    public const AGGREGATE_ROWS = 5000;
+    public const TOP_ROWS = 10;
 
     /** Tool => roles allowed to use it. */
     public const TOOLS = [
@@ -73,12 +98,22 @@ class ChatRetrieval
         'reservations.revenue'     => ['admin'],
         'fleet.utilization'        => ['admin'],
         'assessments.due'          => ['admin'],
+        'assessments.condition'    => ['admin'],
+        'payments.summary'         => ['admin'],
+        'customers.summary'        => ['admin'],
+        'demand.summary'           => ['admin'],
     ];
+    // Booked statuses count as demand; cancelled and expired ones only feed the cancellation and expiry rates.
+    public const DEMAND_STATUSES = ['pending', 'awaiting_approval', 'confirmed', 'completed'];
+    // A forecast is shown only from this many months of booking history.
+    public const FORECAST_MIN_MONTHS = 6;
+    public const PAYMENT_STATUSES = ['pending', 'paid', 'expired'];
+    public const CUSTOMER_SORTS   = ['bookings', 'spend', 'cancellations', 'newest'];
     public const SORTS       = ['price_asc', 'price_desc', 'year_desc', 'year_asc'];
     public const ADMIN_SORTS = ['mileage_desc', 'mileage_asc'];
 
     public const VEHICLE_STATUSES     = ['available', 'rented', 'maintenance', 'unavailable'];
-    public const RESERVATION_STATUSES = ['pending', 'awaiting_approval', 'confirmed', 'cancelled', 'rejected', 'completed'];
+    public const RESERVATION_STATUSES = ['pending', 'awaiting_approval', 'confirmed', 'cancelled', 'rejected', 'completed', 'expired'];
 
     /** Car fields a customer may see; administrators also see ADMIN_VEHICLE_FIELDS. */
     public const PUBLIC_VEHICLE_FIELDS = [
@@ -210,6 +245,8 @@ class ChatRetrieval
             $clean['statuses'] = array_values(array_intersect(self::strings($args['statuses'] ?? []), self::RESERVATION_STATUSES));
             $clean['upcoming'] = ($args['upcoming'] ?? false) === true;
             $clean['active']   = ($args['active'] ?? false) === true;
+            // Handed over, not yet returned, and past the return date.
+            $clean['overdue']  = ($args['overdue'] ?? false) === true;
             $clean['reservation_id'] = self::int_in($args['reservation_id'] ?? null, 1, PHP_INT_MAX);
             foreach (['pickup_on', 'return_on', 'from', 'to'] as $key) {
                 $clean[$key] = self::date_or_null($args[$key] ?? null);
@@ -219,7 +256,23 @@ class ChatRetrieval
             $clean['customer_name'] = $name !== '' && strlen($name) <= 60 ? $name : null;
         }
 
-        if (in_array($tool, ['maintenance.costs', 'reservations.revenue', 'fleet.utilization'], true)) {
+        if ($tool === 'payments.summary') {
+            $clean['statuses'] = array_values(array_intersect(self::strings($args['statuses'] ?? []), self::PAYMENT_STATUSES));
+            $clean['review_only'] = ($args['review_only'] ?? false) === true;
+            $clean['reservation_id'] = self::int_in($args['reservation_id'] ?? null, 1, PHP_INT_MAX);
+        }
+        if ($tool === 'demand.summary') {
+            $clean['months'] = self::int_in($args['months'] ?? null, 3, 24) ?? 12;
+            // A month asked about ("what demand do you expect in December?"), as YYYY-MM.
+            $month = is_string($args['month'] ?? null) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $args['month']) ? $args['month'] : null;
+            $clean['month'] = $month;
+        }
+        if ($tool === 'customers.summary') {
+            $clean['sort'] = in_array($args['sort'] ?? null, self::CUSTOMER_SORTS, true) ? $args['sort'] : 'bookings';
+            $clean['missing_licence'] = ($args['missing_licence'] ?? false) === true;
+        }
+
+        if (in_array($tool, ['maintenance.costs', 'reservations.revenue', 'fleet.utilization', 'payments.summary', 'customers.summary'], true)) {
             $clean['from'] = self::date_or_null($args['from'] ?? null);
             $clean['to']   = self::date_or_null($args['to'] ?? null);
             if ($clean['from'] !== null && $clean['to'] !== null && $clean['to'] < $clean['from']) {
@@ -245,11 +298,22 @@ class ChatRetrieval
                 return self::reservation_rows($data, $args, $today, false);
 
             case 'reservations.summary':
-                $data = $source->reservations_all(200);
+                $data = $source->reservations_all(self::AGGREGATE_ROWS);
                 $result = self::reservation_rows($data, $args, $today, true);
                 $result['counts_by_status'] = array_count_values(array_map(static function ($row) {
                     return (string) $row['status'];
                 }, $data['reservations']));
+                // "Who has the most bookings?": every customer's reservation count, not only the rows listed.
+                $customers = [];
+                foreach ($data['reservations'] as $row) {
+                    $name = (string) ($row['customer_name'] ?? '') ?: 'Unnamed customer';
+                    $customers[$name] = ($customers[$name] ?? 0) + 1;
+                }
+                arsort($customers);
+                $result['by_customer'] = array_map(static function ($name, $count) {
+                    return ['customer_name' => $name, 'reservations' => $count];
+                }, array_keys(array_slice($customers, 0, self::TOP_ROWS, true)), array_slice($customers, 0, self::TOP_ROWS, true));
+                $result['rows_counted'] = count($data['reservations']);
                 return $result;
 
             case 'fleet.status_counts':
@@ -277,6 +341,11 @@ class ChatRetrieval
                 return ['vehicles' => $rows, 'counts' => array_count_values(array_column($rows, 'status')),
                         'rule' => 'Each vehicle is reassessed monthly from its latest assessment; due soon means within 7 days.'];
 
+            case 'assessments.condition':
+                // Latest assessment ratings, the trend since the one before, findings and verified outcomes.
+                return ['vehicles' => array_slice(self::for_vehicles($source->assessment_condition(), $args, 'id'), 0, 100),
+                        'rule' => 'Ratings and findings come from the latest recorded vehicle assessment; a trend compares it with the assessment before.'];
+
             case 'maintenance.recurring':
                 return ['issues' => self::recurring(self::maintenance_records($args, $source, 40))];
 
@@ -298,9 +367,250 @@ class ChatRetrieval
 
             case 'fleet.utilization':
                 return self::utilization($args, $source, $today);
+            case 'payments.summary':
+                return self::payments_summary($args, $source, $today);
+            case 'customers.summary':
+                return self::customers_summary($args, $source, $today);
+            case 'demand.summary':
+                return self::demand_summary($args, $source, $today);
         }
 
         return [];
+    }
+
+    /**
+     * Payment attempts (administrators): counts by status, the amount received, attempts needing review (paid after
+     * cancellation or expiry, duplicates) and the matching attempts newest first. [from, to] keeps attempts started
+     * or paid on those dates; statuses, review_only and reservation_id narrow the list.
+     */
+    private static function payments_summary(array $args, ChatDataSource $source, $today)
+    {
+        $in_window = static function ($row) use ($args) {
+            if ($args['from'] === null && $args['to'] === null) {
+                return true;
+            }
+            foreach (['created_at', 'paid_at'] as $field) {
+                $date = substr((string) ($row[$field] ?? ''), 0, 10);
+                if ($date !== '' && ($args['from'] === null || $date >= $args['from']) && ($args['to'] === null || $date <= $args['to'])) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        $rows = array_values(array_filter($source->payment_attempts(), $in_window));
+        if ($args['reservation_id'] !== null) {
+            $rows = array_values(array_filter($rows, static function ($row) use ($args) {
+                return (int) $row['reservation_id'] === $args['reservation_id'];
+            }));
+        }
+
+        $counts = array_fill_keys(self::PAYMENT_STATUSES, 0);
+        $paid_total = 0.0;
+        $review = [];
+        foreach ($rows as $row) {
+            $status = (string) $row['status'];
+            $counts[$status] = ($counts[$status] ?? 0) + 1;
+            if ($status === 'paid') {
+                $paid_total = round($paid_total + (float) ($row['paid_amount'] ?? $row['amount']), 2);
+            }
+            if (($row['review_status'] ?? null) === 'needs_review') {
+                $review[] = $row;
+            }
+        }
+        $matching = array_values(array_filter($rows, static function ($row) use ($args) {
+            return (!$args['statuses'] || in_array((string) $row['status'], $args['statuses'], true))
+                && (!$args['review_only'] || ($row['review_status'] ?? null) === 'needs_review');
+        }));
+        $fields = ['id', 'reservation_id', 'reference_number', 'amount', 'paid_amount', 'currency', 'status', 'created_at', 'paid_at',
+                   'expires_at', 'review_reason', 'reservation_status', 'customer_name', 'make', 'model'];
+        $trim = static function ($row) use ($fields) {
+            return array_intersect_key($row, array_flip($fields));
+        };
+        // The total is stated in answers, so the amount check must find it in these records.
+        return ['counts_by_status' => $counts, 'attempts' => count($rows), 'paid_total' => $paid_total,
+                'needing_review_count' => count($review), 'needing_review' => array_map($trim, array_slice($review, 0, self::TOP_ROWS)),
+                'matching_count' => count($matching), 'matching' => array_map($trim, array_slice($matching, 0, $args['limit'])),
+                'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP', 'today' => $today];
+    }
+
+    /**
+     * Rental demand (administrators), from the reservations only: booked days, bookings and booked value per month for
+     * the last N months and the next three, pickups per weekday, booked days per category, how far ahead people book,
+     * cancellation and expiry rates, and the days already booked in the next 30, 60 and 90 days. A forecast for the next
+     * three months is added only with FORECAST_MIN_MONTHS months of history: the average of the same calendar month in
+     * earlier years, or else of the last three full months, with the lowest and highest of those as its range.
+     */
+    private static function demand_summary(array $args, ChatDataSource $source, $today)
+    {
+        $data = $source->reservations_all(self::AGGREGATE_ROWS);
+        $rows = $data['reservations'];
+        $vehicles = $source->vehicles(true);
+        $category_of = [];
+        $fleet_by_category = [];
+        foreach ($vehicles as $vehicle) {
+            $category = trim((string) ($vehicle['category'] ?? '')) ?: 'Other';
+            $category_of[(int) $vehicle['id']] = $category;
+            $fleet_by_category[$category] = ($fleet_by_category[$category] ?? 0) + 1;
+        }
+        $now = new DateTimeImmutable($today);
+        $current = $now->format('Y-m');
+        $months = [];
+        for ($offset = -$args['months'] + 1; $offset <= 3; $offset++) {
+            $key = $now->modify('first day of this month')->modify(($offset >= 0 ? '+' : '') . $offset . ' months')->format('Y-m');
+            $months[$key] = ['month' => $key, 'bookings' => 0, 'booked_days' => 0, 'booked_value' => 0.0, 'cancelled' => 0, 'expired' => 0,
+                             'future' => $key > $current];
+        }
+        $weekdays = array_fill_keys(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'], 0);
+        $category_days = array_fill_keys(array_keys($fleet_by_category), 0);
+        $lead_times = [];
+        $ahead = ['next_30_days' => 0, 'next_60_days' => 0, 'next_90_days' => 0];
+        $history = [];
+        $window_start = $now->modify('-89 days')->format('Y-m-d');
+        foreach ($rows as $row) {
+            $status = (string) $row['status'];
+            $start = (string) $row['start_date'];
+            $end = (string) $row['end_date'];
+            $month = substr($start, 0, 7);
+            if (isset($months[$month]) && $status === 'cancelled') {
+                $months[$month]['cancelled']++;
+            }
+            if (isset($months[$month]) && $status === 'expired') {
+                $months[$month]['expired']++;
+            }
+            if (!in_array($status, self::DEMAND_STATUSES, true)) {
+                continue;
+            }
+            if ($month < $current) {
+                $history[$month] = true;
+            }
+            if (isset($months[$month])) {
+                $months[$month]['bookings']++;
+                $months[$month]['booked_value'] = round($months[$month]['booked_value'] + (float) ($row['total_amount'] ?? 0), 2);
+            }
+            $weekdays[(new DateTimeImmutable($start))->format('l')]++;
+            if (!empty($row['created_at'])) {
+                $lead_times[] = max(0, (int) round((strtotime($start) - strtotime(substr((string) $row['created_at'], 0, 10))) / 86400));
+            }
+            // Booked days are counted in the month and window they fall in: [start, end), the return day excluded.
+            for ($day = new DateTimeImmutable($start); $day->format('Y-m-d') < $end; $day = $day->modify('+1 day')) {
+                $date = $day->format('Y-m-d');
+                $key = $day->format('Y-m');
+                if (isset($months[$key])) {
+                    $months[$key]['booked_days']++;
+                }
+                if ($date >= $window_start && $date <= $today) {
+                    $category = $category_of[(int) $row['car_id']] ?? 'Other';
+                    $category_days[$category] = ($category_days[$category] ?? 0) + 1;
+                }
+                $days_ahead = (int) $now->diff($day)->format('%r%a');
+                foreach ([30, 60, 90] as $span) {
+                    if ($days_ahead >= 0 && $days_ahead < $span) {
+                        $ahead['next_' . $span . '_days']++;
+                    }
+                }
+            }
+        }
+
+        $by_category = [];
+        foreach ($category_days as $category => $days) {
+            $fleet = $fleet_by_category[$category] ?? 0;
+            $by_category[] = ['category' => $category, 'vehicles' => $fleet, 'booked_days_last_90' => $days,
+                              'utilization_percent' => $fleet ? round(100 * $days / ($fleet * 90), 1) : null];
+        }
+        usort($by_category, static function ($a, $b) { return $b['booked_days_last_90'] <=> $a['booked_days_last_90']; });
+
+        // Rates cover the months up to and including this one: a cancellation this month counts.
+        $past = array_values(array_filter($months, static function ($item) use ($current) { return $item['month'] <= $current; }));
+        $all = array_sum(array_column($past, 'bookings')) + array_sum(array_column($past, 'cancelled')) + array_sum(array_column($past, 'expired'));
+        sort($lead_times);
+        $history_months = count($history);
+
+        $forecast = null;
+        if ($history_months >= self::FORECAST_MIN_MONTHS) {
+            $forecast = [];
+            $booked = [];
+            foreach ($rows as $row) {
+                if (!in_array((string) $row['status'], self::DEMAND_STATUSES, true)) {
+                    continue;
+                }
+                for ($day = new DateTimeImmutable((string) $row['start_date']); $day->format('Y-m-d') < (string) $row['end_date']; $day = $day->modify('+1 day')) {
+                    $booked[$day->format('Y-m')] = ($booked[$day->format('Y-m')] ?? 0) + 1;
+                }
+            }
+            for ($offset = 1; $offset <= 3; $offset++) {
+                $target = $now->modify('first day of this month')->modify('+' . $offset . ' months');
+                $same_month = [];
+                for ($year = 1; $year <= 3; $year++) {
+                    $key = $target->modify('-' . $year . ' years')->format('Y-m');
+                    if (isset($booked[$key])) {
+                        $same_month[] = $booked[$key];
+                    }
+                }
+                $basis = $same_month ? 'same month in earlier years' : 'last three full months';
+                $values = $same_month ?: array_map(static function ($back) use ($now, $booked) {
+                    return $booked[$now->modify('first day of this month')->modify('-' . $back . ' months')->format('Y-m')] ?? 0;
+                }, [1, 2, 3]);
+                $forecast[] = ['month' => $target->format('Y-m'), 'expected_booked_days' => (int) round(array_sum($values) / count($values)),
+                               'low' => min($values), 'high' => max($values), 'basis' => $basis, 'already_booked' => $months[$target->format('Y-m')]['booked_days'] ?? 0];
+            }
+        }
+
+        return [
+            'today' => $today, 'currency' => 'PHP', 'fleet_size' => count($vehicles), 'history_months' => $history_months,
+            'forecast_min_months' => self::FORECAST_MIN_MONTHS, 'by_month' => array_values($months), 'pickups_by_weekday' => $weekdays,
+            'by_category' => $by_category, 'on_the_books' => $ahead,
+            'lead_time_days' => $lead_times ? ['median' => $lead_times[intdiv(count($lead_times), 2)], 'bookings' => count($lead_times)] : null,
+            'cancellation_rate_percent' => $all ? round(100 * array_sum(array_column($past, 'cancelled')) / $all, 1) : null,
+            'expiry_rate_percent' => $all ? round(100 * array_sum(array_column($past, 'expired')) / $all, 1) : null,
+            'asked_month' => $args['month'] !== null ? ($months[$args['month']] ?? ['month' => $args['month'], 'outside_window' => true]) : null,
+            'forecast' => $forecast,
+        ];
+    }
+
+    /**
+     * Customers (administrators): how many there are and joined in [from, to], how many lack a driver's licence or
+     * verification photo on file, and the customers ranked by bookings, verified spend, cancellations or sign-up date.
+     * Names only: no email, phone, address or licence number ever leaves the database.
+     */
+    private static function customers_summary(array $args, ChatDataSource $source, $today)
+    {
+        $rows = array_map(static function ($row) {
+            return [
+                'id' => (int) $row['id'],
+                'name' => trim((string) ($row['full_name'] ?? '')) !== '' ? (string) $row['full_name'] : (string) $row['username'],
+                'joined_on' => substr((string) $row['created_at'], 0, 10),
+                'active_account' => (int) $row['is_active'] === 1,
+                'has_licence' => (bool) (int) $row['has_licence'],
+                'licence_expired' => (bool) (int) $row['licence_expired'],
+                'has_photo' => (bool) (int) $row['has_photo'],
+                'reservations' => (int) $row['reservations'],
+                'completed' => (int) $row['completed'],
+                'cancelled' => (int) $row['cancelled'],
+                'expired' => (int) $row['expired'],
+                'active' => (int) $row['active'],
+                'paid_total' => round((float) $row['paid_total'], 2),
+            ];
+        }, $source->customers_overview());
+
+        $joined = array_values(array_filter($rows, static function ($row) use ($args) {
+            return ($args['from'] === null || $row['joined_on'] >= $args['from']) && ($args['to'] === null || $row['joined_on'] <= $args['to']);
+        }));
+        $unverified = array_values(array_filter($rows, static function ($row) {
+            return !$row['has_licence'] || !$row['has_photo'] || $row['licence_expired'];
+        }));
+        $key = ['bookings' => 'reservations', 'spend' => 'paid_total', 'cancellations' => 'cancelled', 'newest' => 'joined_on'][$args['sort']];
+        $ranked = $args['missing_licence'] ? $unverified : $joined;
+        usort($ranked, static function ($a, $b) use ($key) {
+            return [$b[$key], $b['reservations']] <=> [$a[$key], $a['reservations']];
+        });
+
+        return ['total_customers' => count($rows),
+                'active_accounts' => count(array_filter($rows, static function ($row) { return $row['active_account']; })),
+                'joined_in_period' => ($args['from'] !== null || $args['to'] !== null) ? count($joined) : null,
+                'without_verified_licence' => count($unverified),
+                'with_bookings' => count(array_filter($rows, static function ($row) { return $row['reservations'] > 0; })),
+                'sort' => $args['sort'], 'customers' => array_slice($ranked, 0, $args['limit']),
+                'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP', 'today' => $today];
     }
 
     /** Vehicle search or price quote over the cars the viewer may see. */
@@ -363,6 +673,15 @@ class ChatRetrieval
                 $order = (float) ($a[$column] ?? 0) <=> (float) ($b[$column] ?? 0);
                 return $ascending ? $order : -$order;
             });
+        } elseif ($is_admin) {
+            // Rentable cars first, so a long fleet list cut at the limit never hides them ("available cars" with 20
+            // unavailable demo cars once answered "none"). The order within each group is kept.
+            $position = array_flip(array_keys($matches));
+            uksort($matches, static function ($a, $b) use ($matches, $position) {
+                $rank = ((string) ($matches[$a]['status'] ?? '') === 'available' ? 0 : 1) <=> ((string) ($matches[$b]['status'] ?? '') === 'available' ? 0 : 1);
+                return $rank ?: $position[$a] <=> $position[$b];
+            });
+            $matches = array_values($matches);
         }
 
         $total   = count($matches);
@@ -495,6 +814,9 @@ class ChatRetrieval
             if ($args['active'] && !($blocking && $row['start_date'] <= $today && $row['end_date'] > $today)) {
                 return false;
             }
+            if ($args['overdue'] && !(!empty($row['checked_out_at']) && empty($row['returned_at']) && (string) $row['end_date'] < $today)) {
+                return false;
+            }
             if ($args['pickup_on'] !== null && $row['start_date'] !== $args['pickup_on']) {
                 return false;
             }
@@ -533,6 +855,7 @@ class ChatRetrieval
             $out['payment_status'] = isset($row['payment_status']) ? (string) $row['payment_status'] : null;
             $out['handed_over'] = !empty($row['checked_out_at']);
             $out['returned'] = !empty($row['returned_at']);
+            $out['days_overdue'] = $out['handed_over'] && !$out['returned'] && $end < $now ? (int) $end->diff($now)->format('%a') : null;
             return $out;
         }, array_slice($rows, 0, $args['limit']));
 
@@ -577,7 +900,7 @@ class ChatRetrieval
             $due[(int) $row['id']] = $row;
         }
         $records = $source->maintenance_cost_records();
-        $reservations = $source->reservations_all(200)['reservations'];
+        $reservations = $source->reservations_all(self::AGGREGATE_ROWS)['reservations'];
         $out = [];
         foreach ($cars as $car) {
             $id = (int) $car['id'];
@@ -612,22 +935,45 @@ class ChatRetrieval
     private static function revenue(array $args, ChatDataSource $source)
     {
         $by_status = [];
-        foreach ($source->reservations_all(200)['reservations'] as $row) {
+        $paid = 0.0;
+        $customers = [];
+        $vehicles = [];
+        foreach ($source->reservations_all(self::AGGREGATE_ROWS)['reservations'] as $row) {
             if (($args['from'] !== null && $row['start_date'] < $args['from']) || ($args['to'] !== null && $row['start_date'] > $args['to'])) {
                 continue;
             }
             $status = (string) $row['status'];
+            $amount = (float) $row['total_amount'];
             $by_status[$status] = $by_status[$status] ?? ['reservations' => 0, 'total' => 0.0];
             $by_status[$status]['reservations']++;
-            $by_status[$status]['total'] = round($by_status[$status]['total'] + (float) $row['total_amount'], 2);
+            $by_status[$status]['total'] = round($by_status[$status]['total'] + $amount, 2);
+            if (!in_array($status, ['pending', 'confirmed', 'completed'], true)) {
+                continue;  // cancelled and rejected bookings carry no value
+            }
+            if (($row['payment_status'] ?? null) === 'paid') {
+                $paid = round($paid + $amount, 2);
+            }
+            $customer = (string) ($row['customer_name'] ?? '') ?: 'Unnamed customer';
+            $customers[$customer] = ['customer_name' => $customer, 'reservations' => ($customers[$customer]['reservations'] ?? 0) + 1,
+                                     'booked' => round(($customers[$customer]['booked'] ?? 0) + $amount, 2)];
+            $car = (int) ($row['car_id'] ?? 0);
+            $vehicles[$car] = ['car_id' => $car, 'make' => $row['make'] ?? null, 'model' => $row['model'] ?? null,
+                               'reservations' => ($vehicles[$car]['reservations'] ?? 0) + 1,
+                               'booked' => round(($vehicles[$car]['booked'] ?? 0) + $amount, 2)];
         }
         ksort($by_status);
         $booked = 0.0;
         foreach (['pending', 'awaiting_approval', 'confirmed', 'completed'] as $status) {
             $booked = round($booked + ($by_status[$status]['total'] ?? 0), 2);
         }
-        return ['by_status' => $by_status, 'booked_total' => $booked, 'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP',
-                'basis' => 'Stored reservation totals; the system records no payments.'];
+        $top = static function (array $rows) {
+            usort($rows, static function ($a, $b) { return $b['booked'] <=> $a['booked'] ?: $b['reservations'] <=> $a['reservations']; });
+            return array_slice($rows, 0, self::TOP_ROWS);
+        };
+        return ['by_status' => $by_status, 'booked_total' => $booked, 'paid_total' => $paid,
+                'by_customer' => $top(array_values($customers)), 'by_vehicle' => $top(array_values($vehicles)),
+                'from' => $args['from'], 'to' => $args['to'], 'currency' => 'PHP',
+                'basis' => 'Stored reservation totals of pending, confirmed and completed bookings; paid means a verified online payment.'];
     }
 
     /** Booked days per car within [from, to] from pending, awaiting-approval, confirmed and completed reservations. */
@@ -637,7 +983,7 @@ class ChatRetrieval
         $from = new DateTimeImmutable($args['from'] ?? $to->modify('-30 days')->format('Y-m-d'));
         $window = max(1, (int) $from->diff($to)->format('%a'));
         $booked = [];
-        foreach ($source->reservations_all(200)['reservations'] as $row) {
+        foreach ($source->reservations_all(self::AGGREGATE_ROWS)['reservations'] as $row) {
             if (!in_array((string) $row['status'], ['pending', 'awaiting_approval', 'confirmed', 'completed'], true)) {
                 continue;
             }

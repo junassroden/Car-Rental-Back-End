@@ -16,16 +16,32 @@ class ChatDatabaseSource implements ChatDataSource
     private $maintenance;
     private $components;
     private $assessments;
+    private $payments;
+    private $users;
     private $vehicleRows = [];
 
-    /** @param array $models ['cars' => CarModel, 'reservations' => ReservationModel, 'maintenance' => MaintenanceModel, 'components' => ComponentMaintenanceModel, 'assessments' => VehicleAssessmentModel] */
+    /** @param array $models ['cars' => CarModel, 'reservations' => ReservationModel, 'maintenance' => MaintenanceModel, 'components' => ComponentMaintenanceModel, 'assessments' => VehicleAssessmentModel, 'payments' => PaymentModel, 'users' => UserModel] */
     public function __construct(array $models)
     {
+        // Cars and reservations are always needed; the rest only by the retrievals that read them
+        // (ReservationController::demand passes just the two).
         $this->cars         = $models['cars'];
         $this->reservations = $models['reservations'];
-        $this->maintenance  = $models['maintenance'];
-        $this->components   = $models['components'];
-        $this->assessments  = $models['assessments'];
+        $this->maintenance  = $models['maintenance'] ?? null;
+        $this->components   = $models['components'] ?? null;
+        $this->assessments  = $models['assessments'] ?? null;
+        $this->payments     = $models['payments'] ?? null;
+        $this->users        = $models['users'] ?? null;
+    }
+
+    public function payment_attempts()
+    {
+        return $this->payments->chat_attempts(ChatRetrieval::AGGREGATE_ROWS);
+    }
+
+    public function customers_overview()
+    {
+        return $this->users->chat_customers();
     }
 
     public function vehicles($is_admin)
@@ -84,6 +100,11 @@ class ChatDatabaseSource implements ChatDataSource
         return array_map(static function ($row) use ($today, $interval) {
             return $row + ['reassessment' => ComponentMaintenanceRules::reassessment_status($row['assessed_on'], $today, $interval)];
         }, $this->assessments->fleet_overview());
+    }
+
+    public function assessment_condition()
+    {
+        return $this->assessments->chat_condition();
     }
 
     public function model_feature_vehicles()

@@ -526,20 +526,16 @@ class AuthController extends Controller
      */
     private function sendAccountEmail(array $user, $subject, $body, $kind)
     {
-        $from = trim((string) getenv('MAIL_FROM_ADDRESS'));
         $sent = false;
         try {
-            if ($from === '') {
-                throw new RuntimeException('MAIL_FROM_ADDRESS is not set.');
-            }
-            $this->call->library('email');
-            $this->email->reset();
-            $sent = $this->email
-                ->sender($from, getenv('MAIL_FROM_NAME') ?: 'DriveRent')
-                ->recipient($user['email'])
-                ->subject($subject)
-                ->email_content($body, 'plain')
-                ->send();
+            $this->call->library('ReservationMailer');
+            $sent = $this->ReservationMailer->send_message(
+                $user['email'],
+                $user['full_name'] ?? $user['username'],
+                $subject,
+                '',
+                $body
+            );
         } catch (Throwable $exception) {
             error_log('Account ' . $kind . ' email could not be sent to user ' . (int) $user['id'] . ': ' . $exception->getMessage());
         }

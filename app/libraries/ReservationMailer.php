@@ -33,17 +33,6 @@ class ReservationMailer
 
     private function send_confirmation(array $reservation)
     {
-        $brevoApiKey = trim((string) getenv('BREVO_API_KEY'));
-        $fromAddress = trim((string) getenv('MAIL_FROM_ADDRESS'));
-        $fromName = trim((string) (getenv('MAIL_FROM_NAME') ?: 'DriveRent'));
-
-        if ($fromAddress === '') {
-            throw new RuntimeException('MAIL_FROM_ADDRESS must be configured.');
-        }
-        if (!filter_var($fromAddress, FILTER_VALIDATE_EMAIL) || !filter_var($reservation['email'], FILTER_VALIDATE_EMAIL)) {
-            throw new RuntimeException('A valid sender and renter email address are required.');
-        }
-
         $name = htmlspecialchars(
             (string) ($reservation['full_name'] ?: $reservation['username']),
             ENT_QUOTES | ENT_SUBSTITUTE,
@@ -67,68 +56,122 @@ class ReservationMailer
             . 'Please bring a valid driver license when you pick up the vehicle.';
         $attachmentName = sprintf('rental-agreement-DR-%08d.txt', (int) $reservation['id']);
 
+        $this->send_message(
+            $reservation['email'],
+            $reservation['full_name'] ?: $reservation['username'],
+            'Your DriveRent rental agreement and pickup details',
+            $htmlBody,
+            $textBody,
+            [[
+                'name' => $attachmentName,
+                'content' => (string) $reservation['contract_text'],
+                'type' => 'text/plain; charset=UTF-8',
+            ]]
+        );
+    }
+
+    /** Sends through Brevo first and falls back to configured SMTP if Brevo fails. */
+    public function send_message($toEmail, $toName, $subject, $htmlBody, $textBody, array $attachments = [])
+    {
+        $fromAddress = trim((string) getenv('MAIL_FROM_ADDRESS'));
+        $fromName = trim((string) (getenv('MAIL_FROM_NAME') ?: 'DriveRent'));
+        $toEmail = trim((string) $toEmail);
+
+        if (
+            !filter_var($fromAddress, FILTER_VALIDATE_EMAIL)
+            || !filter_var($toEmail, FILTER_VALIDATE_EMAIL)
+        ) {
+            throw new RuntimeException('A valid sender and recipient email address are required.');
+        }
+
+        $failures = [];
+        $brevoApiKey = trim((string) getenv('BREVO_API_KEY'));
         if ($brevoApiKey !== '') {
-            $this->send_with_brevo($brevoApiKey, $fromAddress, $fromName, $reservation, $htmlBody, $textBody, $attachmentName);
-            return;
+            try {
+                $this->send_with_brevo(
+                    $brevoApiKey,
+                    $fromAddress,
+                    $fromName,
+                    $toEmail,
+                    (string) $toName,
+                    (string) $subject,
+                    (string) $htmlBody,
+                    (string) $textBody,
+                    $attachments
+                );
+                return true;
+            } catch (Throwable $exception) {
+                $failures[] = 'Brevo: ' . $exception->getMessage();
+                error_log('Brevo delivery failed; trying SMTP fallback: ' . $exception->getMessage());
+            }
         }
 
         $host = trim((string) getenv('SMTP_HOST'));
         $username = trim((string) getenv('SMTP_USERNAME'));
         $password = (string) getenv('SMTP_PASSWORD');
-        $encryption = strtolower(trim((string) (getenv('SMTP_ENCRYPTION') ?: 'tls')));
         if ($host === '' || $username === '' || $password === '') {
-            throw new RuntimeException('Configure BREVO_API_KEY or SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD.');
-        }
-        if (!in_array($encryption, ['tls', 'ssl'], true)) {
-            throw new RuntimeException('SMTP_ENCRYPTION must be either tls or ssl.');
+            $failures[] = 'SMTP is not fully configured; set SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD.';
+        } else {
+            try {
+                $this->send_with_smtp(
+                    $host,
+                    $username,
+                    $password,
+                    $fromAddress,
+                    $fromName,
+                    $toEmail,
+                    (string) $toName,
+                    (string) $subject,
+                    (string) $htmlBody,
+                    (string) $textBody,
+                    $attachments
+                );
+                return true;
+            } catch (Throwable $exception) {
+                $failures[] = 'SMTP: ' . $exception->getMessage();
+            }
         }
 
-        $mail = new PHPMailer(true);
-        $mail->isSMTP();
-        $mail->Host = $host;
-        $mail->SMTPAuth = true;
-        $mail->Username = $username;
-        $mail->Password = $password;
-        $mail->SMTPSecure = $encryption === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port = (int) (getenv('SMTP_PORT') ?: ($encryption === 'ssl' ? 465 : 587));
-        $mail->CharSet = PHPMailer::CHARSET_UTF8;
-        $mail->Timeout = 15;
-        $mail->setFrom($fromAddress, $fromName);
-        $mail->addAddress($reservation['email'], $reservation['full_name'] ?: $reservation['username']);
-        $mail->isHTML(true);
-        $mail->Subject = 'Your DriveRent rental agreement and pickup details';
-        $mail->Body = $htmlBody;
-        $mail->AltBody = $textBody;
-        $mail->addStringAttachment($reservation['contract_text'], $attachmentName, 'base64', 'text/plain; charset=UTF-8');
-        $mail->send();
+        if ($brevoApiKey === '' && !$failures) {
+            $failures[] = 'Configure BREVO_API_KEY or SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD.';
+        }
+
+        throw new RuntimeException(implode(' | ', $failures));
     }
 
-    private function send_with_brevo($apiKey, $fromAddress, $fromName, array $reservation, $htmlBody, $textBody, $attachmentName)
+    private function send_with_brevo($apiKey, $fromAddress, $fromName, $toEmail, $toName, $subject, $htmlBody, $textBody, array $attachments)
     {
         if (!function_exists('curl_init')) {
-            throw new RuntimeException('The PHP cURL extension is required to send email through Brevo.');
+            throw new RuntimeException('The PHP cURL extension is required for Brevo.');
         }
 
         $payload = [
             'sender' => ['name' => $fromName, 'email' => $fromAddress],
-            'to' => [[
-                'email' => $reservation['email'],
-                'name' => $reservation['full_name'] ?: $reservation['username'],
-            ]],
-            'subject' => 'Your DriveRent rental agreement and pickup details',
-            'htmlContent' => $htmlBody,
+            'to' => [['email' => $toEmail, 'name' => $toName]],
+            'subject' => $subject,
             'textContent' => $textBody,
-            'attachment' => [[
-                'name' => $attachmentName,
-                'content' => base64_encode((string) $reservation['contract_text']),
-            ]],
         ];
+        if ($htmlBody !== '') {
+            $payload['htmlContent'] = $htmlBody;
+        }
+        if ($attachments) {
+            $payload['attachment'] = array_map(static function ($attachment) {
+                return [
+                    'name' => (string) $attachment['name'],
+                    'content' => base64_encode((string) $attachment['content']),
+                ];
+            }, $attachments);
+        }
+
         $body = json_encode($payload);
         if ($body === false) {
-            throw new RuntimeException('The agreement email could not be encoded for delivery.');
+            throw new RuntimeException('The email could not be encoded for delivery.');
         }
 
         $curl = curl_init('https://api.brevo.com/v3/smtp/email');
+        if ($curl === false) {
+            throw new RuntimeException('The Brevo request could not be initialized.');
+        }
         curl_setopt_array($curl, [
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
@@ -147,14 +190,48 @@ class ReservationMailer
         curl_close($curl);
 
         if ($response === false) {
-            throw new RuntimeException('Brevo email request failed: ' . $error);
+            throw new RuntimeException('Brevo request failed: ' . $error);
         }
         if ($status < 200 || $status >= 300) {
             $result = json_decode($response, true);
             $message = is_array($result) && is_string($result['message'] ?? null)
                 ? $result['message']
-                : 'Brevo rejected the email request.';
+                : 'Brevo rejected the email request (HTTP ' . $status . ').';
             throw new RuntimeException($message);
         }
+    }
+
+    private function send_with_smtp($host, $username, $password, $fromAddress, $fromName, $toEmail, $toName, $subject, $htmlBody, $textBody, array $attachments)
+    {
+        $encryption = strtolower(trim((string) (getenv('SMTP_ENCRYPTION') ?: 'tls')));
+        if (!in_array($encryption, ['tls', 'ssl'], true)) {
+            throw new RuntimeException('SMTP_ENCRYPTION must be either tls or ssl.');
+        }
+
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = $host;
+        $mail->SMTPAuth = true;
+        $mail->Username = $username;
+        $mail->Password = $password;
+        $mail->SMTPSecure = $encryption === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = (int) (getenv('SMTP_PORT') ?: ($encryption === 'ssl' ? 465 : 587));
+        $mail->CharSet = PHPMailer::CHARSET_UTF8;
+        $mail->Timeout = 15;
+        $mail->setFrom($fromAddress, $fromName);
+        $mail->addAddress($toEmail, $toName);
+        $mail->Subject = $subject;
+        $mail->isHTML($htmlBody !== '');
+        $mail->Body = $htmlBody !== '' ? $htmlBody : $textBody;
+        $mail->AltBody = $textBody;
+        foreach ($attachments as $attachment) {
+            $mail->addStringAttachment(
+                (string) $attachment['content'],
+                (string) $attachment['name'],
+                'base64',
+                (string) ($attachment['type'] ?? 'application/octet-stream')
+            );
+        }
+        $mail->send();
     }
 }

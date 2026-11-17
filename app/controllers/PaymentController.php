@@ -114,9 +114,9 @@ class PaymentController extends Controller
 
     /**
      * Xendit invoice callback. Authenticated by the X-Callback-Token shared secret.
-     * Idempotent: an identical redelivery is acknowledged without processing, and a second
-     * PAID/SETTLED event for an attempt already paid changes nothing. Events may arrive late
-     * or out of order: an EXPIRED never undoes a payment, and a PAID after EXPIRED is recorded.
+     * Idempotent: an identical redelivery never settles a payment twice, but retries its
+     * confirmation email if the previous delivery failed. Events may arrive late or out of
+     * order: an EXPIRED never undoes a payment, and a PAID after EXPIRED is recorded.
      */
     public function xenditWebhook()
     {
@@ -128,17 +128,27 @@ class PaymentController extends Controller
         }
 
         $rawBody = $this->request->raw_body();
-        $eventHash = hash('sha256', $rawBody);
-        if ($this->PaymentModel->event_seen('xendit', $eventHash)) {
-            $this->response->send_json_success(null, 'Xendit event already processed.');
-            return;
-        }
-
         $event = json_decode($rawBody, true);
         $status = is_array($event) ? strtoupper((string) ($event['status'] ?? '')) : '';
         $externalId = is_array($event) ? ($event['external_id'] ?? null) : null;
         if (!in_array($status, ['PAID', 'SETTLED', 'EXPIRED'], true) || !is_string($externalId)) {
             $this->response->send_json_error('Unsupported Xendit webhook event.', 422);
+            return;
+        }
+
+        $eventHash = hash('sha256', $rawBody);
+        if ($this->PaymentModel->event_seen('xendit', $eventHash)) {
+            if (in_array($status, ['PAID', 'SETTLED'], true)) {
+                $payment = $this->PaymentModel->find_by_session($externalId);
+                if (
+                    $payment && $payment['status'] === 'paid'
+                    && !$this->sendConfirmationEmail((int) $payment['reservation_id'])
+                ) {
+                    $this->response->send_json_error('Payment was recorded, but the agreement email could not be sent yet.', 503);
+                    return;
+                }
+            }
+            $this->response->send_json_success(null, 'Xendit event already processed.');
             return;
         }
 
@@ -196,23 +206,28 @@ class PaymentController extends Controller
             error_log('ADMIN REVIEW: payment attempt ' . (int) $payment['id'] . ' for reservation ' . (int) $payment['reservation_id'] . ' needs review.');
         }
         if ($outcome !== 'review') {
-            // The payment is recorded and this event is marked processed, so a failed email is logged for the
-            // rental team rather than failing the webhook (a redelivery would be skipped as already processed).
-            $this->sendConfirmationEmail((int) $payment['reservation_id']);
+            if (!$this->sendConfirmationEmail((int) $payment['reservation_id'])) {
+                $this->response->send_json_error('Payment was recorded, but the agreement email could not be sent yet.', 503);
+                return;
+            }
         }
 
         $this->response->send_json_success(null, 'Xendit payment received.');
     }
 
-    /** Emails the rental agreement once the reservation is paid; a failure is logged, never thrown. */
+    /** Emails the rental agreement once the reservation is paid; returns FALSE to trigger a webhook retry. */
     private function sendConfirmationEmail($reservationId)
     {
         try {
-            if ($this->ReservationMailer->send_confirmation_if_ready((int) $reservationId, $this->ReservationModel) === 'failed') {
+            $result = $this->ReservationMailer->send_confirmation_if_ready((int) $reservationId, $this->ReservationModel);
+            if ($result === 'failed') {
                 error_log('Agreement email for reservation ' . (int) $reservationId . ' could not be sent.');
+                return false;
             }
+            return true;
         } catch (Throwable $exception) {
             error_log('Agreement email for reservation ' . (int) $reservationId . ' failed: ' . $exception->getMessage());
+            return false;
         }
     }
 

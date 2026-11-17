@@ -135,6 +135,60 @@ class ReservationModel extends Model
             && !$this->has_conflict($car_id, $start_date, $end_date, 0, $variant_id);
     }
 
+    /**
+     * Calendar dates with no inventory for a pickup day, or for a return date given a pickup.
+     * The return date is exclusive, matching the reservation period [start, end).
+     */
+    public function unavailable_dates($car_id, $month_start, $month_end, $variant_id = null, $pickup_date = null)
+    {
+        $unavailable = [];
+        $car = $this->db->table('cars')
+            ->select('status')
+            ->where('id', (int) $car_id)
+            ->limit(1)
+            ->row_array();
+        $firstDate = new DateTimeImmutable($month_start);
+        $endDate = new DateTimeImmutable($month_end);
+
+        if (!$car || $car['status'] !== 'available' || ($pickup_date !== null && $pickup_date >= $month_end)) {
+            for ($date = $firstDate; $date < $endDate; $date = $date->modify('+1 day')) {
+                $unavailable[] = $date->format('Y-m-d');
+            }
+            return $unavailable;
+        }
+
+        $rangeStart = $pickup_date !== null && $pickup_date < $month_start ? $pickup_date : $month_start;
+
+        $reservations = $this->overlapping($rangeStart, $month_end)
+            ->where('car_id', (int) $car_id)
+            ->select('start_date, end_date, variant_id')
+            ->get_all();
+        $variants = $this->variants_for_car($car_id);
+
+        for ($date = $firstDate; $date < $endDate; $date = $date->modify('+1 day')) {
+            $candidate = $date->format('Y-m-d');
+            $start = $pickup_date ?? $candidate;
+            $end = $pickup_date !== null ? $candidate : $date->modify('+1 day')->format('Y-m-d');
+            if ($end <= $start) {
+                $unavailable[] = $candidate;
+                continue;
+            }
+
+            $overlappingReservations = array_values(array_filter(
+                $reservations,
+                static function ($reservation) use ($start, $end) {
+                    return $reservation['start_date'] < $end && $reservation['end_date'] > $start;
+                }
+            ));
+
+            if (!$this->has_available_unit($variants, $overlappingReservations, $variant_id)) {
+                $unavailable[] = $candidate;
+            }
+        }
+
+        return $unavailable;
+    }
+
     /** Minimal reservation facts for the authenticated customer's own chat. */
     public function chat_context_for_user($user_id, $limit = 20)
     {
@@ -582,19 +636,23 @@ class ReservationModel extends Model
     private function has_conflict($car_id, $start_date, $end_date, $ignore_id = 0, $variant_id = null)
     {
         $reservations = $this->overlapping_for_car($car_id, $start_date, $end_date, $ignore_id);
-        $variants = $this->variants_for_car($car_id);
+        return !$this->has_available_unit($this->variants_for_car($car_id), $reservations, $variant_id);
+    }
+
+    private function has_available_unit(array $variants, array $reservations, $variant_id = null)
+    {
         if (!$variants) {
-            return count($reservations) > 0;
+            return count($reservations) === 0;
         }
 
         foreach ($variants as $variant) {
             $matches = $variant_id === null || (int) $variant['id'] === (int) $variant_id;
             if ($matches && $this->units_left($variant, $reservations) > 0) {
-                return false;
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     private function variants_for_car($car_id)

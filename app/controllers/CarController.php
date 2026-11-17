@@ -79,6 +79,57 @@ class CarController extends Controller
         ], $available ? 'Vehicle is available for these dates.' : 'Vehicle is not available for these dates.');
     }
 
+    public function availabilityCalendar($id)
+    {
+        $carId = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $month = $this->request->get('month');
+        $monthDate = is_string($month) ? DateTimeImmutable::createFromFormat('!Y-m', $month) : false;
+        $monthErrors = DateTimeImmutable::getLastErrors();
+        $validMonth = $monthDate
+            && $monthDate->format('Y-m') === $month
+            && ($monthErrors === false || ($monthErrors['warning_count'] === 0 && $monthErrors['error_count'] === 0))
+            && $month >= date('Y-m');
+
+        if (!$carId || !$validMonth) {
+            $this->response->send_json_error('Provide a valid current or future calendar month.', 422);
+            return;
+        }
+
+        $variantId = null;
+        $requestedVariant = $this->request->get('variant_id');
+        if ($requestedVariant !== null && $requestedVariant !== '') {
+            $variantId = filter_var($requestedVariant, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($variantId === false || !$this->CarVariantModel->find_for_car($variantId, $carId)) {
+                $this->response->send_json_error('That colour is not offered for this vehicle.', 422);
+                return;
+            }
+        }
+
+        $pickupDate = $this->request->get('pickup_date');
+        if ($pickupDate !== null && $pickupDate !== '') {
+            $pickup = is_string($pickupDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $pickupDate) : false;
+            if (!$pickup || $pickup->format('Y-m-d') !== $pickupDate || $pickupDate < date('Y-m-d')) {
+                $this->response->send_json_error('Provide a valid future pickup date.', 422);
+                return;
+            }
+        } else {
+            $pickupDate = null;
+        }
+
+        $monthStart = $monthDate->format('Y-m-01');
+        $monthEnd = $monthDate->modify('first day of next month')->format('Y-m-d');
+        $this->response->send_json_success([
+            'month' => $month,
+            'unavailable_dates' => $this->ReservationModel->unavailable_dates(
+                $carId,
+                $monthStart,
+                $monthEnd,
+                $variantId,
+                $pickupDate
+            ),
+        ], 'Vehicle calendar loaded.');
+    }
+
     public function car($id)
     {
         $car = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])

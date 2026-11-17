@@ -179,6 +179,11 @@ Standard reservations are confirmed after the payment provider verifies payment.
 periods (more than seven days) are paid first and then wait for an administrator to approve or
 reject them. Rejected paid reservations require a refund to be arranged by an administrator.
 
+The reservation calendar uses `GET /api/cars/{id}/availability-calendar?month=YYYY-MM` to mark
+unavailable pickup dates. Include `variant_id` to check a specific colour, or `pickup_date` to
+get return dates that cannot complete a reservation from that pickup date. Reservation creation
+still checks availability on the server to handle changes made while a customer is booking.
+
 ### Vehicle image storage
 
 Vehicle photos submitted in the admin panel are uploaded by the backend to ImageKit. The database

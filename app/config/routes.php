@@ -79,6 +79,7 @@ $router->group(['prefix' => '/api'], function ($router) {
     // Vehicles ("available" must come before "{id}")
     $router->get('/cars', 'CarController::cars');
     $router->get('/cars/available', 'CarController::availableCars');
+    $router->get('/cars/{id}/availability-calendar', 'CarController::availabilityCalendar');
     $router->get('/cars/{id}/availability', 'CarController::availability');
     $router->get('/cars/{id}', 'CarController::car');
     $router->post('/cars', 'CarController::createCar');

@@ -46,7 +46,6 @@ class AuthController extends Controller
             return;
         }
         $this->cache->delete($accountKey);
-
         if (empty($user['email_verified_at'])) {
             try {
                 if (!$this->sendVerificationEmail($user)) {
@@ -550,7 +549,6 @@ class AuthController extends Controller
                 error_log('DEVELOPMENT ONLY, ' . $kind . ' email for user ' . (int) $user['id'] . ":\n" . $body);
             }
         }
-
         return $sent;
     }
 
